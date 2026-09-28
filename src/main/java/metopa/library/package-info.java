@@ -1,4 +1,5 @@
 @org.springframework.modulith.ApplicationModule(
-        displayName = "Library"
+        displayName = "Library",
+        allowedDependencies = {"identity", "catalog", "publication"}
 )
 package metopa.library;

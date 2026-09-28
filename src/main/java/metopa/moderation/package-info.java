@@ -1,4 +1,5 @@
 @org.springframework.modulith.ApplicationModule(
-        displayName = "Moderation"
+        displayName = "Moderation",
+        allowedDependencies = {"identity", "catalog", "publication"}
 )
 package metopa.moderation;
