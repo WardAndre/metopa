@@ -2,8 +2,6 @@ package metopa.identity.internal;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
@@ -15,7 +13,6 @@ import java.util.UUID;
 public class UserAccount {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
     @Column(nullable = false, unique = true, length = 50)
@@ -34,6 +31,7 @@ public class UserAccount {
     }
 
     public UserAccount(String username, String email, String displayName) {
+        this.id = UUID.randomUUID();
         this.username = username;
         this.email = email;
         this.displayName = displayName;
