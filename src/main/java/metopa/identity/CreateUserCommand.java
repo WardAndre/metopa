@@ -4,6 +4,8 @@ import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
+import java.util.Locale;
+
 public record CreateUserCommand(
 
         @NotBlank
@@ -19,4 +21,22 @@ public record CreateUserCommand(
         @Size(max = 100)
         String displayName
 ) {
+
+    public CreateUserCommand {
+        username = normalizeToLowerCase(username);
+        email = normalizeToLowerCase(email);
+        displayName = normalize(displayName);
+    }
+
+    private static String normalizeToLowerCase(String value) {
+        return value == null
+                ? null
+                : value.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private static String normalize(String value) {
+        return value == null
+                ? null
+                : value.trim();
+    }
 }

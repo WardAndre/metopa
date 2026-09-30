@@ -61,4 +61,22 @@ class CreateUserCommandTests {
                 .anyMatch(violation ->
                         violation.getPropertyPath().toString().equals("displayName"));
     }
+
+    @Test
+    void shouldAcceptValidInputAfterNormalization() {
+        CreateUserCommand command = new CreateUserCommand(
+                "  Andre  ",
+                "  Andre@Example.com  ",
+                "  André Ward  "
+        );
+
+        Set<ConstraintViolation<CreateUserCommand>> violations =
+                validator.validate(command);
+
+        assertThat(command.username()).isEqualTo("andre");
+        assertThat(command.email()).isEqualTo("andre@example.com");
+        assertThat(command.displayName()).isEqualTo("André Ward");
+
+        assertThat(violations).isEmpty();
+    }
 }
