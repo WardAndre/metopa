@@ -12,6 +12,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.context.annotation.Import;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 
 import java.util.Set;
 import java.util.UUID;
@@ -23,6 +24,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(UserController.class)
+@AutoConfigureMockMvc(addFilters = false)
 @Import(IdentityExceptionHandler.class)
 class UserControllerTests {
 
@@ -46,7 +48,8 @@ class UserControllerTests {
                                 {
                                   "username": "  Andre  ",
                                   "email": "  Andre@Example.com  ",
-                                  "displayName": "  André Ward  "
+                                  "displayName": "  André Ward  ",
+                                  "password": "StrongPassword123!"
                                 }
                                 """))
                 .andExpect(status().isCreated())
@@ -65,7 +68,8 @@ class UserControllerTests {
                                 {
                                   "username": "",
                                   "email": "invalid-email",
-                                  "displayName": ""
+                                  "displayName": "",
+                                  "password": "short"
                                 }
                                 """))
                 .andExpect(status().isBadRequest())
@@ -86,7 +90,8 @@ class UserControllerTests {
                                 {
                                   "username": "andre",
                                   "email": "andre@example.com",
-                                  "displayName": "André"
+                                  "displayName": "André",
+                                  "password": "StrongPassword123!"
                                 }
                                 """))
                 .andExpect(status().isConflict())
@@ -109,7 +114,8 @@ class UserControllerTests {
                                 {
                                   "username": "andre",
                                   "email": "andre@example.com",
-                                  "displayName": "André"
+                                  "displayName": "André",
+                                  "password": "StrongPassword123!"
                                 }
                                 """))
                 .andExpect(status().isConflict())

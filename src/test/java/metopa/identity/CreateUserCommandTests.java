@@ -19,7 +19,8 @@ class CreateUserCommandTests {
         CreateUserCommand command = new CreateUserCommand(
                 "",
                 "andre@example.com",
-                "André"
+                "André",
+                "StrongPassword123!"
         );
 
         Set<ConstraintViolation<CreateUserCommand>> violations =
@@ -35,7 +36,8 @@ class CreateUserCommandTests {
         CreateUserCommand command = new CreateUserCommand(
                 "andre",
                 "invalid-email",
-                "André"
+                "André",
+                "StrongPassword123!"
         );
 
         Set<ConstraintViolation<CreateUserCommand>> violations =
@@ -51,7 +53,8 @@ class CreateUserCommandTests {
         CreateUserCommand command = new CreateUserCommand(
                 "andre",
                 "andre@example.com",
-                ""
+                "",
+                "StrongPassword123!"
         );
 
         Set<ConstraintViolation<CreateUserCommand>> violations =
@@ -67,7 +70,8 @@ class CreateUserCommandTests {
         CreateUserCommand command = new CreateUserCommand(
                 "  Andre  ",
                 "  Andre@Example.com  ",
-                "  André Ward  "
+                "  André Ward  ",
+                "StrongPassword123!"
         );
 
         Set<ConstraintViolation<CreateUserCommand>> violations =
@@ -78,5 +82,42 @@ class CreateUserCommandTests {
         assertThat(command.displayName()).isEqualTo("André Ward");
 
         assertThat(violations).isEmpty();
+    }
+
+    @Test
+    void shouldRejectShortPassword() {
+        CreateUserCommand command = new CreateUserCommand(
+                "andre",
+                "andre@example.com",
+                "André",
+                "short"
+        );
+
+        Set<ConstraintViolation<CreateUserCommand>> violations =
+                validator.validate(command);
+
+        assertThat(violations)
+                .anyMatch(violation ->
+                        violation.getPropertyPath()
+                                .toString()
+                                .equals("password"));
+    }
+
+    @Test
+    void shouldNotNormalizePassword() {
+        String password = "  Strong Password 123!  ";
+
+        CreateUserCommand command = new CreateUserCommand(
+                "  Andre  ",
+                "  Andre@Example.com  ",
+                "  André Ward  ",
+                password
+        );
+
+        assertThat(command.username()).isEqualTo("andre");
+        assertThat(command.email()).isEqualTo("andre@example.com");
+        assertThat(command.displayName()).isEqualTo("André Ward");
+
+        assertThat(command.password()).isEqualTo(password);
     }
 }

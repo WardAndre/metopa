@@ -18,7 +18,8 @@ class IdentityServiceValidationTests {
         CreateUserCommand command = new CreateUserCommand(
                 "",
                 "invalid-email",
-                ""
+                "",
+                "StrongPassword123!"
         );
 
         assertThatThrownBy(() -> identityService.createUser(command))
