@@ -20,6 +20,9 @@ import org.springframework.mock.web.MockHttpSession;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import org.springframework.http.MediaType;
+
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 
 
 @SpringBootTest
@@ -51,7 +54,19 @@ class AuthenticationIntegrationTests {
     @Test
     void shouldRejectUnauthenticatedAccess() throws Exception {
         mockMvc.perform(get("/api/auth/me"))
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().isUnauthorized())
+                .andExpect(content()
+                        .contentTypeCompatibleWith(
+                                MediaType.APPLICATION_PROBLEM_JSON
+                        ))
+                .andExpect(jsonPath("$.title")
+                        .value("Authentication required"))
+                .andExpect(jsonPath("$.status")
+                        .value(401))
+                .andExpect(jsonPath("$.detail")
+                        .value(
+                                "Authentication is required to access this resource."
+                        ));
     }
 
     @Test
@@ -74,7 +89,17 @@ class AuthenticationIntegrationTests {
                                 .password("wrong-password")
                 )
                 .andExpect(status().isUnauthorized())
-                .andExpect(unauthenticated());
+                .andExpect(unauthenticated())
+                .andExpect(content()
+                        .contentTypeCompatibleWith(
+                                MediaType.APPLICATION_PROBLEM_JSON
+                        ))
+                .andExpect(jsonPath("$.title")
+                        .value("Authentication failed"))
+                .andExpect(jsonPath("$.status")
+                        .value(401))
+                .andExpect(jsonPath("$.detail")
+                        .value("Invalid username or password."));
     }
 
     @Test
