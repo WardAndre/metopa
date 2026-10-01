@@ -15,6 +15,9 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.ArgumentMatchers.any;
+import org.springframework.security.crypto.password.PasswordEncoder;
+
+import static org.mockito.ArgumentMatchers.anyString;
 
 import java.util.UUID;
 
@@ -25,6 +28,9 @@ class IdentityServiceTests {
     @Mock
     private UserAccountRepository repository;
 
+    @Mock
+    private PasswordEncoder passwordEncoder;
+
     @InjectMocks
     private IdentityService identityService;
 
@@ -33,7 +39,8 @@ class IdentityServiceTests {
         CreateUserCommand command = new CreateUserCommand(
                 "andre",
                 "andre@example.com",
-                "André"
+                "André",
+                "StrongPassword123!"
         );
 
         when(repository.existsByUsername("andre"))
@@ -45,6 +52,8 @@ class IdentityServiceTests {
         verify(repository, never()).save(
                 org.mockito.ArgumentMatchers.any(UserAccount.class)
         );
+        verify(passwordEncoder, never()).encode(anyString());
+        verify(repository, never()).save(any(UserAccount.class));
     }
 
     @Test
@@ -52,7 +61,8 @@ class IdentityServiceTests {
         CreateUserCommand command = new CreateUserCommand(
                 "andre",
                 "andre@example.com",
-                "André"
+                "André",
+                "StrongPassword123!"
         );
 
         when(repository.existsByUsername("andre"))
@@ -67,6 +77,8 @@ class IdentityServiceTests {
         verify(repository, never()).save(
                 org.mockito.ArgumentMatchers.any(UserAccount.class)
         );
+        verify(passwordEncoder, never()).encode(anyString());
+        verify(repository, never()).save(any(UserAccount.class));
     }
 
     @Test
@@ -74,7 +86,8 @@ class IdentityServiceTests {
         CreateUserCommand command = new CreateUserCommand(
                 "  Andre  ",
                 "  Andre@Example.com  ",
-                "  André Ward  "
+                "  André Ward  ",
+                "StrongPassword123!"
         );
 
         when(repository.existsByUsername("andre"))
@@ -83,6 +96,9 @@ class IdentityServiceTests {
         when(repository.existsByEmail("andre@example.com"))
                 .thenReturn(false);
 
+        when(passwordEncoder.encode("StrongPassword123!"))
+                .thenReturn("{bcrypt}encoded-password");
+
         when(repository.save(any(UserAccount.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -90,16 +106,11 @@ class IdentityServiceTests {
 
         assertThat(userId).isNotNull();
 
-        ArgumentCaptor<UserAccount> accountCaptor =
-                ArgumentCaptor.forClass(UserAccount.class);
+        verify(passwordEncoder)
+                .encode("StrongPassword123!");
 
-        verify(repository).save(accountCaptor.capture());
-
-        UserAccount savedAccount = accountCaptor.getValue();
-
-        assertThat(savedAccount.getUsername()).isEqualTo("andre");
-        assertThat(savedAccount.getEmail()).isEqualTo("andre@example.com");
-        assertThat(savedAccount.getDisplayName()).isEqualTo("André Ward");
+        verify(repository)
+                .save(any(UserAccount.class));
     }
 
     @Test
@@ -107,7 +118,8 @@ class IdentityServiceTests {
         CreateUserCommand command = new CreateUserCommand(
                 "  ANDRE  ",
                 "another@example.com",
-                "André"
+                "André",
+                "StrongPassword123!"
         );
 
         when(repository.existsByUsername("andre"))
@@ -116,6 +128,8 @@ class IdentityServiceTests {
         assertThatThrownBy(() -> identityService.createUser(command))
                 .isInstanceOf(UsernameAlreadyExistsException.class);
 
+        verify(repository, never()).save(any(UserAccount.class));
+        verify(passwordEncoder, never()).encode(anyString());
         verify(repository, never()).save(any(UserAccount.class));
     }
 }

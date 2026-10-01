@@ -19,7 +19,11 @@ public record CreateUserCommand(
 
         @NotBlank
         @Size(max = 100)
-        String displayName
+        String displayName,
+
+        @NotBlank
+        @Size(min = 12, max = 128)
+        String password
 ) {
 
     public CreateUserCommand {

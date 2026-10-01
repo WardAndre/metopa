@@ -30,7 +30,8 @@ public class UserController {
         CreateUserCommand command = new CreateUserCommand(
                 request.username(),
                 request.email(),
-                request.displayName()
+                request.displayName(),
+                request.password()
         );
 
         UUID userId = identityService.createUser(command);

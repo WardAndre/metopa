@@ -4,8 +4,9 @@ import metopa.identity.internal.UserAccount;
 import metopa.identity.internal.UserAccountRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import jakarta.validation.Valid;
 import org.springframework.validation.annotation.Validated;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import jakarta.validation.Valid;
 
 import java.util.UUID;
 import java.util.Locale;
@@ -16,8 +17,14 @@ public class IdentityService {
 
     private final UserAccountRepository repository;
 
-    public IdentityService(UserAccountRepository repository) {
+    private final PasswordEncoder passwordEncoder;
+
+    public IdentityService(
+            UserAccountRepository repository,
+            PasswordEncoder passwordEncoder
+    ) {
         this.repository = repository;
+        this.passwordEncoder = passwordEncoder;
     }
 
     @Transactional
@@ -40,10 +47,14 @@ public class IdentityService {
             throw new EmailAlreadyExistsException(email);
         }
 
+        String passwordHash =
+                passwordEncoder.encode(command.password());
+
         UserAccount account = new UserAccount(
-                username,
-                email,
-                displayName
+                command.username(),
+                command.email(),
+                command.displayName(),
+                passwordHash
         );
 
         UserAccount saved = repository.save(account);
