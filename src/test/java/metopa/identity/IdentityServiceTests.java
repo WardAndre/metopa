@@ -20,6 +20,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import static org.mockito.ArgumentMatchers.anyString;
 
 import java.util.UUID;
+import java.util.Optional;
 
 
 @ExtendWith(MockitoExtension.class)
@@ -131,5 +132,24 @@ class IdentityServiceTests {
         verify(repository, never()).save(any(UserAccount.class));
         verify(passwordEncoder, never()).encode(anyString());
         verify(repository, never()).save(any(UserAccount.class));
+    }
+
+    @Test
+    void shouldFindUserByUsername() {
+        UserAccount account = new UserAccount(
+                "andre",
+                "andre@example.com",
+                "André",
+                "{bcrypt}encoded-password"
+        );
+
+        when(repository.findByUsername("andre"))
+                .thenReturn(Optional.of(account));
+
+        UserReference user =
+                identityService.findByUsername("andre");
+
+        assertThat(user.id()).isEqualTo(account.getId());
+        assertThat(user.username()).isEqualTo("andre");
     }
 }
