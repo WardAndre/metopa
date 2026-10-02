@@ -8,7 +8,7 @@ import org.springframework.http.ProblemDetail;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
-@RestControllerAdvice
+@RestControllerAdvice(basePackages = "metopa.identity.web")
 public class IdentityExceptionHandler {
 
     @ExceptionHandler(UsernameAlreadyExistsException.class)

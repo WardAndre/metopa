@@ -2,6 +2,7 @@ package metopa.identity;
 
 import metopa.identity.internal.UserAccount;
 import metopa.identity.internal.UserAccountRepository;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.validation.annotation.Validated;
@@ -60,5 +61,23 @@ public class IdentityService {
         UserAccount saved = repository.save(account);
 
         return saved.getId();
+    }
+
+    @Transactional(readOnly = true)
+    public UserReference findByUsername(String username) {
+        String normalizedUsername = username
+                .trim()
+                .toLowerCase(Locale.ROOT);
+
+        UserAccount account = repository
+                .findByUsername(normalizedUsername)
+                .orElseThrow(() ->
+                        new UsernameNotFoundException("User not found")
+                );
+
+        return new UserReference(
+                account.getId(),
+                account.getUsername()
+        );
     }
 }

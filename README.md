@@ -71,7 +71,15 @@ Atualmente suporta:
 
 Responsável pelo catálogo de obras disponíveis na plataforma.
 
-Em desenvolvimento.
+Atualmente suporta:
+
+- criação de obras;
+- associação automática da obra ao usuário autenticado;
+- diferentes tipos de obra, como comic, mangá, graphic novel, webtoon e tirinha;
+- direção de leitura configurável;
+- modo de apresentação configurável;
+- normalização e validação dos dados da obra;
+- persistência das obras no PostgreSQL.
 
 ### Publication
 
@@ -287,6 +295,42 @@ Exemplo de resposta:
 POST /api/auth/logout
 ```
 
+### Criar obra
+
+```http
+POST /api/works
+```
+
+Requer usuário autenticado e token CSRF válido.
+
+Exemplo:
+
+```json
+{
+  "title": "Metopa Origins",
+  "description": "A graphic novel.",
+  "type": "GRAPHIC_NOVEL",
+  "readingDirection": "LEFT_TO_RIGHT",
+  "presentationMode": "SINGLE_PAGE"
+}
+```
+
+O proprietário da obra não é informado pelo cliente. O Metopa determina o `ownerId` a partir do usuário autenticado.
+
+Resposta de sucesso:
+
+```http
+201 Created
+```
+
+Exemplo:
+
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000"
+}
+```
+
 Requer sessão autenticada e token CSRF válido.
 
 O logout invalida a sessão atual.
@@ -306,6 +350,7 @@ Exemplo:
 ```text
 V1__create_user_account.sql
 V2__add_password_to_user_account.sql
+V3__create_work.sql
 ```
 
 Migrations já executadas não devem ser alteradas. Novas mudanças no banco devem ser implementadas através de uma nova migration versionada.
