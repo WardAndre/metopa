@@ -8,6 +8,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -45,5 +46,28 @@ class CatalogServiceTests {
         assertThat(workId).isNotNull();
 
         verify(repository).save(any(Work.class));
+    }
+
+    @Test
+    void shouldFindWorkReference() {
+        UUID ownerId = UUID.randomUUID();
+
+        Work work = new Work(
+                ownerId,
+                "Metopa Origins",
+                null,
+                WorkType.GRAPHIC_NOVEL,
+                ReadingDirection.LEFT_TO_RIGHT,
+                PresentationMode.SINGLE_PAGE
+        );
+
+        when(repository.findById(work.getId()))
+                .thenReturn(Optional.of(work));
+
+        WorkReference reference =
+                catalogService.findWork(work.getId());
+
+        assertThat(reference.id()).isEqualTo(work.getId());
+        assertThat(reference.ownerId()).isEqualTo(ownerId);
     }
 }
