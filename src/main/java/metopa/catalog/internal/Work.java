@@ -73,7 +73,7 @@ public class Work {
         return id;
     }
 
-    UUID getOwnerId() {
+    public UUID getOwnerId() {
         return ownerId;
     }
 

@@ -46,6 +46,10 @@ metopa
 
 O Spring Modulith é utilizado para verificar automaticamente as dependências e os limites entre os módulos.
 
+Os arquivos das páginas são armazenados fora do banco de dados.
+
+O PostgreSQL mantém apenas os metadados e a referência do arquivo (`storageKey`). No MVP, os arquivos são armazenados no filesystem local através de uma abstração de storage, permitindo que uma implementação diferente seja utilizada futuramente sem acoplar o domínio ao mecanismo físico de armazenamento.
+
 ## Módulos
 
 ### Identity
@@ -83,9 +87,24 @@ Atualmente suporta:
 
 ### Publication
 
-Responsável pelo processo de publicação de conteúdo.
+Responsável pela criação e publicação do conteúdo das obras.
 
-Planejado para etapas posteriores do MVP.
+Atualmente suporta:
+
+- criação de installments associados a uma obra;
+- diferentes tipos de installment: chapter, issue, episode e strip;
+- título opcional para installments;
+- installments criados inicialmente como draft;
+- validação de propriedade da obra antes de alterações;
+- prevenção de installments duplicados por tipo e número;
+- criação e ordenação de páginas;
+- upload de páginas através de multipart/form-data;
+- armazenamento local dos arquivos através de uma abstração de storage;
+- armazenamento de metadados das páginas no PostgreSQL;
+- prevenção de números de página duplicados;
+- publicação de installments;
+- publicação permitida somente quando existe pelo menos uma página;
+- bloqueio de alterações em installments já publicados.
 
 ### Library
 
@@ -202,22 +221,19 @@ Para limpar o build, compilar o projeto e executar todos os testes:
 ./mvnw clean test
 ```
 
-Os testes atualmente cobrem, entre outros pontos:
+Os testes cobrem:
 
-- inicialização do ApplicationContext;
-- estrutura do Spring Modulith;
-- persistência com JPA e PostgreSQL;
-- criação de contas;
-- normalização de dados;
-- Bean Validation;
-- regras de unicidade;
-- hash de senha;
-- controllers HTTP;
-- autenticação;
-- sessão;
-- CSRF;
-- acesso autenticado;
-- logout.
+- criação e persistência de installments;
+- autorização baseada na propriedade da obra;
+- criação e persistência de páginas;
+- upload multipart;
+- armazenamento físico local;
+- geração interna de storage keys;
+- prevenção de installments e páginas duplicados;
+- publicação de installments;
+- impedimento de publicação sem páginas;
+- impedimento de alteração após publicação;
+- fluxos HTTP 401, 403, 404 e 409 relacionados ao módulo de publicação.
 
 ## API atual
 
@@ -335,6 +351,73 @@ Requer sessão autenticada e token CSRF válido.
 
 O logout invalida a sessão atual.
 
+### Criar installment
+
+```http
+POST /api/works/{workId}/installments
+```
+
+Requer usuário autenticado e token CSRF válido.
+
+Exemplo:
+
+```json
+{
+  "type": "CHAPTER",
+  "number": 1,
+  "title": "The Beginning"
+}
+```
+
+O installment é criado inicialmente com status `DRAFT`.
+
+O usuário autenticado deve ser proprietário da obra.
+
+### Adicionar página
+
+```http
+POST /api/installments/{installmentId}/pages
+```
+
+Requer usuário autenticado e token CSRF válido.
+
+A requisição utiliza:
+
+```text
+Content-Type: multipart/form-data
+```
+
+Campos:
+
+```text
+number → número da página
+file   → arquivo da página
+```
+
+O cliente não informa o local físico do arquivo. O `storageKey` é gerado internamente pelo backend.
+
+### Publicar installment
+
+```http
+POST /api/installments/{installmentId}/publish
+```
+
+Requer usuário autenticado e token CSRF válido.
+
+Para publicação:
+
+- o usuário deve ser proprietário da obra;
+- o installment deve possuir pelo menos uma página;
+- o installment deve estar em estado `DRAFT`.
+
+Resposta de sucesso:
+
+```http
+204 No Content
+```
+
+Após a publicação, o status passa para `PUBLISHED`.
+
 ## Migrations
 
 As alterações no schema do banco são controladas pelo Flyway.
@@ -351,6 +434,8 @@ Exemplo:
 V1__create_user_account.sql
 V2__add_password_to_user_account.sql
 V3__create_work.sql
+V4__create_installment.sql
+V5__create_installment_page.sql
 ```
 
 Migrations já executadas não devem ser alteradas. Novas mudanças no banco devem ser implementadas através de uma nova migration versionada.
@@ -403,15 +488,3 @@ pull request
   ↓
 merge
 ```
-
-## Próximos passos
-
-A próxima etapa do MVP é iniciar o módulo `catalog`, começando pela modelagem de uma obra (`Work`) capaz de representar diferentes formatos, como:
-
-- comic;
-- mangá;
-- graphic novel;
-- webtoon;
-- tirinha.
-
-Posteriormente serão desenvolvidos os módulos de publicação, leitura, biblioteca e moderação.

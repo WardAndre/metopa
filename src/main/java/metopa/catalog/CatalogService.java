@@ -34,4 +34,17 @@ public class CatalogService {
 
         return saved.getId();
     }
+
+    @Transactional(readOnly = true)
+    public WorkReference findWork(UUID workId) {
+        Work work = repository.findById(workId)
+                .orElseThrow(() ->
+                        new WorkNotFoundException(workId)
+                );
+
+        return new WorkReference(
+                work.getId(),
+                work.getOwnerId()
+        );
+    }
 }
