@@ -8,4 +8,6 @@ public interface PageStorage {
             UUID installmentId,
             byte[] content
     );
+
+    byte[] read(String storageKey);
 }

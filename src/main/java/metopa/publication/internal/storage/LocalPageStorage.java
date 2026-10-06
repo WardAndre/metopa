@@ -64,4 +64,25 @@ public class LocalPageStorage
             );
         }
     }
+    @Override
+    public byte[] read(String storageKey) {
+        Path source = root
+                .resolve(storageKey)
+                .normalize();
+
+        if (!source.startsWith(root)) {
+            throw new IllegalStateException(
+                    "Invalid storage path."
+            );
+        }
+
+        try {
+            return Files.readAllBytes(source);
+        } catch (IOException exception) {
+            throw new PageStorageException(
+                    "Could not read page content.",
+                    exception
+            );
+        }
+    }
 }

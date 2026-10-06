@@ -52,4 +52,30 @@ class LocalPageStorageTests {
                 Files.readAllBytes(storedFile)
         ).isEqualTo(content);
     }
+
+    @Test
+    void shouldReadStoredPageContent() {
+        LocalPageStorage storage =
+                new LocalPageStorage(
+                        tempDirectory.toString()
+                );
+
+        UUID installmentId =
+                UUID.randomUUID();
+
+        byte[] content =
+                "page-content".getBytes();
+
+        String storageKey =
+                storage.store(
+                        installmentId,
+                        content
+                );
+
+        byte[] storedContent =
+                storage.read(storageKey);
+
+        assertThat(storedContent)
+                .isEqualTo(content);
+    }
 }

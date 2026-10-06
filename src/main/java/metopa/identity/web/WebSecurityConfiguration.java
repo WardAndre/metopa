@@ -35,8 +35,17 @@ class WebSecurityConfiguration {
                                 "/api/auth/login",
                                 "/api/auth/csrf"
                         ).permitAll()
+                        .requestMatchers(
+                                HttpMethod.GET,
+                                "/api/installments/*"
+                        ).permitAll()
+                        .requestMatchers(
+                                HttpMethod.GET,
+                                "/api/pages/*/content"
+                        ).permitAll()
 
                         .anyRequest().authenticated()
+
                 )
 
                 .exceptionHandling(exception -> exception

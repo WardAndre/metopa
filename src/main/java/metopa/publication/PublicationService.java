@@ -153,4 +153,89 @@ public class PublicationService {
 
         installment.publish();
     }
+
+    @Transactional(readOnly = true)
+    public PublishedInstallmentView findPublishedInstallment(
+            UUID installmentId
+    ) {
+        Installment installment =
+                installmentRepository
+                        .findById(installmentId)
+                        .orElseThrow(() ->
+                                new PublishedInstallmentNotFoundException(
+                                        installmentId
+                                )
+                        );
+
+        if (installment.getStatus()
+                != PublicationStatus.PUBLISHED) {
+            throw new PublishedInstallmentNotFoundException(
+                    installmentId
+            );
+        }
+
+        var pages =
+                pageRepository
+                        .findByInstallmentIdOrderByNumberAsc(
+                                installmentId
+                        )
+                        .stream()
+                        .map(page ->
+                                new PageView(
+                                        page.getId(),
+                                        page.getNumber(),
+                                        page.getContentType()
+                                )
+                        )
+                        .toList();
+
+        return new PublishedInstallmentView(
+                installment.getId(),
+                installment.getWorkId(),
+                installment.getType(),
+                installment.getNumber(),
+                installment.getTitle(),
+                pages
+        );
+    }
+
+    @Transactional(readOnly = true)
+    public PublishedPageContent findPublishedPageContent(
+            UUID pageId
+    ) {
+        Page page =
+                pageRepository
+                        .findById(pageId)
+                        .orElseThrow(() ->
+                                new PublishedPageNotFoundException(
+                                        pageId
+                                )
+                        );
+
+        Installment installment =
+                installmentRepository
+                        .findById(page.getInstallmentId())
+                        .orElseThrow(() ->
+                                new PublishedPageNotFoundException(
+                                        pageId
+                                )
+                        );
+
+        if (installment.getStatus()
+                != PublicationStatus.PUBLISHED) {
+            throw new PublishedPageNotFoundException(
+                    pageId
+            );
+        }
+
+        byte[] content =
+                pageStorage.read(
+                        page.getStorageKey()
+                );
+
+        return new PublishedPageContent(
+                page.getContentType(),
+                content
+        );
+    }
 }

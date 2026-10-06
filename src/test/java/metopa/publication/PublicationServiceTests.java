@@ -577,4 +577,287 @@ class PublicationServiceTests {
         verify(pageRepository, never())
                 .save(any());
     }
+
+    @Test
+    void shouldFindPublishedInstallmentWithOrderedPages() {
+        UUID workId = UUID.randomUUID();
+
+        Installment installment =
+                new Installment(
+                        workId,
+                        InstallmentType.CHAPTER,
+                        1,
+                        "The Beginning"
+                );
+
+        installment.publish();
+
+        Page firstPage = new Page(
+                installment.getId(),
+                1,
+                "installments/example/page-1",
+                "image/jpeg"
+        );
+
+        Page secondPage = new Page(
+                installment.getId(),
+                2,
+                "installments/example/page-2",
+                "image/webp"
+        );
+
+        when(
+                installmentRepository.findById(
+                        installment.getId()
+                )
+        ).thenReturn(
+                Optional.of(installment)
+        );
+
+        when(
+                pageRepository
+                        .findByInstallmentIdOrderByNumberAsc(
+                                installment.getId()
+                        )
+        ).thenReturn(
+                java.util.List.of(
+                        firstPage,
+                        secondPage
+                )
+        );
+
+        PublishedInstallmentView result =
+                publicationService
+                        .findPublishedInstallment(
+                                installment.getId()
+                        );
+
+        assertThat(result.id())
+                .isEqualTo(installment.getId());
+
+        assertThat(result.workId())
+                .isEqualTo(workId);
+
+        assertThat(result.type())
+                .isEqualTo(
+                        InstallmentType.CHAPTER
+                );
+
+        assertThat(result.number())
+                .isEqualTo(1);
+
+        assertThat(result.title())
+                .isEqualTo("The Beginning");
+
+        assertThat(result.pages())
+                .hasSize(2);
+
+        assertThat(result.pages())
+                .extracting(PageView::number)
+                .containsExactly(1, 2);
+
+        assertThat(result.pages())
+                .extracting(PageView::contentType)
+                .containsExactly(
+                        "image/jpeg",
+                        "image/webp"
+                );
+    }
+
+    @Test
+    void shouldHideDraftInstallmentFromPublicReading() {
+        UUID workId = UUID.randomUUID();
+
+        Installment installment =
+                new Installment(
+                        workId,
+                        InstallmentType.CHAPTER,
+                        1,
+                        null
+                );
+
+        when(
+                installmentRepository.findById(
+                        installment.getId()
+                )
+        ).thenReturn(
+                Optional.of(installment)
+        );
+
+        assertThatThrownBy(() ->
+                publicationService
+                        .findPublishedInstallment(
+                                installment.getId()
+                        )
+        ).isInstanceOf(
+                PublishedInstallmentNotFoundException.class
+        );
+
+        verify(
+                pageRepository,
+                never()
+        ).findByInstallmentIdOrderByNumberAsc(
+                any(UUID.class)
+        );
+    }
+
+    @Test
+    void shouldRejectUnknownPublishedInstallment() {
+        UUID installmentId =
+                UUID.randomUUID();
+
+        when(
+                installmentRepository.findById(
+                        installmentId
+                )
+        ).thenReturn(
+                Optional.empty()
+        );
+
+        assertThatThrownBy(() ->
+                publicationService
+                        .findPublishedInstallment(
+                                installmentId
+                        )
+        ).isInstanceOf(
+                PublishedInstallmentNotFoundException.class
+        );
+
+        verify(
+                pageRepository,
+                never()
+        ).findByInstallmentIdOrderByNumberAsc(
+                any(UUID.class)
+        );
+    }
+
+    @Test
+    void shouldReadPageContentFromPublishedInstallment() {
+        UUID workId = UUID.randomUUID();
+
+        Installment installment =
+                new Installment(
+                        workId,
+                        InstallmentType.CHAPTER,
+                        1,
+                        null
+                );
+
+        installment.publish();
+
+        Page page =
+                new Page(
+                        installment.getId(),
+                        1,
+                        "installments/example/page-file",
+                        "image/jpeg"
+                );
+
+        byte[] content =
+                "page-content".getBytes();
+
+        when(
+                pageRepository.findById(
+                        page.getId()
+                )
+        ).thenReturn(Optional.of(page));
+
+        when(
+                installmentRepository.findById(
+                        installment.getId()
+                )
+        ).thenReturn(Optional.of(installment));
+
+        when(
+                pageStorage.read(
+                        page.getStorageKey()
+                )
+        ).thenReturn(content);
+
+        PublishedPageContent result =
+                publicationService
+                        .findPublishedPageContent(
+                                page.getId()
+                        );
+
+        assertThat(result.contentType())
+                .isEqualTo("image/jpeg");
+
+        assertThat(result.content())
+                .isEqualTo(content);
+
+        verify(pageStorage)
+                .read(page.getStorageKey());
+    }
+
+    @Test
+    void shouldHidePageFromDraftInstallment() {
+        UUID workId = UUID.randomUUID();
+
+        Installment installment =
+                new Installment(
+                        workId,
+                        InstallmentType.CHAPTER,
+                        1,
+                        null
+                );
+
+        Page page =
+                new Page(
+                        installment.getId(),
+                        1,
+                        "installments/example/page-file",
+                        "image/jpeg"
+                );
+
+        when(
+                pageRepository.findById(
+                        page.getId()
+                )
+        ).thenReturn(Optional.of(page));
+
+        when(
+                installmentRepository.findById(
+                        installment.getId()
+                )
+        ).thenReturn(Optional.of(installment));
+
+        assertThatThrownBy(() ->
+                publicationService
+                        .findPublishedPageContent(
+                                page.getId()
+                        )
+        ).isInstanceOf(
+                PublishedPageNotFoundException.class
+        );
+
+        verify(
+                pageStorage,
+                never()
+        ).read(any());
+    }
+
+    @Test
+    void shouldRejectUnknownPublishedPage() {
+        UUID pageId = UUID.randomUUID();
+
+        when(
+                pageRepository.findById(pageId)
+        ).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() ->
+                publicationService
+                        .findPublishedPageContent(
+                                pageId
+                        )
+        ).isInstanceOf(
+                PublishedPageNotFoundException.class
+        );
+
+        verify(
+                pageStorage,
+                never()
+        ).read(any());
+    }
+
 }

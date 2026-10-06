@@ -87,7 +87,7 @@ Atualmente suporta:
 
 ### Publication
 
-Responsável pela criação e publicação do conteúdo das obras.
+Responsável pela criação, publicação e leitura do conteúdo das obras.
 
 Atualmente suporta:
 
@@ -104,7 +104,11 @@ Atualmente suporta:
 - prevenção de números de página duplicados;
 - publicação de installments;
 - publicação permitida somente quando existe pelo menos uma página;
-- bloqueio de alterações em installments já publicados.
+- bloqueio de alterações em installments já publicados;
+- leitura pública de installments publicados;
+- páginas retornadas em ordem de leitura;
+- leitura pública do conteúdo binário das páginas;
+- drafts não são expostos pelos endpoints públicos.
 
 ### Library
 
@@ -418,6 +422,58 @@ Resposta de sucesso:
 
 Após a publicação, o status passa para `PUBLISHED`.
 
+### Consultar installment publicado
+
+```http
+GET /api/installments/{installmentId}
+```
+
+Endpoint público.
+
+Retorna somente installments com status `PUBLISHED`.
+
+Exemplo:
+
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "workId": "5c4f1d34-7623-4ccf-9ee1-d5bc16d0af61",
+  "type": "CHAPTER",
+  "number": 1,
+  "title": "The Beginning",
+  "pages": [
+    {
+      "id": "26fdb67d-261c-4760-b88a-ec0b0843f9fc",
+      "number": 1,
+      "contentType": "image/jpeg"
+    }
+  ]
+}
+```
+
+Installments em estado `DRAFT` são tratados como não encontrados.
+
+### Ler conteúdo de página publicada
+
+```http
+GET /api/pages/{pageId}/content
+```
+
+Endpoint público.
+
+Retorna diretamente o conteúdo binário da página com o `Content-Type` correspondente.
+
+Exemplo:
+
+```text
+HTTP/1.1 200 OK
+Content-Type: image/jpeg
+```
+
+O `storageKey` não é exposto pela API.
+
+Páginas pertencentes a installments em estado `DRAFT` são tratadas como não encontradas.
+
 ## Migrations
 
 As alterações no schema do banco são controladas pelo Flyway.
@@ -458,6 +514,13 @@ POST /api/auth/logout → autenticado
 Senhas são processadas utilizando `PasswordEncoder` e armazenadas somente como hash.
 
 Respostas de autenticação inválida não revelam se determinado username existe.
+
+Leitura pública atualmente permitida:
+
+```text
+GET /api/installments/{installmentId}
+GET /api/pages/{pageId}/content
+```
 
 ## Desenvolvimento
 
