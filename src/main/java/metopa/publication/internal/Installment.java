@@ -69,15 +69,15 @@ public class Installment {
         return workId;
     }
 
-    InstallmentType getType() {
+    public InstallmentType getType() {
         return type;
     }
 
-    int getNumber() {
+    public int getNumber() {
         return number;
     }
 
-    String getTitle() {
+    public String getTitle() {
         return title;
     }
 

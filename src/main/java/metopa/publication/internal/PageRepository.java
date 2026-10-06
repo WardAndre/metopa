@@ -2,6 +2,7 @@ package metopa.publication.internal;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 
+import java.util.List;
 import java.util.UUID;
 
 public interface PageRepository
@@ -13,6 +14,10 @@ public interface PageRepository
     );
 
     boolean existsByInstallmentId(
+            UUID installmentId
+    );
+
+    List<Page> findByInstallmentIdOrderByNumberAsc(
             UUID installmentId
     );
 }

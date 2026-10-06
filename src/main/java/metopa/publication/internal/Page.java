@@ -51,19 +51,19 @@ public class Page {
         return id;
     }
 
-    UUID getInstallmentId() {
+    public UUID getInstallmentId() {
         return installmentId;
     }
 
-    int getNumber() {
+    public int getNumber() {
         return number;
     }
 
-    String getStorageKey() {
+    public String getStorageKey() {
         return storageKey;
     }
 
-    String getContentType() {
+    public String getContentType() {
         return contentType;
     }
 

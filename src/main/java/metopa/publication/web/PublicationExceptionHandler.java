@@ -8,6 +8,8 @@ import metopa.publication.PageAlreadyExistsException;
 import metopa.publication.WorkAccessDeniedException;
 import metopa.publication.InstallmentHasNoPagesException;
 import metopa.publication.PublishedInstallmentModificationException;
+import metopa.publication.PublishedInstallmentNotFoundException;
+import metopa.publication.PublishedPageNotFoundException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -155,6 +157,48 @@ class PublicationExceptionHandler {
         );
         problem.setDetail(
                 "Published installments cannot be modified."
+        );
+
+        return problem;
+    }
+
+    @ExceptionHandler(
+            PublishedInstallmentNotFoundException.class
+    )
+    ProblemDetail handlePublishedInstallmentNotFound(
+            PublishedInstallmentNotFoundException exception
+    ) {
+        ProblemDetail problem =
+                ProblemDetail.forStatus(
+                        HttpStatus.NOT_FOUND
+                );
+
+        problem.setTitle(
+                "Published installment not found"
+        );
+        problem.setDetail(
+                "The requested published installment could not be found."
+        );
+
+        return problem;
+    }
+
+    @ExceptionHandler(
+            PublishedPageNotFoundException.class
+    )
+    ProblemDetail handlePublishedPageNotFound(
+            PublishedPageNotFoundException exception
+    ) {
+        ProblemDetail problem =
+                ProblemDetail.forStatus(
+                        HttpStatus.NOT_FOUND
+                );
+
+        problem.setTitle(
+                "Published page not found"
+        );
+        problem.setDetail(
+                "The requested published page could not be found."
         );
 
         return problem;
