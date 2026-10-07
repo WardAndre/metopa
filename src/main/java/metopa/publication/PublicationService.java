@@ -238,4 +238,13 @@ public class PublicationService {
                 content
         );
     }
+
+    @Transactional(readOnly = true)
+    public boolean hasPublishedContent(UUID workId) {
+        return installmentRepository
+                .existsByWorkIdAndStatus(
+                        workId,
+                        PublicationStatus.PUBLISHED
+                );
+    }
 }

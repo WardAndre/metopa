@@ -112,9 +112,15 @@ Atualmente suporta:
 
 ### Library
 
-Responsável pela biblioteca pessoal e progresso de leitura dos usuários.
+Responsável pela biblioteca pessoal dos usuários.
 
-Planejado para etapas posteriores do MVP.
+Atualmente suporta:
+
+- adição de obras à biblioteca pessoal;
+- associação automática da entrada ao usuário autenticado;
+- somente obras com conteúdo publicado podem ser adicionadas;
+- prevenção de entradas duplicadas para a mesma obra e usuário;
+- obras sem conteúdo publicado não são expostas através da operação de biblioteca.
 
 ### Moderation
 
@@ -238,6 +244,12 @@ Os testes cobrem:
 - impedimento de publicação sem páginas;
 - impedimento de alteração após publicação;
 - fluxos HTTP 401, 403, 404 e 409 relacionados ao módulo de publicação.
+- persistência de entradas da biblioteca;
+- disponibilidade da obra através de conteúdo publicado;
+- adição autenticada de obras à biblioteca;
+- prevenção de entradas duplicadas;
+- rejeição de obras sem conteúdo publicado;
+- fluxos HTTP 401, 404 e 409 da biblioteca.
 
 ## API atual
 
@@ -474,6 +486,40 @@ O `storageKey` não é exposto pela API.
 
 Páginas pertencentes a installments em estado `DRAFT` são tratadas como não encontradas.
 
+### Adicionar obra à biblioteca
+
+```http
+POST /api/library/works/{workId}
+```
+
+Requer usuário autenticado e token CSRF válido.
+
+Não existe `userId` no corpo da requisição. O proprietário da biblioteca é determinado através da sessão autenticada.
+
+Somente obras que possuam conteúdo publicado podem ser adicionadas.
+
+Resposta de sucesso:
+
+```http
+201 Created
+```
+
+Exemplo:
+
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000"
+}
+```
+
+Possíveis respostas:
+
+```text
+401 → usuário não autenticado
+404 → obra não disponível para biblioteca
+409 → obra já presente na biblioteca
+```
+
 ## Migrations
 
 As alterações no schema do banco são controladas pelo Flyway.
@@ -492,6 +538,7 @@ V2__add_password_to_user_account.sql
 V3__create_work.sql
 V4__create_installment.sql
 V5__create_installment_page.sql
+V6__create_library_entry.sql
 ```
 
 Migrations já executadas não devem ser alteradas. Novas mudanças no banco devem ser implementadas através de uma nova migration versionada.

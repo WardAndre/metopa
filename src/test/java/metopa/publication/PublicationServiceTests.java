@@ -860,4 +860,21 @@ class PublicationServiceTests {
         ).read(any());
     }
 
+    @Test
+    void shouldReportPublishedContentForWork() {
+        UUID workId = UUID.randomUUID();
+
+        when(
+                installmentRepository.existsByWorkIdAndStatus(
+                        workId,
+                        PublicationStatus.PUBLISHED
+                )
+        ).thenReturn(true);
+
+        boolean result =
+                publicationService.hasPublishedContent(workId);
+
+        assertThat(result).isTrue();
+    }
+
 }
