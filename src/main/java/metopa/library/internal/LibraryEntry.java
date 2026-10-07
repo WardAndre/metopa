@@ -45,11 +45,11 @@ public class LibraryEntry {
         return userId;
     }
 
-    UUID getWorkId() {
+    public UUID getWorkId() {
         return workId;
     }
 
-    Instant getAddedAt() {
+    public Instant getAddedAt() {
         return addedAt;
     }
 }

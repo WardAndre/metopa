@@ -120,7 +120,10 @@ Atualmente suporta:
 - associação automática da entrada ao usuário autenticado;
 - somente obras com conteúdo publicado podem ser adicionadas;
 - prevenção de entradas duplicadas para a mesma obra e usuário;
-- obras sem conteúdo publicado não são expostas através da operação de biblioteca.
+- listagem da biblioteca do usuário autenticado;
+- isolamento entre bibliotecas de usuários diferentes;
+- ordenação das entradas pelas adicionadas mais recentemente;
+- obras sem conteúdo publicado não são expostas através das operações de biblioteca.
 
 ### Moderation
 
@@ -250,6 +253,10 @@ Os testes cobrem:
 - prevenção de entradas duplicadas;
 - rejeição de obras sem conteúdo publicado;
 - fluxos HTTP 401, 404 e 409 da biblioteca.
+- listagem da biblioteca do usuário autenticado;
+- resposta vazia para biblioteca sem entradas;
+- isolamento de dados entre usuários diferentes;
+- rejeição da leitura sem autenticação.
 
 ## API atual
 
@@ -518,6 +525,48 @@ Possíveis respostas:
 401 → usuário não autenticado
 404 → obra não disponível para biblioteca
 409 → obra já presente na biblioteca
+```
+
+### Listar biblioteca
+
+```http
+GET /api/library
+```
+
+Requer usuário autenticado.
+
+A identidade do proprietário da biblioteca é obtida através da sessão autenticada. Não existe `userId` na URL ou nos parâmetros.
+
+Resposta:
+
+```http
+200 OK
+```
+
+Exemplo:
+
+```json
+[
+  {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "workId": "550e8400-e29b-41d4-a716-446655440001",
+    "title": "Metopa Origins",
+    "type": "GRAPHIC_NOVEL",
+    "addedAt": "2026-10-07T19:30:00Z"
+  }
+]
+```
+
+Uma biblioteca vazia retorna:
+
+```json
+[]
+```
+
+Sem autenticação:
+
+```text
+401 → usuário não autenticado
 ```
 
 ## Migrations

@@ -2,6 +2,9 @@ package metopa.library;
 
 import metopa.library.internal.LibraryEntry;
 import metopa.library.internal.LibraryEntryRepository;
+import metopa.catalog.CatalogService;
+import metopa.catalog.WorkSummary;
+import metopa.catalog.WorkType;
 import metopa.publication.PublicationService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -29,6 +32,9 @@ class LibraryServiceTests {
 
     @InjectMocks
     private LibraryService libraryService;
+
+    @Mock
+    private CatalogService catalogService;
 
     @Test
     void shouldAddPublishedWorkToLibrary() {
@@ -123,5 +129,78 @@ class LibraryServiceTests {
                 repository,
                 never()
         ).save(any());
+    }
+
+    @Test
+    void shouldReturnUsersLibrary() {
+        UUID userId = UUID.randomUUID();
+        UUID workId = UUID.randomUUID();
+
+        LibraryEntry entry =
+                new LibraryEntry(
+                        userId,
+                        workId
+                );
+
+        when(
+                repository.findByUserIdOrderByAddedAtDesc(
+                        userId
+                )
+        ).thenReturn(
+                java.util.List.of(entry)
+        );
+
+        when(
+                catalogService.findWorkSummary(workId)
+        ).thenReturn(
+                new WorkSummary(
+                        workId,
+                        "Metopa Origins",
+                        WorkType.GRAPHIC_NOVEL
+                )
+        );
+
+        var result =
+                libraryService.findLibrary(userId);
+
+        assertThat(result).hasSize(1);
+
+        LibraryEntryView item =
+                result.getFirst();
+
+        assertThat(item.id())
+                .isEqualTo(entry.getId());
+
+        assertThat(item.workId())
+                .isEqualTo(workId);
+
+        assertThat(item.title())
+                .isEqualTo("Metopa Origins");
+
+        assertThat(item.type())
+                .isEqualTo(
+                        WorkType.GRAPHIC_NOVEL
+                );
+
+        assertThat(item.addedAt())
+                .isEqualTo(entry.getAddedAt());
+    }
+
+    @Test
+    void shouldReturnEmptyLibrary() {
+        UUID userId = UUID.randomUUID();
+
+        when(
+                repository.findByUserIdOrderByAddedAtDesc(
+                        userId
+                )
+        ).thenReturn(
+                java.util.List.of()
+        );
+
+        var result =
+                libraryService.findLibrary(userId);
+
+        assertThat(result).isEmpty();
     }
 }

@@ -47,4 +47,18 @@ public class CatalogService {
                 work.getOwnerId()
         );
     }
+
+    @Transactional(readOnly = true)
+    public WorkSummary findWorkSummary(UUID workId) {
+        Work work = repository.findById(workId)
+                .orElseThrow(() ->
+                        new WorkNotFoundException(workId)
+                );
+
+        return new WorkSummary(
+                work.getId(),
+                work.getTitle(),
+                work.getType()
+        );
+    }
 }

@@ -70,4 +70,37 @@ class CatalogServiceTests {
         assertThat(reference.id()).isEqualTo(work.getId());
         assertThat(reference.ownerId()).isEqualTo(ownerId);
     }
+
+    @Test
+    void shouldFindWorkSummary() {
+        UUID ownerId = UUID.randomUUID();
+
+        Work work = new Work(
+                ownerId,
+                "Metopa Origins",
+                null,
+                WorkType.GRAPHIC_NOVEL,
+                ReadingDirection.LEFT_TO_RIGHT,
+                PresentationMode.SINGLE_PAGE
+        );
+
+        when(repository.findById(work.getId()))
+                .thenReturn(Optional.of(work));
+
+        WorkSummary summary =
+                catalogService.findWorkSummary(
+                        work.getId()
+                );
+
+        assertThat(summary.id())
+                .isEqualTo(work.getId());
+
+        assertThat(summary.title())
+                .isEqualTo("Metopa Origins");
+
+        assertThat(summary.type())
+                .isEqualTo(
+                        WorkType.GRAPHIC_NOVEL
+                );
+    }
 }
