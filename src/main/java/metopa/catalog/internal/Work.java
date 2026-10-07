@@ -77,7 +77,7 @@ public class Work {
         return ownerId;
     }
 
-    String getTitle() {
+    public String getTitle() {
         return title;
     }
 
@@ -85,7 +85,7 @@ public class Work {
         return description;
     }
 
-    WorkType getType() {
+    public WorkType getType() {
         return type;
     }
 
