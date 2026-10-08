@@ -22,6 +22,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 
 @WebMvcTest(LibraryController.class)
 @AutoConfigureMockMvc(addFilters = false)
@@ -193,5 +194,39 @@ class LibraryControllerTests {
 
         verify(libraryService)
                 .findLibrary(userId);
+    }
+
+    @Test
+    void shouldRemoveWorkFromAuthenticatedUsersLibrary()
+            throws Exception {
+
+        UUID userId = UUID.randomUUID();
+        UUID workId = UUID.randomUUID();
+
+        when(identityService.findByUsername("andre"))
+                .thenReturn(
+                        new UserReference(
+                                userId,
+                                "andre"
+                        )
+                );
+
+        mockMvc.perform(
+                        delete(
+                                "/api/library/works/{workId}",
+                                workId
+                        )
+                                .principal(() -> "andre")
+                )
+                .andExpect(status().isNoContent());
+
+        verify(identityService)
+                .findByUsername("andre");
+
+        verify(libraryService)
+                .removeWork(
+                        userId,
+                        workId
+                );
     }
 }

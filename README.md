@@ -123,6 +123,8 @@ Atualmente suporta:
 - listagem da biblioteca do usuário autenticado;
 - isolamento entre bibliotecas de usuários diferentes;
 - ordenação das entradas pelas adicionadas mais recentemente;
+- remoção de obras da própria biblioteca;
+- remoção idempotente: remover uma obra que já não está na biblioteca continua sendo uma operação válida;
 - obras sem conteúdo publicado não são expostas através das operações de biblioteca.
 
 ### Moderation
@@ -257,6 +259,11 @@ Os testes cobrem:
 - resposta vazia para biblioteca sem entradas;
 - isolamento de dados entre usuários diferentes;
 - rejeição da leitura sem autenticação.
+- remoção de obras da biblioteca;
+- desaparecimento da obra na listagem após remoção;
+- comportamento idempotente do DELETE;
+- rejeição da remoção sem autenticação;
+- proteção CSRF das operações que alteram estado.
 
 ## API atual
 
@@ -561,6 +568,34 @@ Uma biblioteca vazia retorna:
 
 ```json
 []
+```
+
+Sem autenticação:
+
+```text
+401 → usuário não autenticado
+```
+
+### Remover obra da biblioteca
+
+```http
+DELETE /api/library/works/{workId}
+```
+
+Requer usuário autenticado e token CSRF válido.
+
+A identidade do proprietário da biblioteca é obtida através da sessão autenticada.
+
+Resposta:
+
+```http
+204 No Content
+```
+
+A operação é idempotente. Caso a obra já não esteja presente na biblioteca do usuário, a resposta continua sendo:
+
+```http
+204 No Content
 ```
 
 Sem autenticação:
