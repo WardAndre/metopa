@@ -203,4 +203,21 @@ class LibraryServiceTests {
 
         assertThat(result).isEmpty();
     }
+
+    @Test
+    void shouldRemoveWorkFromLibrary() {
+        UUID userId = UUID.randomUUID();
+        UUID workId = UUID.randomUUID();
+
+        libraryService.removeWork(
+                userId,
+                workId
+        );
+
+        verify(repository)
+                .deleteByUserIdAndWorkId(
+                        userId,
+                        workId
+                );
+    }
 }

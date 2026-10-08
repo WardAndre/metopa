@@ -16,4 +16,9 @@ public interface LibraryEntryRepository
     List<LibraryEntry> findByUserIdOrderByAddedAtDesc(
             UUID userId
     );
+
+    void deleteByUserIdAndWorkId(
+            UUID userId,
+            UUID workId
+    );
 }

@@ -79,4 +79,15 @@ public class LibraryService {
                 })
                 .toList();
     }
+
+    @Transactional
+    public void removeWork(
+            UUID userId,
+            UUID workId
+    ) {
+        repository.deleteByUserIdAndWorkId(
+                userId,
+                workId
+        );
+    }
 }
