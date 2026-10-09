@@ -247,4 +247,34 @@ public class PublicationService {
                         PublicationStatus.PUBLISHED
                 );
     }
+
+    @Transactional(readOnly = true)
+    public PublishedPageReference findPublishedPageReference(
+            UUID pageId
+    ) {
+        Page page = pageRepository.findById(pageId)
+                .orElseThrow(() ->
+                        new PublishedPageNotFoundException(pageId)
+                );
+
+        Installment installment =
+                installmentRepository
+                        .findById(
+                                page.getInstallmentId()
+                        )
+                        .orElseThrow(() ->
+                                new PublishedPageNotFoundException(pageId)
+                        );
+
+        if (installment.getStatus()
+                != PublicationStatus.PUBLISHED) {
+            throw new PublishedPageNotFoundException(pageId);
+        }
+
+        return new PublishedPageReference(
+                page.getId(),
+                installment.getId(),
+                installment.getWorkId()
+        );
+    }
 }

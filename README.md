@@ -127,6 +127,21 @@ Atualmente suporta:
 - remoção idempotente: remover uma obra que já não está na biblioteca continua sendo uma operação válida;
 - obras sem conteúdo publicado não são expostas através das operações de biblioteca.
 
+### Reading
+
+Responsável pelo progresso de leitura dos usuários.
+
+Atualmente suporta:
+
+- registro da posição atual de leitura;
+- uma posição de leitura por usuário e obra;
+- atualização do mesmo progresso conforme o usuário avança;
+- consulta da última posição registrada;
+- identificação automática da obra e do installment através da página;
+- registro de progresso somente para páginas publicadas;
+- páginas inexistentes e páginas ainda não publicadas são tratadas igualmente como indisponíveis;
+- progresso de leitura independente da biblioteca pessoal.
+
 ### Moderation
 
 Responsável por denúncias e ações de moderação.
@@ -264,6 +279,16 @@ Os testes cobrem:
 - comportamento idempotente do DELETE;
 - rejeição da remoção sem autenticação;
 - proteção CSRF das operações que alteram estado.
+- persistência de progresso;
+- criação da primeira posição;
+- atualização da posição existente sem criar um novo progresso;
+- consulta da última posição registrada;
+- integração entre reading e publication através de APIs públicas dos módulos;
+- rejeição de páginas inexistentes;
+- rejeição de páginas pertencentes a installments ainda não publicados;
+- tratamento indistinguível de páginas inexistentes e privadas;
+- autenticação para leitura e escrita do progresso;
+- proteção CSRF na atualização da posição.
 
 ## API atual
 
@@ -604,6 +629,64 @@ Sem autenticação:
 401 → usuário não autenticado
 ```
 
+### Salvar progresso de leitura
+
+```http
+PUT /api/reading/progress/pages/{pageId}
+```
+
+Requer usuário autenticado e token CSRF válido.
+
+O cliente informa somente a página atual. A obra e o installment são determinados internamente a partir da página publicada.
+
+Se ainda não existir progresso para o usuário e a obra, ele é criado. Caso já exista, a posição existente é atualizada.
+
+Resposta:
+
+```http
+204 No Content
+```
+
+Possíveis respostas:
+
+```text
+401 → usuário não autenticado
+404 → página não disponível para progresso
+403 → token CSRF ausente ou inválido
+```
+
+### Consultar progresso de leitura
+
+```http
+GET /api/reading/progress/works/{workId}
+```
+
+Requer usuário autenticado.
+
+Resposta:
+
+```http
+200 OK
+```
+
+Exemplo:
+
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "workId": "550e8400-e29b-41d4-a716-446655440001",
+  "installmentId": "550e8400-e29b-41d4-a716-446655440002",
+  "pageId": "550e8400-e29b-41d4-a716-446655440003",
+  "updatedAt": "2026-10-09T03:00:00Z"
+}
+```
+
+Caso ainda não exista progresso para aquela obra:
+
+```http
+404 Not Found
+```
+
 ## Migrations
 
 As alterações no schema do banco são controladas pelo Flyway.
@@ -623,6 +706,7 @@ V3__create_work.sql
 V4__create_installment.sql
 V5__create_installment_page.sql
 V6__create_library_entry.sql
+V7__create_reading_progress.sql
 ```
 
 Migrations já executadas não devem ser alteradas. Novas mudanças no banco devem ser implementadas através de uma nova migration versionada.
