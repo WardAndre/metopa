@@ -22,6 +22,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.mock;
 
 @ExtendWith(MockitoExtension.class)
 class PublicationServiceTests {
@@ -875,6 +876,60 @@ class PublicationServiceTests {
                 publicationService.hasPublishedContent(workId);
 
         assertThat(result).isTrue();
+    }
+
+    @Test
+    void shouldFindPublishedPageReference() {
+        UUID pageId = UUID.randomUUID();
+        UUID installmentId = UUID.randomUUID();
+        UUID workId = UUID.randomUUID();
+
+        Page page = mock(Page.class);
+        Installment installment =
+                mock(Installment.class);
+
+        when(pageRepository.findById(pageId))
+                .thenReturn(Optional.of(page));
+
+        when(page.getId())
+                .thenReturn(pageId);
+
+        when(page.getInstallmentId())
+                .thenReturn(installmentId);
+
+        when(
+                installmentRepository.findById(
+                        installmentId
+                )
+        ).thenReturn(
+                Optional.of(installment)
+        );
+
+        when(installment.getId())
+                .thenReturn(installmentId);
+
+        when(installment.getWorkId())
+                .thenReturn(workId);
+
+        when(installment.getStatus())
+                .thenReturn(
+                        PublicationStatus.PUBLISHED
+                );
+
+        PublishedPageReference reference =
+                publicationService
+                        .findPublishedPageReference(
+                                pageId
+                        );
+
+        assertThat(reference.pageId())
+                .isEqualTo(pageId);
+
+        assertThat(reference.installmentId())
+                .isEqualTo(installmentId);
+
+        assertThat(reference.workId())
+                .isEqualTo(workId);
     }
 
 }
