@@ -30,7 +30,6 @@ class WebSecurityConfiguration {
                                 HttpMethod.POST,
                                 "/api/users"
                         ).permitAll()
-
                         .requestMatchers(
                                 "/api/auth/login",
                                 "/api/auth/csrf"
@@ -42,6 +41,10 @@ class WebSecurityConfiguration {
                         .requestMatchers(
                                 HttpMethod.GET,
                                 "/api/pages/*/content"
+                        ).permitAll()
+                        .requestMatchers(
+                                HttpMethod.GET,
+                                "/api/works/*"
                         ).permitAll()
 
                         .anyRequest().authenticated()

@@ -81,7 +81,7 @@ public class Work {
         return title;
     }
 
-    String getDescription() {
+    public String getDescription() {
         return description;
     }
 
@@ -89,11 +89,11 @@ public class Work {
         return type;
     }
 
-    ReadingDirection getReadingDirection() {
+    public ReadingDirection getReadingDirection() {
         return readingDirection;
     }
 
-    PresentationMode getPresentationMode() {
+    public PresentationMode getPresentationMode() {
         return presentationMode;
     }
 

@@ -103,4 +103,52 @@ class CatalogServiceTests {
                         WorkType.GRAPHIC_NOVEL
                 );
     }
+
+    @Test
+    void shouldFindWorkDetails() {
+        UUID ownerId = UUID.randomUUID();
+
+        Work work = new Work(
+                ownerId,
+                "Metopa Origins",
+                "A science fiction graphic novel.",
+                WorkType.GRAPHIC_NOVEL,
+                ReadingDirection.LEFT_TO_RIGHT,
+                PresentationMode.SINGLE_PAGE
+        );
+
+        when(repository.findById(work.getId()))
+                .thenReturn(Optional.of(work));
+
+        WorkDetails details =
+                catalogService.findWorkDetails(
+                        work.getId()
+                );
+
+        assertThat(details.id())
+                .isEqualTo(work.getId());
+
+        assertThat(details.title())
+                .isEqualTo("Metopa Origins");
+
+        assertThat(details.description())
+                .isEqualTo(
+                        "A science fiction graphic novel."
+                );
+
+        assertThat(details.type())
+                .isEqualTo(
+                        WorkType.GRAPHIC_NOVEL
+                );
+
+        assertThat(details.readingDirection())
+                .isEqualTo(
+                        ReadingDirection.LEFT_TO_RIGHT
+                );
+
+        assertThat(details.presentationMode())
+                .isEqualTo(
+                        PresentationMode.SINGLE_PAGE
+                );
+    }
 }

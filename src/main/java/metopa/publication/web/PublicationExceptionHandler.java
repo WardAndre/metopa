@@ -10,6 +10,7 @@ import metopa.publication.InstallmentHasNoPagesException;
 import metopa.publication.PublishedInstallmentModificationException;
 import metopa.publication.PublishedInstallmentNotFoundException;
 import metopa.publication.PublishedPageNotFoundException;
+import metopa.publication.PublishedWorkNotFoundException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -199,6 +200,28 @@ class PublicationExceptionHandler {
         );
         problem.setDetail(
                 "The requested published page could not be found."
+        );
+
+        return problem;
+    }
+
+    @ExceptionHandler(
+            PublishedWorkNotFoundException.class
+    )
+    ProblemDetail handlePublishedWorkNotFound(
+            PublishedWorkNotFoundException exception
+    ) {
+        ProblemDetail problem =
+                ProblemDetail.forStatus(
+                        HttpStatus.NOT_FOUND
+                );
+
+        problem.setTitle(
+                "Work not available"
+        );
+
+        problem.setDetail(
+                "The requested work is not available."
         );
 
         return problem;

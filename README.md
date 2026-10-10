@@ -289,6 +289,11 @@ Os testes cobrem:
 - tratamento indistinguível de páginas inexistentes e privadas;
 - autenticação para leitura e escrita do progresso;
 - proteção CSRF na atualização da posição.
+- leitura pública dos detalhes de uma obra;
+- acesso à obra publicada sem autenticação;
+- ocultação de obras que possuem somente conteúdo em draft;
+- listagem somente de installments publicados;
+- ocultação de installments draft mesmo quando pertencem a uma obra já pública.
 
 ## API atual
 
@@ -685,6 +690,51 @@ Caso ainda não exista progresso para aquela obra:
 
 ```http
 404 Not Found
+```
+
+### Consultar obra publicada
+
+```http
+GET /api/works/{workId}
+```
+
+Endpoint público. Não requer autenticação.
+
+Uma obra somente é disponibilizada quando possui pelo menos um installment publicado.
+
+Resposta:
+
+```http
+200 OK
+```
+
+Exemplo:
+
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "title": "Metopa Origins",
+  "description": "A science fiction graphic novel.",
+  "type": "GRAPHIC_NOVEL",
+  "readingDirection": "LEFT_TO_RIGHT",
+  "presentationMode": "SINGLE_PAGE",
+  "installments": [
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440001",
+      "type": "ISSUE",
+      "number": 1,
+      "title": "Issue One"
+    }
+  ]
+}
+```
+
+Somente installments publicados são retornados. Installments em estado `DRAFT` permanecem invisíveis.
+
+Caso a obra não exista ou ainda não possua conteúdo publicado:
+
+```text
+404 → obra não disponível
 ```
 
 ## Migrations
