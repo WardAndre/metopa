@@ -4,6 +4,7 @@ import metopa.publication.InstallmentType;
 import metopa.publication.PublicationStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
 
+import java.util.List;
 import java.util.UUID;
 
 public interface InstallmentRepository
@@ -16,6 +17,11 @@ public interface InstallmentRepository
     );
 
     boolean existsByWorkIdAndStatus(
+            UUID workId,
+            PublicationStatus status
+    );
+
+    List<Installment> findByWorkIdAndStatusOrderByNumberAscCreatedAtAsc(
             UUID workId,
             PublicationStatus status
     );

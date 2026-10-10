@@ -3,6 +3,7 @@ package metopa.publication;
 import jakarta.validation.Valid;
 import metopa.catalog.CatalogService;
 import metopa.catalog.WorkReference;
+import metopa.catalog.WorkDetails;
 import metopa.publication.internal.Installment;
 import metopa.publication.internal.InstallmentRepository;
 import metopa.publication.internal.Page;
@@ -12,6 +13,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.validation.annotation.Validated;
 
+import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -276,5 +278,55 @@ public class PublicationService {
                 installment.getId(),
                 installment.getWorkId()
         );
+    }
+
+    @Transactional(readOnly = true)
+    public PublishedWorkView findPublishedWork(
+            UUID workId
+    ) {
+        List<PublishedInstallmentSummary> installments =
+                findPublishedInstallments(workId);
+
+        if (installments.isEmpty()) {
+            throw new PublishedWorkNotFoundException(
+                    workId
+            );
+        }
+
+        WorkDetails work =
+                catalogService.findWorkDetails(
+                        workId
+                );
+
+        return new PublishedWorkView(
+                work.id(),
+                work.title(),
+                work.description(),
+                work.type(),
+                work.readingDirection(),
+                work.presentationMode(),
+                installments
+        );
+    }
+
+    @Transactional(readOnly = true)
+    public List<PublishedInstallmentSummary> findPublishedInstallments(
+            UUID workId
+    ) {
+        return installmentRepository
+                .findByWorkIdAndStatusOrderByNumberAscCreatedAtAsc(
+                        workId,
+                        PublicationStatus.PUBLISHED
+                )
+                .stream()
+                .map(installment ->
+                        new PublishedInstallmentSummary(
+                                installment.getId(),
+                                installment.getType(),
+                                installment.getNumber(),
+                                installment.getTitle()
+                        )
+                )
+                .toList();
     }
 }

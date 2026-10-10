@@ -1,7 +1,11 @@
 package metopa.publication;
 
 import metopa.catalog.CatalogService;
+import metopa.catalog.PresentationMode;
 import metopa.catalog.WorkReference;
+import metopa.catalog.WorkDetails;
+import metopa.catalog.ReadingDirection;
+import metopa.catalog.WorkType;
 import metopa.publication.internal.Installment;
 import metopa.publication.internal.InstallmentRepository;
 import metopa.publication.internal.Page;
@@ -15,6 +19,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.Optional;
 import java.util.UUID;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -932,4 +937,195 @@ class PublicationServiceTests {
                 .isEqualTo(workId);
     }
 
+    @Test
+    void shouldFindPublishedWork() {
+        UUID workId = UUID.randomUUID();
+
+        UUID installmentId = UUID.randomUUID();
+
+        Installment installment =
+                mock(Installment.class);
+
+        when(installment.getId())
+                .thenReturn(installmentId);
+
+        when(installment.getType())
+                .thenReturn(InstallmentType.ISSUE);
+
+        when(installment.getNumber())
+                .thenReturn(1);
+
+        when(installment.getTitle())
+                .thenReturn("Issue One");
+
+        when(
+                installmentRepository
+                        .findByWorkIdAndStatusOrderByNumberAscCreatedAtAsc(
+                                workId,
+                                PublicationStatus.PUBLISHED
+                        )
+        ).thenReturn(
+                List.of(installment)
+        );
+
+        when(
+                catalogService.findWorkDetails(workId)
+        ).thenReturn(
+                new WorkDetails(
+                        workId,
+                        "Metopa Origins",
+                        "A science fiction graphic novel.",
+                        WorkType.GRAPHIC_NOVEL,
+                        ReadingDirection.LEFT_TO_RIGHT,
+                        PresentationMode.SINGLE_PAGE
+                )
+        );
+
+        PublishedWorkView result =
+                publicationService.findPublishedWork(
+                        workId
+                );
+
+        assertThat(result.id())
+                .isEqualTo(workId);
+
+        assertThat(result.title())
+                .isEqualTo("Metopa Origins");
+
+        assertThat(result.description())
+                .isEqualTo(
+                        "A science fiction graphic novel."
+                );
+
+        assertThat(result.type())
+                .isEqualTo(
+                        WorkType.GRAPHIC_NOVEL
+                );
+
+        assertThat(result.readingDirection())
+                .isEqualTo(
+                        ReadingDirection.LEFT_TO_RIGHT
+                );
+
+        assertThat(result.presentationMode())
+                .isEqualTo(
+                        PresentationMode.SINGLE_PAGE
+                );
+
+        assertThat(result.installments())
+                .hasSize(1);
+
+        PublishedInstallmentSummary summary =
+                result.installments().getFirst();
+
+        assertThat(summary.id())
+                .isEqualTo(installmentId);
+
+        assertThat(summary.type())
+                .isEqualTo(InstallmentType.ISSUE);
+
+        assertThat(summary.number())
+                .isEqualTo(1);
+
+        assertThat(summary.title())
+                .isEqualTo("Issue One");
+    }
+
+    @Test
+    void shouldRejectWorkWithoutPublishedContent() {
+        UUID workId = UUID.randomUUID();
+
+        when(
+                installmentRepository
+                        .findByWorkIdAndStatusOrderByNumberAscCreatedAtAsc(
+                                workId,
+                                PublicationStatus.PUBLISHED
+                        )
+        ).thenReturn(List.of());
+
+        assertThatThrownBy(() ->
+                publicationService.findPublishedWork(
+                        workId
+                )
+        ).isInstanceOf(
+                PublishedWorkNotFoundException.class
+        );
+
+        verify(
+                catalogService,
+                never()
+        ).findWorkDetails(workId);
+    }
+
+    @Test
+    void shouldReturnPublishedInstallmentsForWork() {
+        UUID workId = UUID.randomUUID();
+
+        Installment first = mock(Installment.class);
+        Installment second = mock(Installment.class);
+
+        UUID firstId = UUID.randomUUID();
+        UUID secondId = UUID.randomUUID();
+
+        when(first.getId())
+                .thenReturn(firstId);
+
+        when(first.getType())
+                .thenReturn(InstallmentType.ISSUE);
+
+        when(first.getNumber())
+                .thenReturn(1);
+
+        when(first.getTitle())
+                .thenReturn("The Beginning");
+
+        when(second.getId())
+                .thenReturn(secondId);
+
+        when(second.getType())
+                .thenReturn(InstallmentType.ISSUE);
+
+        when(second.getNumber())
+                .thenReturn(2);
+
+        when(second.getTitle())
+                .thenReturn(null);
+
+        when(
+                installmentRepository
+                        .findByWorkIdAndStatusOrderByNumberAscCreatedAtAsc(
+                                workId,
+                                PublicationStatus.PUBLISHED
+                        )
+        ).thenReturn(
+                List.of(first, second)
+        );
+
+        List<PublishedInstallmentSummary> result =
+                publicationService
+                        .findPublishedInstallments(workId);
+
+        assertThat(result).hasSize(2);
+
+        assertThat(result.get(0).id())
+                .isEqualTo(firstId);
+
+        assertThat(result.get(0).type())
+                .isEqualTo(InstallmentType.ISSUE);
+
+        assertThat(result.get(0).number())
+                .isEqualTo(1);
+
+        assertThat(result.get(0).title())
+                .isEqualTo("The Beginning");
+
+        assertThat(result.get(1).id())
+                .isEqualTo(secondId);
+
+        assertThat(result.get(1).number())
+                .isEqualTo(2);
+
+        assertThat(result.get(1).title())
+                .isNull();
+    }
 }

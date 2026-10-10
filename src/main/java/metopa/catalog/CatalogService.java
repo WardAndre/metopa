@@ -61,4 +61,21 @@ public class CatalogService {
                 work.getType()
         );
     }
+
+    @Transactional(readOnly = true)
+    public WorkDetails findWorkDetails(UUID workId) {
+        Work work = repository.findById(workId)
+                .orElseThrow(() ->
+                        new WorkNotFoundException(workId)
+                );
+
+        return new WorkDetails(
+                work.getId(),
+                work.getTitle(),
+                work.getDescription(),
+                work.getType(),
+                work.getReadingDirection(),
+                work.getPresentationMode()
+        );
+    }
 }
