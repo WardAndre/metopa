@@ -1,11 +1,12 @@
-package metopa.publication.internal.storage;
+package metopa.media;
 
 import java.util.UUID;
 
-public interface PageStorage {
+public interface BinaryStorage {
 
     String store(
-            UUID installmentId,
+            String namespace,
+            UUID ownerId,
             byte[] content
     );
 

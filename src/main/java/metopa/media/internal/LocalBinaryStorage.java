@@ -1,5 +1,7 @@
-package metopa.publication.internal.storage;
+package metopa.media.internal;
 
+import metopa.media.BinaryStorage;
+import metopa.media.BinaryStorageException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -10,12 +12,12 @@ import java.nio.file.StandardOpenOption;
 import java.util.UUID;
 
 @Component
-public class LocalPageStorage
-        implements PageStorage {
+class LocalBinaryStorage
+        implements BinaryStorage {
 
     private final Path root;
 
-    public LocalPageStorage(
+    LocalBinaryStorage(
             @Value("${metopa.storage.root:storage}")
             String root
     ) {
@@ -26,24 +28,19 @@ public class LocalPageStorage
 
     @Override
     public String store(
-            UUID installmentId,
+            String namespace,
+            UUID ownerId,
             byte[] content
     ) {
         String storageKey =
-                "installments/"
-                        + installmentId
+                namespace
+                        + "/"
+                        + ownerId
                         + "/"
                         + UUID.randomUUID();
 
-        Path target = root
-                .resolve(storageKey)
-                .normalize();
-
-        if (!target.startsWith(root)) {
-            throw new IllegalStateException(
-                    "Invalid storage path."
-            );
-        }
+        Path target =
+                resolve(storageKey);
 
         try {
             Files.createDirectories(
@@ -57,32 +54,42 @@ public class LocalPageStorage
             );
 
             return storageKey;
+
         } catch (IOException exception) {
-            throw new PageStorageException(
-                    "Could not store page content.",
+            throw new BinaryStorageException(
+                    "Failed to store binary content.",
                     exception
             );
         }
     }
+
     @Override
     public byte[] read(String storageKey) {
-        Path source = root
-                .resolve(storageKey)
-                .normalize();
-
-        if (!source.startsWith(root)) {
-            throw new IllegalStateException(
-                    "Invalid storage path."
-            );
-        }
+        Path target =
+                resolve(storageKey);
 
         try {
-            return Files.readAllBytes(source);
+            return Files.readAllBytes(target);
+
         } catch (IOException exception) {
-            throw new PageStorageException(
-                    "Could not read page content.",
+            throw new BinaryStorageException(
+                    "Failed to read binary content.",
                     exception
             );
         }
+    }
+
+    private Path resolve(String storageKey) {
+        Path target =
+                root.resolve(storageKey)
+                        .normalize();
+
+        if (!target.startsWith(root)) {
+            throw new IllegalArgumentException(
+                    "Invalid storage key."
+            );
+        }
+
+        return target;
     }
 }

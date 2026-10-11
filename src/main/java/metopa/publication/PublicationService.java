@@ -5,11 +5,11 @@ import metopa.catalog.CatalogService;
 import metopa.catalog.WorkReference;
 import metopa.catalog.WorkDetails;
 import metopa.catalog.WorkSummary;
+import metopa.media.BinaryStorage;
 import metopa.publication.internal.Installment;
 import metopa.publication.internal.InstallmentRepository;
 import metopa.publication.internal.Page;
 import metopa.publication.internal.PageRepository;
-import metopa.publication.internal.storage.PageStorage;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.validation.annotation.Validated;
@@ -24,18 +24,18 @@ public class PublicationService {
     private final InstallmentRepository installmentRepository;
     private final PageRepository pageRepository;
     private final CatalogService catalogService;
-    private final PageStorage pageStorage;
+    private final BinaryStorage binaryStorage;
 
     public PublicationService(
             InstallmentRepository installmentRepository,
             PageRepository pageRepository,
             CatalogService catalogService,
-            PageStorage pageStorage
+            BinaryStorage binaryStorage
     ) {
         this.installmentRepository = installmentRepository;
         this.pageRepository = pageRepository;
         this.catalogService = catalogService;
-        this.pageStorage = pageStorage;
+        this.binaryStorage = binaryStorage;
     }
 
     @Transactional
@@ -107,10 +107,12 @@ public class PublicationService {
             throw new PageAlreadyExistsException();
         }
 
-        String storageKey = pageStorage.store(
-                command.installmentId(),
-                command.content()
-        );
+        String storageKey =
+                binaryStorage.store(
+                        "installments",
+                        command.installmentId(),
+                        command.content()
+                );
 
         Page page = new Page(
                 command.installmentId(),
@@ -232,7 +234,7 @@ public class PublicationService {
         }
 
         byte[] content =
-                pageStorage.read(
+                binaryStorage.read(
                         page.getStorageKey()
                 );
 

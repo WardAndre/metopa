@@ -2,33 +2,33 @@ package metopa.publication;
 
 import metopa.catalog.CatalogService;
 import metopa.catalog.PresentationMode;
-import metopa.catalog.WorkReference;
-import metopa.catalog.WorkDetails;
 import metopa.catalog.ReadingDirection;
-import metopa.catalog.WorkType;
+import metopa.catalog.WorkDetails;
+import metopa.catalog.WorkReference;
 import metopa.catalog.WorkSummary;
+import metopa.catalog.WorkType;
+import metopa.media.BinaryStorage;
 import metopa.publication.internal.Installment;
 import metopa.publication.internal.InstallmentRepository;
 import metopa.publication.internal.Page;
 import metopa.publication.internal.PageRepository;
-import metopa.publication.internal.storage.PageStorage;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
-import static org.mockito.Mockito.mock;
 
 @ExtendWith(MockitoExtension.class)
 class PublicationServiceTests {
@@ -43,7 +43,7 @@ class PublicationServiceTests {
     private CatalogService catalogService;
 
     @Mock
-    private PageStorage pageStorage;
+    private BinaryStorage binaryStorage;
 
     @InjectMocks
     private PublicationService publicationService;
@@ -230,7 +230,8 @@ class PublicationServiceTests {
         ).thenReturn(false);
 
         when(
-                pageStorage.store(
+                binaryStorage.store(
+                        "installments",
                         installment.getId(),
                         content
                 )
@@ -257,8 +258,9 @@ class PublicationServiceTests {
 
         assertThat(pageId).isNotNull();
 
-        verify(pageStorage)
+        verify(binaryStorage)
                 .store(
+                        "installments",
                         installment.getId(),
                         content
                 );
@@ -301,9 +303,10 @@ class PublicationServiceTests {
         );
 
         verify(
-                pageStorage,
+                binaryStorage,
                 never()
         ).store(
+                any(String.class),
                 any(UUID.class),
                 any(byte[].class)
         );
@@ -365,9 +368,10 @@ class PublicationServiceTests {
         );
 
         verify(
-                pageStorage,
+                binaryStorage,
                 never()
         ).store(
+                any(String.class),
                 any(UUID.class),
                 any(byte[].class)
         );
@@ -436,9 +440,10 @@ class PublicationServiceTests {
         );
 
         verify(
-                pageStorage,
+                binaryStorage,
                 never()
         ).store(
+                any(String.class),
                 any(UUID.class),
                 any(byte[].class)
         );
@@ -476,9 +481,11 @@ class PublicationServiceTests {
                         )
                 );
 
-        when(pageRepository.existsByInstallmentId(
-                installment.getId()
-        )).thenReturn(true);
+        when(
+                pageRepository.existsByInstallmentId(
+                        installment.getId()
+                )
+        ).thenReturn(true);
 
         publicationService.publishInstallment(
                 userId,
@@ -518,9 +525,11 @@ class PublicationServiceTests {
                         )
                 );
 
-        when(pageRepository.existsByInstallmentId(
-                installment.getId()
-        )).thenReturn(false);
+        when(
+                pageRepository.existsByInstallmentId(
+                        installment.getId()
+                )
+        ).thenReturn(false);
 
         assertThatThrownBy(() ->
                 publicationService.publishInstallment(
@@ -575,14 +584,19 @@ class PublicationServiceTests {
                 PublishedInstallmentModificationException.class
         );
 
-        verify(pageStorage, never())
-                .store(
-                        any(UUID.class),
-                        any(byte[].class)
-                );
+        verify(
+                binaryStorage,
+                never()
+        ).store(
+                any(String.class),
+                any(UUID.class),
+                any(byte[].class)
+        );
 
-        verify(pageRepository, never())
-                .save(any());
+        verify(
+                pageRepository,
+                never()
+        ).save(any());
     }
 
     @Test
@@ -599,19 +613,21 @@ class PublicationServiceTests {
 
         installment.publish();
 
-        Page firstPage = new Page(
-                installment.getId(),
-                1,
-                "installments/example/page-1",
-                "image/jpeg"
-        );
+        Page firstPage =
+                new Page(
+                        installment.getId(),
+                        1,
+                        "installments/example/page-1",
+                        "image/jpeg"
+                );
 
-        Page secondPage = new Page(
-                installment.getId(),
-                2,
-                "installments/example/page-2",
-                "image/webp"
-        );
+        Page secondPage =
+                new Page(
+                        installment.getId(),
+                        2,
+                        "installments/example/page-2",
+                        "image/webp"
+                );
 
         when(
                 installmentRepository.findById(
@@ -627,7 +643,7 @@ class PublicationServiceTests {
                                 installment.getId()
                         )
         ).thenReturn(
-                java.util.List.of(
+                List.of(
                         firstPage,
                         secondPage
                 )
@@ -776,7 +792,7 @@ class PublicationServiceTests {
         ).thenReturn(Optional.of(installment));
 
         when(
-                pageStorage.read(
+                binaryStorage.read(
                         page.getStorageKey()
                 )
         ).thenReturn(content);
@@ -793,7 +809,7 @@ class PublicationServiceTests {
         assertThat(result.content())
                 .isEqualTo(content);
 
-        verify(pageStorage)
+        verify(binaryStorage)
                 .read(page.getStorageKey());
     }
 
@@ -839,9 +855,9 @@ class PublicationServiceTests {
         );
 
         verify(
-                pageStorage,
+                binaryStorage,
                 never()
-        ).read(any());
+        ).read(any(String.class));
     }
 
     @Test
@@ -862,9 +878,9 @@ class PublicationServiceTests {
         );
 
         verify(
-                pageStorage,
+                binaryStorage,
                 never()
-        ).read(any());
+        ).read(any(String.class));
     }
 
     @Test
@@ -891,6 +907,7 @@ class PublicationServiceTests {
         UUID workId = UUID.randomUUID();
 
         Page page = mock(Page.class);
+
         Installment installment =
                 mock(Installment.class);
 
@@ -941,7 +958,6 @@ class PublicationServiceTests {
     @Test
     void shouldFindPublishedWork() {
         UUID workId = UUID.randomUUID();
-
         UUID installmentId = UUID.randomUUID();
 
         Installment installment =
@@ -1062,8 +1078,11 @@ class PublicationServiceTests {
     void shouldReturnPublishedInstallmentsForWork() {
         UUID workId = UUID.randomUUID();
 
-        Installment first = mock(Installment.class);
-        Installment second = mock(Installment.class);
+        Installment first =
+                mock(Installment.class);
+
+        Installment second =
+                mock(Installment.class);
 
         UUID firstId = UUID.randomUUID();
         UUID secondId = UUID.randomUUID();
@@ -1196,7 +1215,9 @@ class PublicationServiceTests {
                 .isEqualTo("Metopa Origins");
 
         assertThat(result.get(0).type())
-                .isEqualTo(WorkType.GRAPHIC_NOVEL);
+                .isEqualTo(
+                        WorkType.GRAPHIC_NOVEL
+                );
 
         assertThat(result.get(1).id())
                 .isEqualTo(secondWorkId);
