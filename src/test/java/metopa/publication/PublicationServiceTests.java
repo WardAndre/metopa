@@ -6,6 +6,7 @@ import metopa.catalog.WorkReference;
 import metopa.catalog.WorkDetails;
 import metopa.catalog.ReadingDirection;
 import metopa.catalog.WorkType;
+import metopa.catalog.WorkSummary;
 import metopa.publication.internal.Installment;
 import metopa.publication.internal.InstallmentRepository;
 import metopa.publication.internal.Page;
@@ -1127,5 +1128,80 @@ class PublicationServiceTests {
 
         assertThat(result.get(1).title())
                 .isNull();
+    }
+
+    @Test
+    void shouldFindPublishedWorks() {
+        UUID firstWorkId = UUID.randomUUID();
+        UUID secondWorkId = UUID.randomUUID();
+
+        Installment newestFirstWorkInstallment =
+                mock(Installment.class);
+
+        Installment olderFirstWorkInstallment =
+                mock(Installment.class);
+
+        Installment secondWorkInstallment =
+                mock(Installment.class);
+
+        when(newestFirstWorkInstallment.getWorkId())
+                .thenReturn(firstWorkId);
+
+        when(olderFirstWorkInstallment.getWorkId())
+                .thenReturn(firstWorkId);
+
+        when(secondWorkInstallment.getWorkId())
+                .thenReturn(secondWorkId);
+
+        when(
+                installmentRepository
+                        .findByStatusOrderByUpdatedAtDesc(
+                                PublicationStatus.PUBLISHED
+                        )
+        ).thenReturn(
+                List.of(
+                        newestFirstWorkInstallment,
+                        olderFirstWorkInstallment,
+                        secondWorkInstallment
+                )
+        );
+
+        when(catalogService.findWorkSummary(firstWorkId))
+                .thenReturn(
+                        new WorkSummary(
+                                firstWorkId,
+                                "Metopa Origins",
+                                WorkType.GRAPHIC_NOVEL
+                        )
+                );
+
+        when(catalogService.findWorkSummary(secondWorkId))
+                .thenReturn(
+                        new WorkSummary(
+                                secondWorkId,
+                                "Another Work",
+                                WorkType.COMIC
+                        )
+                );
+
+        List<PublishedWorkSummary> result =
+                publicationService.findPublishedWorks();
+
+        assertThat(result).hasSize(2);
+
+        assertThat(result.get(0).id())
+                .isEqualTo(firstWorkId);
+
+        assertThat(result.get(0).title())
+                .isEqualTo("Metopa Origins");
+
+        assertThat(result.get(0).type())
+                .isEqualTo(WorkType.GRAPHIC_NOVEL);
+
+        assertThat(result.get(1).id())
+                .isEqualTo(secondWorkId);
+
+        assertThat(result.get(1).title())
+                .isEqualTo("Another Work");
     }
 }

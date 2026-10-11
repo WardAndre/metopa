@@ -44,6 +44,10 @@ class WebSecurityConfiguration {
                         ).permitAll()
                         .requestMatchers(
                                 HttpMethod.GET,
+                                "/api/works"
+                        ).permitAll()
+                        .requestMatchers(
+                                HttpMethod.GET,
                                 "/api/works/*"
                         ).permitAll()
 
