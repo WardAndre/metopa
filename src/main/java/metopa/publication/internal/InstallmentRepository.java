@@ -25,4 +25,8 @@ public interface InstallmentRepository
             UUID workId,
             PublicationStatus status
     );
+
+    List<Installment> findByStatusOrderByUpdatedAtDesc(
+            PublicationStatus status
+    );
 }

@@ -8,6 +8,7 @@ import metopa.publication.PublishedWorkNotFoundException;
 import metopa.publication.PublishedWorkView;
 import metopa.publication.InstallmentType;
 import metopa.publication.PublishedInstallmentSummary;
+import metopa.publication.PublishedWorkSummary;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -156,6 +157,63 @@ class PublishedWorkControllerTests {
                                 .value(
                                         "The requested work is not available."
                                 )
+                );
+    }
+
+    @Test
+    void shouldReturnPublishedWorks()
+            throws Exception {
+
+        UUID firstWorkId = UUID.randomUUID();
+        UUID secondWorkId = UUID.randomUUID();
+
+        when(publicationService.findPublishedWorks())
+                .thenReturn(
+                        List.of(
+                                new PublishedWorkSummary(
+                                        firstWorkId,
+                                        "Metopa Origins",
+                                        WorkType.GRAPHIC_NOVEL
+                                ),
+                                new PublishedWorkSummary(
+                                        secondWorkId,
+                                        "Another Work",
+                                        WorkType.COMIC
+                                )
+                        )
+                );
+
+        mockMvc.perform(
+                        get("/api/works")
+                )
+                .andExpect(status().isOk())
+                .andExpect(
+                        jsonPath("$.length()")
+                                .value(2)
+                )
+                .andExpect(
+                        jsonPath("$[0].id")
+                                .value(firstWorkId.toString())
+                )
+                .andExpect(
+                        jsonPath("$[0].title")
+                                .value("Metopa Origins")
+                )
+                .andExpect(
+                        jsonPath("$[0].type")
+                                .value("GRAPHIC_NOVEL")
+                )
+                .andExpect(
+                        jsonPath("$[1].id")
+                                .value(secondWorkId.toString())
+                )
+                .andExpect(
+                        jsonPath("$[1].title")
+                                .value("Another Work")
+                )
+                .andExpect(
+                        jsonPath("$[1].type")
+                                .value("COMIC")
                 );
     }
 }

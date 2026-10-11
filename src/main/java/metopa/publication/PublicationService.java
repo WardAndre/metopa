@@ -4,6 +4,7 @@ import jakarta.validation.Valid;
 import metopa.catalog.CatalogService;
 import metopa.catalog.WorkReference;
 import metopa.catalog.WorkDetails;
+import metopa.catalog.WorkSummary;
 import metopa.publication.internal.Installment;
 import metopa.publication.internal.InstallmentRepository;
 import metopa.publication.internal.Page;
@@ -325,6 +326,26 @@ public class PublicationService {
                                 installment.getType(),
                                 installment.getNumber(),
                                 installment.getTitle()
+                        )
+                )
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<PublishedWorkSummary> findPublishedWorks() {
+        return installmentRepository
+                .findByStatusOrderByUpdatedAtDesc(
+                        PublicationStatus.PUBLISHED
+                )
+                .stream()
+                .map(Installment::getWorkId)
+                .distinct()
+                .map(catalogService::findWorkSummary)
+                .map(work ->
+                        new PublishedWorkSummary(
+                                work.id(),
+                                work.title(),
+                                work.type()
                         )
                 )
                 .toList();

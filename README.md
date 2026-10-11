@@ -294,6 +294,10 @@ Os testes cobrem:
 - ocultação de obras que possuem somente conteúdo em draft;
 - listagem somente de installments publicados;
 - ocultação de installments draft mesmo quando pertencem a uma obra já pública.
+- descoberta pública de obras sem autenticação;
+- exclusão de obras que possuem apenas conteúdo em draft;
+- prevenção de duplicidade quando uma obra possui vários installments publicados;
+- descoberta baseada somente em conteúdo publicado.
 
 ## API atual
 
@@ -736,6 +740,47 @@ Caso a obra não exista ou ainda não possua conteúdo publicado:
 ```text
 404 → obra não disponível
 ```
+
+### Listar obras publicadas
+
+```http
+GET /api/works
+```
+
+Endpoint público. Não requer autenticação.
+
+Retorna as obras que possuem pelo menos um installment publicado.
+
+Resposta:
+
+```http
+200 OK
+```
+
+Exemplo:
+
+```json
+[
+  {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "title": "Metopa Origins",
+    "type": "GRAPHIC_NOVEL"
+  },
+  {
+    "id": "550e8400-e29b-41d4-a716-446655440001",
+    "title": "Another Work",
+    "type": "COMIC"
+  }
+]
+```
+
+Caso não existam obras publicadas:
+
+```json
+[]
+```
+
+Uma obra aparece apenas uma vez, mesmo que possua vários installments publicados.
 
 ## Migrations
 
