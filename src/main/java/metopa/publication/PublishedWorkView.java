@@ -14,6 +14,7 @@ public record PublishedWorkView(
         WorkType type,
         ReadingDirection readingDirection,
         PresentationMode presentationMode,
+        boolean hasCover,
         List<PublishedInstallmentSummary> installments
 ) {
 

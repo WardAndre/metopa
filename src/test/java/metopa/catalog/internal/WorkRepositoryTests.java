@@ -8,6 +8,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
 
+import java.util.UUID;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 @DataJpaTest
@@ -43,5 +45,42 @@ class WorkRepositoryTests {
                 .isEqualTo(PresentationMode.SINGLE_PAGE);
         assertThat(saved.getCreatedAt()).isNotNull();
         assertThat(saved.getUpdatedAt()).isNotNull();
+    }
+
+    @Test
+    void shouldPersistWorkCoverReference() {
+        UUID ownerId = UUID.randomUUID();
+
+        Work work =
+                new Work(
+                        ownerId,
+                        "Covered Work",
+                        null,
+                        WorkType.COMIC,
+                        ReadingDirection.LEFT_TO_RIGHT,
+                        PresentationMode.SINGLE_PAGE
+                );
+
+        work.setCover(
+                "covers/" + work.getId() + "/cover-file",
+                "image/webp"
+        );
+
+        repository.saveAndFlush(work);
+
+        Work found =
+                repository.findById(
+                        work.getId()
+                ).orElseThrow();
+
+        assertThat(found.getCoverStorageKey())
+                .isEqualTo(
+                        "covers/"
+                                + work.getId()
+                                + "/cover-file"
+                );
+
+        assertThat(found.getCoverContentType())
+                .isEqualTo("image/webp");
     }
 }

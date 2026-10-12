@@ -11,6 +11,7 @@ import metopa.publication.PublishedInstallmentModificationException;
 import metopa.publication.PublishedInstallmentNotFoundException;
 import metopa.publication.PublishedPageNotFoundException;
 import metopa.publication.PublishedWorkNotFoundException;
+import metopa.publication.PublishedWorkCoverNotFoundException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -222,6 +223,28 @@ class PublicationExceptionHandler {
 
         problem.setDetail(
                 "The requested work is not available."
+        );
+
+        return problem;
+    }
+
+    @ExceptionHandler(
+            PublishedWorkCoverNotFoundException.class
+    )
+    ProblemDetail handlePublishedWorkCoverNotFound(
+            PublishedWorkCoverNotFoundException exception
+    ) {
+        ProblemDetail problem =
+                ProblemDetail.forStatus(
+                        HttpStatus.NOT_FOUND
+                );
+
+        problem.setTitle(
+                "Work cover not available"
+        );
+
+        problem.setDetail(
+                "The requested work cover is not available."
         );
 
         return problem;

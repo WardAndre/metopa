@@ -156,7 +156,8 @@ class LibraryServiceTests {
                 new WorkSummary(
                         workId,
                         "Metopa Origins",
-                        WorkType.GRAPHIC_NOVEL
+                        WorkType.GRAPHIC_NOVEL,
+                        false
                 )
         );
 

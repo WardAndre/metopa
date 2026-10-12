@@ -12,6 +12,7 @@ import metopa.publication.internal.Installment;
 import metopa.publication.internal.InstallmentRepository;
 import metopa.publication.internal.Page;
 import metopa.publication.internal.PageRepository;
+import metopa.catalog.WorkCoverContent;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -994,7 +995,8 @@ class PublicationServiceTests {
                         "A science fiction graphic novel.",
                         WorkType.GRAPHIC_NOVEL,
                         ReadingDirection.LEFT_TO_RIGHT,
-                        PresentationMode.SINGLE_PAGE
+                        PresentationMode.SINGLE_PAGE,
+                        true
                 )
         );
 
@@ -1002,6 +1004,9 @@ class PublicationServiceTests {
                 publicationService.findPublishedWork(
                         workId
                 );
+
+        assertThat(result.hasCover())
+                .isTrue();
 
         assertThat(result.id())
                 .isEqualTo(workId);
@@ -1190,7 +1195,8 @@ class PublicationServiceTests {
                         new WorkSummary(
                                 firstWorkId,
                                 "Metopa Origins",
-                                WorkType.GRAPHIC_NOVEL
+                                WorkType.GRAPHIC_NOVEL,
+                                true
                         )
                 );
 
@@ -1199,12 +1205,19 @@ class PublicationServiceTests {
                         new WorkSummary(
                                 secondWorkId,
                                 "Another Work",
-                                WorkType.COMIC
+                                WorkType.COMIC,
+                                false
                         )
                 );
 
         List<PublishedWorkSummary> result =
                 publicationService.findPublishedWorks();
+
+        assertThat(result.get(0).hasCover())
+                .isTrue();
+
+        assertThat(result.get(1).hasCover())
+                .isFalse();
 
         assertThat(result).hasSize(2);
 
@@ -1224,5 +1237,69 @@ class PublicationServiceTests {
 
         assertThat(result.get(1).title())
                 .isEqualTo("Another Work");
+    }
+
+    @Test
+    void shouldReadCoverForPublishedWork() {
+        UUID workId = UUID.randomUUID();
+
+        byte[] content =
+                "cover-content".getBytes();
+
+        when(
+                installmentRepository
+                        .existsByWorkIdAndStatus(
+                                workId,
+                                PublicationStatus.PUBLISHED
+                        )
+        ).thenReturn(true);
+
+        when(
+                catalogService.findWorkCover(workId)
+        ).thenReturn(
+                new WorkCoverContent(
+                        "image/webp",
+                        content
+                )
+        );
+
+        PublishedWorkCoverContent result =
+                publicationService
+                        .findPublishedWorkCover(
+                                workId
+                        );
+
+        assertThat(result.contentType())
+                .isEqualTo("image/webp");
+
+        assertThat(result.content())
+                .isEqualTo(content);
+    }
+
+    @Test
+    void shouldHideCoverForWorkWithoutPublishedContent() {
+        UUID workId = UUID.randomUUID();
+
+        when(
+                installmentRepository
+                        .existsByWorkIdAndStatus(
+                                workId,
+                                PublicationStatus.PUBLISHED
+                        )
+        ).thenReturn(false);
+
+        assertThatThrownBy(() ->
+                publicationService
+                        .findPublishedWorkCover(
+                                workId
+                        )
+        ).isInstanceOf(
+                PublishedWorkCoverNotFoundException.class
+        );
+
+        verify(
+                catalogService,
+                never()
+        ).findWorkCover(workId);
     }
 }

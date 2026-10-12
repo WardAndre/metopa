@@ -3,6 +3,7 @@ package metopa.catalog;
 import jakarta.validation.Valid;
 import metopa.catalog.internal.Work;
 import metopa.catalog.internal.WorkRepository;
+import metopa.media.BinaryStorage;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.validation.annotation.Validated;
@@ -15,8 +16,14 @@ public class CatalogService {
 
     private final WorkRepository repository;
 
-    public CatalogService(WorkRepository repository) {
+    private final BinaryStorage binaryStorage;
+
+    public CatalogService(
+            WorkRepository repository,
+            BinaryStorage binaryStorage
+    ) {
         this.repository = repository;
+        this.binaryStorage = binaryStorage;
     }
 
     @Transactional
@@ -58,7 +65,8 @@ public class CatalogService {
         return new WorkSummary(
                 work.getId(),
                 work.getTitle(),
-                work.getType()
+                work.getType(),
+                work.getCoverStorageKey() != null
         );
     }
 
@@ -75,7 +83,63 @@ public class CatalogService {
                 work.getDescription(),
                 work.getType(),
                 work.getReadingDirection(),
-                work.getPresentationMode()
+                work.getPresentationMode(),
+                work.getCoverStorageKey() != null
+        );
+    }
+
+    @Transactional
+    public void setCover(
+            UUID userId,
+            UUID workId,
+            String contentType,
+            byte[] content
+    ) {
+        Work work = repository.findById(workId)
+                .orElseThrow(() ->
+                        new WorkNotFoundException(workId)
+                );
+
+        if (!work.getOwnerId().equals(userId)) {
+            throw new WorkAccessDeniedException();
+        }
+
+        String storageKey =
+                binaryStorage.store(
+                        "covers",
+                        workId,
+                        content
+                );
+
+        work.setCover(
+                storageKey,
+                contentType
+        );
+    }
+
+    @Transactional(readOnly = true)
+    public WorkCoverContent findWorkCover(
+            UUID workId
+    ) {
+        Work work = repository.findById(workId)
+                .orElseThrow(() ->
+                        new WorkNotFoundException(workId)
+                );
+
+        if (work.getCoverStorageKey() == null) {
+            throw new WorkCoverNotFoundException(
+                    workId
+            );
+        }
+
+        byte[] content =
+                binaryStorage.read(
+                        work.getCoverStorageKey()
+                );
+
+        return new WorkCoverContent(
+                work.getCoverContentType(),
+                content
         );
     }
 }

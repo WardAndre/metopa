@@ -1,5 +1,5 @@
 @org.springframework.modulith.ApplicationModule(
         displayName = "Catalog",
-        allowedDependencies = "identity"
+        allowedDependencies = {"identity", "media"}
 )
 package metopa.catalog;
