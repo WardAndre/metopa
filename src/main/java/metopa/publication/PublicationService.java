@@ -4,12 +4,13 @@ import jakarta.validation.Valid;
 import metopa.catalog.CatalogService;
 import metopa.catalog.WorkReference;
 import metopa.catalog.WorkDetails;
-import metopa.catalog.WorkSummary;
 import metopa.media.BinaryStorage;
 import metopa.publication.internal.Installment;
 import metopa.publication.internal.InstallmentRepository;
 import metopa.publication.internal.Page;
 import metopa.publication.internal.PageRepository;
+import metopa.catalog.WorkCoverContent;
+import metopa.catalog.WorkCoverNotFoundException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.validation.annotation.Validated;
@@ -308,6 +309,7 @@ public class PublicationService {
                 work.type(),
                 work.readingDirection(),
                 work.presentationMode(),
+                work.hasCover(),
                 installments
         );
     }
@@ -347,9 +349,38 @@ public class PublicationService {
                         new PublishedWorkSummary(
                                 work.id(),
                                 work.title(),
-                                work.type()
+                                work.type(),
+                                work.hasCover()
                         )
                 )
                 .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public PublishedWorkCoverContent findPublishedWorkCover(
+            UUID workId
+    ) {
+        if (!hasPublishedContent(workId)) {
+            throw new PublishedWorkCoverNotFoundException(
+                    workId
+            );
+        }
+
+        WorkCoverContent cover;
+
+        try {
+            cover = catalogService.findWorkCover(
+                    workId
+            );
+        } catch (WorkCoverNotFoundException exception) {
+            throw new PublishedWorkCoverNotFoundException(
+                    workId
+            );
+        }
+
+        return new PublishedWorkCoverContent(
+                cover.contentType(),
+                cover.content()
+        );
     }
 }

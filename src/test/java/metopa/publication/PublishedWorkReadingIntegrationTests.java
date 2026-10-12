@@ -126,6 +126,13 @@ class PublishedWorkReadingIntegrationTests {
                         "Metopa Origins"
                 );
 
+        catalogService.setCover(
+                ownerId,
+                workId,
+                "image/webp",
+                "published-work-cover".getBytes()
+        );
+
         mockMvc.perform(
                         get(
                                 "/api/works/{workId}",
@@ -158,6 +165,14 @@ class PublishedWorkReadingIntegrationTests {
                 .andExpect(
                         jsonPath("$.presentationMode")
                                 .value("SINGLE_PAGE")
+                )
+                .andExpect(
+                        jsonPath("$.coverUrl")
+                                .value(
+                                        "/api/works/"
+                                                + workId
+                                                + "/cover"
+                                )
                 );
     }
 

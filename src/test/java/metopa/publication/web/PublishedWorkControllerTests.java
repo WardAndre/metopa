@@ -19,6 +19,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.util.UUID;
 import java.util.List;
 
+import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -53,6 +54,7 @@ class PublishedWorkControllerTests {
                         WorkType.GRAPHIC_NOVEL,
                         ReadingDirection.LEFT_TO_RIGHT,
                         PresentationMode.SINGLE_PAGE,
+                        true,
                         List.of(
                                 new PublishedInstallmentSummary(
                                         installmentId,
@@ -96,6 +98,14 @@ class PublishedWorkControllerTests {
                 .andExpect(
                         jsonPath("$.presentationMode")
                                 .value("SINGLE_PAGE")
+                )
+                .andExpect(
+                        jsonPath("$.coverUrl")
+                                .value(
+                                        "/api/works/"
+                                                + workId
+                                                + "/cover"
+                                )
                 )
                 .andExpect(
                         jsonPath("$.installments.length()")
@@ -173,12 +183,14 @@ class PublishedWorkControllerTests {
                                 new PublishedWorkSummary(
                                         firstWorkId,
                                         "Metopa Origins",
-                                        WorkType.GRAPHIC_NOVEL
+                                        WorkType.GRAPHIC_NOVEL,
+                                        true
                                 ),
                                 new PublishedWorkSummary(
                                         secondWorkId,
                                         "Another Work",
-                                        WorkType.COMIC
+                                        WorkType.COMIC,
+                                        false
                                 )
                         )
                 );
@@ -204,6 +216,14 @@ class PublishedWorkControllerTests {
                                 .value("GRAPHIC_NOVEL")
                 )
                 .andExpect(
+                        jsonPath("$[0].coverUrl")
+                                .value(
+                                        "/api/works/"
+                                                + firstWorkId
+                                                + "/cover"
+                                )
+                )
+                .andExpect(
                         jsonPath("$[1].id")
                                 .value(secondWorkId.toString())
                 )
@@ -214,6 +234,10 @@ class PublishedWorkControllerTests {
                 .andExpect(
                         jsonPath("$[1].type")
                                 .value("COMIC")
+                )
+                .andExpect(
+                        jsonPath("$[1].coverUrl")
+                                .value(nullValue())
                 );
     }
 }

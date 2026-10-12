@@ -8,16 +8,22 @@ import java.util.UUID;
 record PublishedWorkSummaryResponse(
         UUID id,
         String title,
-        WorkType type
+        WorkType type,
+        String coverUrl
 ) {
 
     static PublishedWorkSummaryResponse from(
-            PublishedWorkSummary summary
+            PublishedWorkSummary work
     ) {
         return new PublishedWorkSummaryResponse(
-                summary.id(),
-                summary.title(),
-                summary.type()
+                work.id(),
+                work.title(),
+                work.type(),
+                work.hasCover()
+                        ? "/api/works/"
+                        + work.id()
+                        + "/cover"
+                        : null
         );
     }
 }

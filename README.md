@@ -10,6 +10,8 @@ Projeto em desenvolvimento — MVP.
 
 Nesta primeira fase, toda a infraestrutura é executada localmente, sem dependência de serviços cloud pagos.
 
+A suíte automatizada possui atualmente **148 testes**, cobrindo regras de domínio, persistência, segurança, APIs HTTP, armazenamento binário e fluxos de integração.
+
 ## Tecnologias
 
 - Java 25
@@ -41,14 +43,18 @@ metopa
 ├── catalog
 ├── publication
 ├── library
+├── reading
+├── media
 └── moderation
 ```
 
 O Spring Modulith é utilizado para verificar automaticamente as dependências e os limites entre os módulos.
 
-Os arquivos das páginas são armazenados fora do banco de dados.
+Arquivos binários, como páginas e capas de obras, são armazenados fora do banco de dados. O PostgreSQL mantém apenas os metadados e as referências necessárias para localizar esses arquivos.
 
-O PostgreSQL mantém apenas os metadados e a referência do arquivo (`storageKey`). No MVP, os arquivos são armazenados no filesystem local através de uma abstração de storage, permitindo que uma implementação diferente seja utilizada futuramente sem acoplar o domínio ao mecanismo físico de armazenamento.
+O módulo `media` fornece uma abstração genérica de armazenamento binário através de `BinaryStorage`. No MVP, a implementação utiliza o filesystem local, permitindo que o mecanismo físico de armazenamento seja substituído futuramente sem acoplar os demais módulos à infraestrutura.
+
+O `storageKey` é um detalhe interno e não é exposto pela API pública.
 
 ## Módulos
 
@@ -73,7 +79,7 @@ Atualmente suporta:
 
 ### Catalog
 
-Responsável pelo catálogo de obras disponíveis na plataforma.
+Responsável pelo catálogo e pelos metadados das obras.
 
 Atualmente suporta:
 
@@ -83,11 +89,15 @@ Atualmente suporta:
 - direção de leitura configurável;
 - modo de apresentação configurável;
 - normalização e validação dos dados da obra;
-- persistência das obras no PostgreSQL.
+- persistência das obras no PostgreSQL;
+- definição e substituição da capa por parte do proprietário da obra;
+- armazenamento apenas da referência e do `Content-Type` da capa no banco;
+- leitura interna da capa através do módulo `media`;
+- indicação de disponibilidade de capa sem expor o `storageKey`.
 
 ### Publication
 
-Responsável pela criação, publicação e leitura do conteúdo das obras.
+Responsável pela criação, publicação e leitura pública do conteúdo das obras.
 
 Atualmente suporta:
 
@@ -98,8 +108,8 @@ Atualmente suporta:
 - validação de propriedade da obra antes de alterações;
 - prevenção de installments duplicados por tipo e número;
 - criação e ordenação de páginas;
-- upload de páginas através de multipart/form-data;
-- armazenamento local dos arquivos através de uma abstração de storage;
+- upload de páginas através de `multipart/form-data`;
+- armazenamento local dos arquivos através do módulo `media`;
 - armazenamento de metadados das páginas no PostgreSQL;
 - prevenção de números de página duplicados;
 - publicação de installments;
@@ -108,6 +118,9 @@ Atualmente suporta:
 - leitura pública de installments publicados;
 - páginas retornadas em ordem de leitura;
 - leitura pública do conteúdo binário das páginas;
+- consulta pública de detalhes de obras que possuem conteúdo publicado;
+- descoberta pública de obras publicadas sem duplicação por installment;
+- exposição pública da capa somente quando a obra possui conteúdo publicado;
 - drafts não são expostos pelos endpoints públicos.
 
 ### Library
@@ -142,6 +155,19 @@ Atualmente suporta:
 - páginas inexistentes e páginas ainda não publicadas são tratadas igualmente como indisponíveis;
 - progresso de leitura independente da biblioteca pessoal.
 
+### Media
+
+Responsável pela abstração de armazenamento de conteúdo binário.
+
+Atualmente suporta:
+
+- armazenamento por namespace e identificador do recurso;
+- geração interna de `storageKey`;
+- leitura de conteúdo binário a partir da chave;
+- proteção contra resolução de caminhos fora da raiz configurada;
+- implementação local baseada em filesystem;
+- uso compartilhado por páginas de installments e capas de obras.
+
 ### Moderation
 
 Responsável por denúncias e ações de moderação.
@@ -160,6 +186,9 @@ Algumas decisões adotadas no MVP:
 - UUID como identificador das entidades de domínio;
 - entidades JPA e repositories mantidos internos aos módulos;
 - API pública dos módulos separada de detalhes de persistência;
+- arquivos binários armazenados fora do PostgreSQL;
+- armazenamento binário acessado através de uma abstração compartilhada;
+- `storageKey` tratado como detalhe interno de infraestrutura;
 - autenticação baseada em sessão HTTP no MVP web;
 - proteção CSRF mantida habilitada;
 - senhas nunca são armazenadas em texto puro;
@@ -178,6 +207,8 @@ metopa/
 │   │   │       ├── catalog/
 │   │   │       ├── publication/
 │   │   │       ├── library/
+│   │   │       ├── reading/
+│   │   │       ├── media/
 │   │   │       └── moderation/
 │   │   │
 │   │   └── resources/
@@ -251,53 +282,43 @@ Para limpar o build, compilar o projeto e executar todos os testes:
 ./mvnw clean test
 ```
 
-Os testes cobrem:
+Estado atual da suíte:
 
-- criação e persistência de installments;
+```text
+Tests run: 148
+Failures: 0
+Errors: 0
+Skipped: 0
+```
+
+Os testes cobrem, entre outros cenários:
+
+- criação, persistência, publicação e leitura de installments;
 - autorização baseada na propriedade da obra;
-- criação e persistência de páginas;
+- criação, ordenação e persistência de páginas;
 - upload multipart;
-- armazenamento físico local;
-- geração interna de storage keys;
+- armazenamento físico local e geração interna de `storageKey`;
 - prevenção de installments e páginas duplicados;
-- publicação de installments;
 - impedimento de publicação sem páginas;
-- impedimento de alteração após publicação;
-- fluxos HTTP 401, 403, 404 e 409 relacionados ao módulo de publicação.
-- persistência de entradas da biblioteca;
-- disponibilidade da obra através de conteúdo publicado;
-- adição autenticada de obras à biblioteca;
-- prevenção de entradas duplicadas;
-- rejeição de obras sem conteúdo publicado;
-- fluxos HTTP 401, 404 e 409 da biblioteca.
-- listagem da biblioteca do usuário autenticado;
-- resposta vazia para biblioteca sem entradas;
-- isolamento de dados entre usuários diferentes;
-- rejeição da leitura sem autenticação.
-- remoção de obras da biblioteca;
-- desaparecimento da obra na listagem após remoção;
-- comportamento idempotente do DELETE;
-- rejeição da remoção sem autenticação;
-- proteção CSRF das operações que alteram estado.
-- persistência de progresso;
-- criação da primeira posição;
-- atualização da posição existente sem criar um novo progresso;
-- consulta da última posição registrada;
-- integração entre reading e publication através de APIs públicas dos módulos;
-- rejeição de páginas inexistentes;
-- rejeição de páginas pertencentes a installments ainda não publicados;
-- tratamento indistinguível de páginas inexistentes e privadas;
-- autenticação para leitura e escrita do progresso;
-- proteção CSRF na atualização da posição.
-- leitura pública dos detalhes de uma obra;
-- acesso à obra publicada sem autenticação;
+- impedimento de alteração de installments publicados;
+- autenticação, sessão HTTP e proteção CSRF;
+- fluxos HTTP 401, 403, 404 e 409;
+- persistência, listagem e remoção idempotente de entradas da biblioteca;
+- isolamento da biblioteca entre usuários;
+- persistência, atualização e consulta do progresso de leitura;
+- rejeição de páginas inexistentes ou ainda não publicadas no progresso;
+- leitura pública dos detalhes de obras publicadas;
 - ocultação de obras que possuem somente conteúdo em draft;
 - listagem somente de installments publicados;
-- ocultação de installments draft mesmo quando pertencem a uma obra já pública.
-- descoberta pública de obras sem autenticação;
-- exclusão de obras que possuem apenas conteúdo em draft;
-- prevenção de duplicidade quando uma obra possui vários installments publicados;
-- descoberta baseada somente em conteúdo publicado.
+- descoberta pública de obras sem duplicação;
+- persistência de referências de capa;
+- armazenamento e leitura real dos bytes da capa;
+- rejeição de upload de capa por usuário que não seja proprietário;
+- exigência de autenticação e CSRF no upload da capa;
+- ocultação pública da capa de obras ainda não publicadas;
+- leitura pública da capa de obras publicadas;
+- propagação de `hasCover` entre catalog e publication;
+- exposição de `coverUrl` nos endpoints públicos de detalhe e descoberta.
 
 ## API atual
 
@@ -330,7 +351,7 @@ Resposta de sucesso:
 GET /api/auth/csrf
 ```
 
-O token deve ser enviado em requisições protegidas por CSRF através do header retornado pela própria API.
+O token deve ser enviado nas requisições protegidas por CSRF através do header informado pela própria API.
 
 ### Login
 
@@ -338,7 +359,7 @@ O token deve ser enviado em requisições protegidas por CSRF através do header
 POST /api/auth/login
 ```
 
-O login atualmente utiliza:
+O login utiliza:
 
 ```text
 Content-Type: application/x-www-form-urlencoded
@@ -374,6 +395,10 @@ Exemplo de resposta:
 ```http
 POST /api/auth/logout
 ```
+
+Requer sessão autenticada.
+
+O logout invalida a sessão atual.
 
 ### Criar obra
 
@@ -411,9 +436,65 @@ Exemplo:
 }
 ```
 
-Requer sessão autenticada e token CSRF válido.
+### Definir capa da obra
 
-O logout invalida a sessão atual.
+```http
+PUT /api/works/{workId}/cover
+```
+
+Requer usuário autenticado e token CSRF válido.
+
+Somente o proprietário da obra pode definir a capa.
+
+A requisição utiliza:
+
+```text
+Content-Type: multipart/form-data
+```
+
+Campo:
+
+```text
+file → arquivo da capa
+```
+
+O cliente não informa o local físico do arquivo. O `storageKey` é gerado internamente pelo backend através do módulo `media`.
+
+Resposta de sucesso:
+
+```http
+204 No Content
+```
+
+### Ler capa de obra publicada
+
+```http
+GET /api/works/{workId}/cover
+```
+
+Endpoint público.
+
+Retorna diretamente o conteúdo binário da capa com o `Content-Type` correspondente.
+
+A capa somente é disponibilizada publicamente quando:
+
+- a obra possui uma capa;
+- a obra possui pelo menos um installment publicado.
+
+Exemplo:
+
+```text
+HTTP/1.1 200 OK
+Content-Type: image/webp
+```
+
+Uma obra sem capa ou sem conteúdo publicado retorna:
+
+```text
+404 → capa da obra não disponível
+```
+
+O `storageKey` não é exposto pela API.
 
 ### Criar installment
 
@@ -533,6 +614,97 @@ Content-Type: image/jpeg
 O `storageKey` não é exposto pela API.
 
 Páginas pertencentes a installments em estado `DRAFT` são tratadas como não encontradas.
+
+### Consultar obra publicada
+
+```http
+GET /api/works/{workId}
+```
+
+Endpoint público. Não requer autenticação.
+
+Uma obra somente é disponibilizada quando possui pelo menos um installment publicado.
+
+Resposta:
+
+```http
+200 OK
+```
+
+Exemplo:
+
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "title": "Metopa Origins",
+  "description": "A science fiction graphic novel.",
+  "type": "GRAPHIC_NOVEL",
+  "readingDirection": "LEFT_TO_RIGHT",
+  "presentationMode": "SINGLE_PAGE",
+  "coverUrl": "/api/works/550e8400-e29b-41d4-a716-446655440000/cover",
+  "installments": [
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440001",
+      "type": "ISSUE",
+      "number": 1,
+      "title": "Issue One"
+    }
+  ]
+}
+```
+
+Quando a obra não possui capa, `coverUrl` é `null`.
+
+Somente installments publicados são retornados. Installments em estado `DRAFT` permanecem invisíveis.
+
+Caso a obra não exista ou ainda não possua conteúdo publicado:
+
+```text
+404 → obra não disponível
+```
+
+### Listar obras publicadas
+
+```http
+GET /api/works
+```
+
+Endpoint público. Não requer autenticação.
+
+Retorna as obras que possuem pelo menos um installment publicado.
+
+Resposta:
+
+```http
+200 OK
+```
+
+Exemplo:
+
+```json
+[
+  {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "title": "Metopa Origins",
+    "type": "GRAPHIC_NOVEL",
+    "coverUrl": "/api/works/550e8400-e29b-41d4-a716-446655440000/cover"
+  },
+  {
+    "id": "550e8400-e29b-41d4-a716-446655440001",
+    "title": "Another Work",
+    "type": "COMIC",
+    "coverUrl": null
+  }
+]
+```
+
+Caso não existam obras publicadas:
+
+```json
+[]
+```
+
+Uma obra aparece apenas uma vez, mesmo que possua vários installments publicados.
 
 ### Adicionar obra à biblioteca
 
@@ -660,8 +832,8 @@ Possíveis respostas:
 
 ```text
 401 → usuário não autenticado
-404 → página não disponível para progresso
 403 → token CSRF ausente ou inválido
+404 → página não disponível para progresso
 ```
 
 ### Consultar progresso de leitura
@@ -696,92 +868,6 @@ Caso ainda não exista progresso para aquela obra:
 404 Not Found
 ```
 
-### Consultar obra publicada
-
-```http
-GET /api/works/{workId}
-```
-
-Endpoint público. Não requer autenticação.
-
-Uma obra somente é disponibilizada quando possui pelo menos um installment publicado.
-
-Resposta:
-
-```http
-200 OK
-```
-
-Exemplo:
-
-```json
-{
-  "id": "550e8400-e29b-41d4-a716-446655440000",
-  "title": "Metopa Origins",
-  "description": "A science fiction graphic novel.",
-  "type": "GRAPHIC_NOVEL",
-  "readingDirection": "LEFT_TO_RIGHT",
-  "presentationMode": "SINGLE_PAGE",
-  "installments": [
-    {
-      "id": "550e8400-e29b-41d4-a716-446655440001",
-      "type": "ISSUE",
-      "number": 1,
-      "title": "Issue One"
-    }
-  ]
-}
-```
-
-Somente installments publicados são retornados. Installments em estado `DRAFT` permanecem invisíveis.
-
-Caso a obra não exista ou ainda não possua conteúdo publicado:
-
-```text
-404 → obra não disponível
-```
-
-### Listar obras publicadas
-
-```http
-GET /api/works
-```
-
-Endpoint público. Não requer autenticação.
-
-Retorna as obras que possuem pelo menos um installment publicado.
-
-Resposta:
-
-```http
-200 OK
-```
-
-Exemplo:
-
-```json
-[
-  {
-    "id": "550e8400-e29b-41d4-a716-446655440000",
-    "title": "Metopa Origins",
-    "type": "GRAPHIC_NOVEL"
-  },
-  {
-    "id": "550e8400-e29b-41d4-a716-446655440001",
-    "title": "Another Work",
-    "type": "COMIC"
-  }
-]
-```
-
-Caso não existam obras publicadas:
-
-```json
-[]
-```
-
-Uma obra aparece apenas uma vez, mesmo que possua vários installments publicados.
-
 ## Migrations
 
 As alterações no schema do banco são controladas pelo Flyway.
@@ -792,7 +878,7 @@ As migrations ficam em:
 src/main/resources/db/migration/
 ```
 
-Exemplo:
+Migrations atuais:
 
 ```text
 V1__create_user_account.sql
@@ -802,39 +888,58 @@ V4__create_installment.sql
 V5__create_installment_page.sql
 V6__create_library_entry.sql
 V7__create_reading_progress.sql
+V8__add_work_cover.sql
 ```
 
 Migrations já executadas não devem ser alteradas. Novas mudanças no banco devem ser implementadas através de uma nova migration versionada.
 
 ## Segurança
 
-O Metopa utiliza Spring Security.
+O Metopa utiliza Spring Security com autenticação baseada em sessão HTTP e proteção CSRF habilitada.
 
-No estado atual do MVP:
+Principais endpoints públicos:
 
 ```text
-POST /api/users       → público
-GET  /api/auth/csrf   → público
-POST /api/auth/login  → público
+POST /api/users
+GET  /api/auth/csrf
+POST /api/auth/login
 
-GET  /api/auth/me     → autenticado
-POST /api/auth/logout → autenticado
+GET  /api/installments/{installmentId}
+GET  /api/pages/{pageId}/content
+GET  /api/works
+GET  /api/works/{workId}
+GET  /api/works/{workId}/cover
 ```
+
+Principais endpoints autenticados:
+
+```text
+GET    /api/auth/me
+POST   /api/auth/logout
+
+POST   /api/works
+PUT    /api/works/{workId}/cover
+POST   /api/works/{workId}/installments
+POST   /api/installments/{installmentId}/pages
+POST   /api/installments/{installmentId}/publish
+
+GET    /api/library
+POST   /api/library/works/{workId}
+DELETE /api/library/works/{workId}
+
+GET    /api/reading/progress/works/{workId}
+PUT    /api/reading/progress/pages/{pageId}
+```
+
+Operações que alteram estado permanecem protegidas por CSRF.
 
 Senhas são processadas utilizando `PasswordEncoder` e armazenadas somente como hash.
 
 Respostas de autenticação inválida não revelam se determinado username existe.
 
-Leitura pública atualmente permitida:
-
-```text
-GET /api/installments/{installmentId}
-GET /api/pages/{pageId}/content
-```
-
 ## Desenvolvimento
 
-O projeto utiliza branches de feature para mudanças relevantes.
+O projeto utiliza branches de feature e refactor para mudanças relevantes.
 
 Exemplos:
 
@@ -844,6 +949,8 @@ feature/module-boundaries
 feature/identity-user
 feature/identity-authentication
 feature/catalog-work
+refactor/media-storage
+feature/work-cover
 ```
 
 O fluxo utilizado é:
@@ -851,7 +958,7 @@ O fluxo utilizado é:
 ```text
 main
   ↓
-feature/*
+feature/* ou refactor/*
   ↓
 commit
   ↓

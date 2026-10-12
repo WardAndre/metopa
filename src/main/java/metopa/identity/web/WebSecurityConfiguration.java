@@ -50,6 +50,10 @@ class WebSecurityConfiguration {
                                 HttpMethod.GET,
                                 "/api/works/*"
                         ).permitAll()
+                        .requestMatchers(
+                                HttpMethod.GET,
+                                "/api/works/*/cover"
+                        ).permitAll()
 
                         .anyRequest().authenticated()
 

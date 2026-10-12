@@ -15,6 +15,7 @@ record PublishedWorkResponse(
         WorkType type,
         ReadingDirection readingDirection,
         PresentationMode presentationMode,
+        String coverUrl,
         List<PublishedInstallmentSummaryResponse> installments
 ) {
 
@@ -28,6 +29,11 @@ record PublishedWorkResponse(
                 view.type(),
                 view.readingDirection(),
                 view.presentationMode(),
+                view.hasCover()
+                        ? "/api/works/"
+                        + view.id()
+                        + "/cover"
+                        : null,
                 view.installments()
                         .stream()
                         .map(

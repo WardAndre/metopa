@@ -8,6 +8,7 @@ public record WorkDetails(
         String description,
         WorkType type,
         ReadingDirection readingDirection,
-        PresentationMode presentationMode
+        PresentationMode presentationMode,
+        boolean hasCover
 ) {
 }

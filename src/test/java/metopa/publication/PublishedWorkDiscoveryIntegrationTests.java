@@ -19,6 +19,7 @@ import java.util.UUID;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasSize;
 
 @SpringBootTest(
@@ -58,6 +59,13 @@ class PublishedWorkDiscoveryIntegrationTests {
                         2
                 );
 
+        catalogService.setCover(
+                ownerId,
+                firstPublishedWorkId,
+                "image/webp",
+                "discovery-cover".getBytes()
+        );
+
         UUID secondPublishedWorkId =
                 createPublishedWork(
                         ownerId,
@@ -81,6 +89,19 @@ class PublishedWorkDiscoveryIntegrationTests {
                                         firstPublishedWorkId +
                                         "')]"
                         ).value(hasSize(1))
+                )
+                .andExpect(
+                        jsonPath(
+                                "$[?(@.id == '" +
+                                        firstPublishedWorkId +
+                                        "')].coverUrl"
+                        ).value(
+                                hasItem(
+                                        "/api/works/"
+                                                + firstPublishedWorkId
+                                                + "/cover"
+                                )
+                        )
                 )
                 .andExpect(
                         jsonPath(

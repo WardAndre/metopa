@@ -47,6 +47,12 @@ public class Work {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
+    @Column(name = "cover_storage_key")
+    private String coverStorageKey;
+
+    @Column(name = "cover_content_type")
+    private String coverContentType;
+
     protected Work() {
     }
 
@@ -67,6 +73,15 @@ public class Work {
         this.presentationMode = presentationMode;
         this.createdAt = Instant.now();
         this.updatedAt = this.createdAt;
+    }
+
+    public void setCover(
+            String storageKey,
+            String contentType
+    ) {
+        this.coverStorageKey = storageKey;
+        this.coverContentType = contentType;
+        this.updatedAt = Instant.now();
     }
 
     public UUID getId() {
@@ -103,5 +118,13 @@ public class Work {
 
     Instant getUpdatedAt() {
         return updatedAt;
+    }
+
+    public String getCoverStorageKey() {
+        return coverStorageKey;
+    }
+
+    public String getCoverContentType() {
+        return coverContentType;
     }
 }

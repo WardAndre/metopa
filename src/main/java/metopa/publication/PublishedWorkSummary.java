@@ -7,6 +7,7 @@ import java.util.UUID;
 public record PublishedWorkSummary(
         UUID id,
         String title,
-        WorkType type
+        WorkType type,
+        boolean hasCover
 ) {
 }
