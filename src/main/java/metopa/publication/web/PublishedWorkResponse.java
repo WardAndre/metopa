@@ -3,10 +3,12 @@ package metopa.publication.web;
 import metopa.catalog.PresentationMode;
 import metopa.catalog.ReadingDirection;
 import metopa.catalog.WorkType;
+import metopa.catalog.Genre;
 import metopa.publication.PublishedWorkView;
 
 import java.util.List;
 import java.util.UUID;
+import java.util.Set;
 
 record PublishedWorkResponse(
         UUID id,
@@ -15,6 +17,7 @@ record PublishedWorkResponse(
         WorkType type,
         ReadingDirection readingDirection,
         PresentationMode presentationMode,
+        Set<Genre> genres,
         String coverUrl,
         List<PublishedInstallmentSummaryResponse> installments
 ) {
@@ -29,6 +32,7 @@ record PublishedWorkResponse(
                 view.type(),
                 view.readingDirection(),
                 view.presentationMode(),
+                view.genres(),
                 view.hasCover()
                         ? "/api/works/"
                         + view.id()

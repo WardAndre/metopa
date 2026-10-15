@@ -37,6 +37,10 @@ public class CatalogService {
                 command.presentationMode()
         );
 
+        work.setGenres(
+                command.genres()
+        );
+
         Work saved = repository.save(work);
 
         return saved.getId();
@@ -66,6 +70,7 @@ public class CatalogService {
                 work.getId(),
                 work.getTitle(),
                 work.getType(),
+                work.getGenres(),
                 work.getCoverStorageKey() != null
         );
     }
@@ -84,6 +89,7 @@ public class CatalogService {
                 work.getType(),
                 work.getReadingDirection(),
                 work.getPresentationMode(),
+                work.getGenres(),
                 work.getCoverStorageKey() != null
         );
     }

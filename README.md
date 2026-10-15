@@ -10,7 +10,7 @@ Projeto em desenvolvimento — MVP.
 
 Nesta primeira fase, toda a infraestrutura é executada localmente, sem dependência de serviços cloud pagos.
 
-A suíte automatizada possui atualmente **148 testes**, cobrindo regras de domínio, persistência, segurança, APIs HTTP, armazenamento binário e fluxos de integração.
+A suíte automatizada possui atualmente **150 testes**, cobrindo regras de domínio, persistência, segurança, APIs HTTP, armazenamento binário e fluxos de integração.
 
 ## Tecnologias
 
@@ -88,12 +88,35 @@ Atualmente suporta:
 - diferentes tipos de obra, como comic, mangá, graphic novel, webtoon e tirinha;
 - direção de leitura configurável;
 - modo de apresentação configurável;
+- associação de zero ou mais gêneros a uma obra;
+- vocabulário de gêneros definido pelo domínio através de `Genre`;
+- persistência dos gêneros em coleção associada à obra;
 - normalização e validação dos dados da obra;
 - persistência das obras no PostgreSQL;
 - definição e substituição da capa por parte do proprietário da obra;
 - armazenamento apenas da referência e do `Content-Type` da capa no banco;
 - leitura interna da capa através do módulo `media`;
 - indicação de disponibilidade de capa sem expor o `storageKey`.
+
+Os gêneros disponíveis atualmente são:
+
+```text
+ACTION
+ADVENTURE
+COMEDY
+DRAMA
+FANTASY
+HORROR
+MYSTERY
+ROMANCE
+SCI_FI
+SLICE_OF_LIFE
+THRILLER
+```
+
+Uma obra pode não possuir gêneros ou possuir vários gêneros.
+
+Como os gêneros são representados pelo domínio como um conjunto, sua ordem não faz parte do contrato da aplicação.
 
 ### Publication
 
@@ -120,6 +143,8 @@ Atualmente suporta:
 - leitura pública do conteúdo binário das páginas;
 - consulta pública de detalhes de obras que possuem conteúdo publicado;
 - descoberta pública de obras publicadas sem duplicação por installment;
+- propagação dos gêneros definidos no catálogo para as representações públicas;
+- exposição dos gêneros nos endpoints públicos de detalhe e descoberta;
 - exposição pública da capa somente quando a obra possui conteúdo publicado;
 - drafts não são expostos pelos endpoints públicos.
 
@@ -186,9 +211,12 @@ Algumas decisões adotadas no MVP:
 - UUID como identificador das entidades de domínio;
 - entidades JPA e repositories mantidos internos aos módulos;
 - API pública dos módulos separada de detalhes de persistência;
+- referências entre módulos feitas por identificadores e APIs públicas, evitando relacionamentos JPA entre módulos;
 - arquivos binários armazenados fora do PostgreSQL;
 - armazenamento binário acessado através de uma abstração compartilhada;
 - `storageKey` tratado como detalhe interno de infraestrutura;
+- gêneros tratados como vocabulário pertencente ao módulo `catalog`;
+- múltiplos gêneros representados como `Set<Genre>`, sem entidade de domínio dedicada;
 - autenticação baseada em sessão HTTP no MVP web;
 - proteção CSRF mantida habilitada;
 - senhas nunca são armazenadas em texto puro;
@@ -285,7 +313,7 @@ Para limpar o build, compilar o projeto e executar todos os testes:
 Estado atual da suíte:
 
 ```text
-Tests run: 148
+Tests run: 150
 Failures: 0
 Errors: 0
 Skipped: 0
@@ -293,6 +321,14 @@ Skipped: 0
 
 Os testes cobrem, entre outros cenários:
 
+- criação e persistência de obras;
+- associação da obra ao usuário autenticado;
+- normalização e validação dos dados da obra;
+- persistência de múltiplos gêneros por obra;
+- criação de obra com gêneros através do fluxo HTTP completo;
+- propagação de gêneros entre `Work`, `WorkSummary` e `WorkDetails`;
+- propagação de gêneros entre os módulos `catalog` e `publication`;
+- exposição de gêneros nos endpoints públicos de detalhe e descoberta;
 - criação, persistência, publicação e leitura de installments;
 - autorização baseada na propriedade da obra;
 - criação, ordenação e persistência de páginas;
@@ -317,7 +353,7 @@ Os testes cobrem, entre outros cenários:
 - exigência de autenticação e CSRF no upload da capa;
 - ocultação pública da capa de obras ainda não publicadas;
 - leitura pública da capa de obras publicadas;
-- propagação de `hasCover` entre catalog e publication;
+- propagação de `hasCover` entre `catalog` e `publication`;
 - exposição de `coverUrl` nos endpoints públicos de detalhe e descoberta.
 
 ## API atual
@@ -416,11 +452,35 @@ Exemplo:
   "description": "A graphic novel.",
   "type": "GRAPHIC_NOVEL",
   "readingDirection": "LEFT_TO_RIGHT",
-  "presentationMode": "SINGLE_PAGE"
+  "presentationMode": "SINGLE_PAGE",
+  "genres": [
+    "SCI_FI",
+    "ADVENTURE"
+  ]
 }
 ```
 
 O proprietário da obra não é informado pelo cliente. O Metopa determina o `ownerId` a partir do usuário autenticado.
+
+O campo `genres` é opcional no MVP. Quando omitido, a obra é criada sem gêneros associados.
+
+Os valores aceitos atualmente são:
+
+```text
+ACTION
+ADVENTURE
+COMEDY
+DRAMA
+FANTASY
+HORROR
+MYSTERY
+ROMANCE
+SCI_FI
+SLICE_OF_LIFE
+THRILLER
+```
+
+Valores duplicados não representam gêneros adicionais, pois o domínio mantém os gêneros da obra como um conjunto.
 
 Resposta de sucesso:
 
@@ -641,6 +701,10 @@ Exemplo:
   "type": "GRAPHIC_NOVEL",
   "readingDirection": "LEFT_TO_RIGHT",
   "presentationMode": "SINGLE_PAGE",
+  "genres": [
+    "SCI_FI",
+    "ADVENTURE"
+  ],
   "coverUrl": "/api/works/550e8400-e29b-41d4-a716-446655440000/cover",
   "installments": [
     {
@@ -652,6 +716,16 @@ Exemplo:
   ]
 }
 ```
+
+Quando a obra não possui gêneros associados:
+
+```json
+{
+  "genres": []
+}
+```
+
+A ordem dos elementos de `genres` não deve ser considerada parte do contrato da API.
 
 Quando a obra não possui capa, `coverUrl` é `null`.
 
@@ -687,12 +761,19 @@ Exemplo:
     "id": "550e8400-e29b-41d4-a716-446655440000",
     "title": "Metopa Origins",
     "type": "GRAPHIC_NOVEL",
+    "genres": [
+      "SCI_FI",
+      "ADVENTURE"
+    ],
     "coverUrl": "/api/works/550e8400-e29b-41d4-a716-446655440000/cover"
   },
   {
     "id": "550e8400-e29b-41d4-a716-446655440001",
     "title": "Another Work",
     "type": "COMIC",
+    "genres": [
+      "DRAMA"
+    ],
     "coverUrl": null
   }
 ]
@@ -705,6 +786,8 @@ Caso não existam obras publicadas:
 ```
 
 Uma obra aparece apenas uma vez, mesmo que possua vários installments publicados.
+
+A ordem dos gêneros de cada obra não deve ser utilizada pelo cliente como informação semântica.
 
 ### Adicionar obra à biblioteca
 
@@ -889,7 +972,12 @@ V5__create_installment_page.sql
 V6__create_library_entry.sql
 V7__create_reading_progress.sql
 V8__add_work_cover.sql
+V9__create_work_genre.sql
 ```
+
+A migration `V9__create_work_genre.sql` introduz a tabela `work_genre`, utilizada para persistir múltiplos gêneros associados a uma obra.
+
+A relação utiliza o identificador da obra e o valor do gênero, mantendo a associação dentro do módulo `catalog`.
 
 Migrations já executadas não devem ser alteradas. Novas mudanças no banco devem ser implementadas através de uma nova migration versionada.
 
@@ -951,6 +1039,7 @@ feature/identity-authentication
 feature/catalog-work
 refactor/media-storage
 feature/work-cover
+feature/work-genres
 ```
 
 O fluxo utilizado é:

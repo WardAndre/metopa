@@ -67,4 +67,27 @@ class CreateWorkCommandTests {
 
         assertThat(command.description()).isNull();
     }
+
+    @Test
+    void shouldPreserveWorkGenres() {
+        CreateWorkCommand command =
+                new CreateWorkCommand(
+                        UUID.randomUUID(),
+                        "Metopa Origins",
+                        "A graphic novel.",
+                        WorkType.GRAPHIC_NOVEL,
+                        ReadingDirection.LEFT_TO_RIGHT,
+                        PresentationMode.SINGLE_PAGE,
+                        Set.of(
+                                Genre.SCI_FI,
+                                Genre.ADVENTURE
+                        )
+                );
+
+        assertThat(command.genres())
+                .containsExactlyInAnyOrder(
+                        Genre.SCI_FI,
+                        Genre.ADVENTURE
+                );
+    }
 }

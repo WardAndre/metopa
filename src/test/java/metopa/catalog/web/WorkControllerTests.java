@@ -1,6 +1,7 @@
 package metopa.catalog.web;
 
 import metopa.catalog.CatalogService;
+import metopa.catalog.Genre;
 import metopa.identity.IdentityService;
 import metopa.identity.UserReference;
 import org.junit.jupiter.api.Test;
@@ -12,8 +13,10 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.UUID;
+import java.util.Set;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -54,7 +57,11 @@ class WorkControllerTests {
                                           "description": "A graphic novel.",
                                           "type": "GRAPHIC_NOVEL",
                                           "readingDirection": "LEFT_TO_RIGHT",
-                                          "presentationMode": "SINGLE_PAGE"
+                                          "presentationMode": "SINGLE_PAGE",
+                                          "genres": [
+                                            "SCI_FI",
+                                            "ADVENTURE"
+                                          ]
                                         }
                                         """)
                 )
@@ -66,6 +73,16 @@ class WorkControllerTests {
                 .findByUsername("andre");
 
         verify(catalogService)
-                .createWork(any());
+                .createWork(
+                        argThat(command ->
+                                command.ownerId().equals(ownerId)
+                                        && command.genres().equals(
+                                        Set.of(
+                                                Genre.SCI_FI,
+                                                Genre.ADVENTURE
+                                        )
+                                )
+                        )
+                );
     }
 }

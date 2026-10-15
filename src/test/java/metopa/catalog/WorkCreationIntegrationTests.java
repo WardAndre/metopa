@@ -55,58 +55,104 @@ class WorkCreationIntegrationTests {
     }
 
     @Test
-    void shouldCreateWorkForAuthenticatedUser() throws Exception {
-        MvcResult loginResult = mockMvc.perform(
-                        formLogin("/api/auth/login")
-                                .user("catalogauthor")
-                                .password("StrongPassword123!")
-                )
-                .andExpect(status().isOk())
-                .andExpect(authenticated().withUsername("catalogauthor"))
-                .andReturn();
+    void shouldCreateWorkForAuthenticatedUser()
+            throws Exception {
+
+        MvcResult loginResult =
+                mockMvc.perform(
+                                formLogin("/api/auth/login")
+                                        .user("catalogauthor")
+                                        .password("StrongPassword123!")
+                        )
+                        .andExpect(status().isOk())
+                        .andExpect(
+                                authenticated()
+                                        .withUsername("catalogauthor")
+                        )
+                        .andReturn();
 
         MockHttpSession session =
                 (MockHttpSession) loginResult
                         .getRequest()
                         .getSession(false);
 
-        String title = "Integration Work " + UUID.randomUUID();
+        String title =
+                "Integration Work "
+                        + UUID.randomUUID();
 
         mockMvc.perform(
                         post("/api/works")
                                 .session(session)
                                 .with(csrf())
-                                .contentType(MediaType.APPLICATION_JSON)
+                                .contentType(
+                                        MediaType.APPLICATION_JSON
+                                )
                                 .content("""
-                                        {
-                                          "title": "  %s  ",
-                                          "description": "  Created through the complete HTTP flow.  ",
-                                          "type": "GRAPHIC_NOVEL",
-                                          "readingDirection": "LEFT_TO_RIGHT",
-                                          "presentationMode": "SINGLE_PAGE"
-                                        }
-                                        """.formatted(title))
+                                    {
+                                      "title": "  %s  ",
+                                      "description": "  Created through the complete HTTP flow.  ",
+                                      "type": "GRAPHIC_NOVEL",
+                                      "readingDirection": "LEFT_TO_RIGHT",
+                                      "presentationMode": "SINGLE_PAGE",
+                                      "genres": [
+                                        "SCI_FI",
+                                        "ADVENTURE"
+                                      ]
+                                    }
+                                    """.formatted(title))
                 )
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.id").exists());
+                .andExpect(
+                        jsonPath("$.id").exists()
+                );
 
-        UUID storedOwnerId = jdbcTemplate.queryForObject(
-                """
-                SELECT owner_id
-                FROM work
-                WHERE title = ?
-                """,
-                UUID.class,
-                title
-        );
+        UUID storedWorkId =
+                jdbcTemplate.queryForObject(
+                        """
+                        SELECT id
+                        FROM work
+                        WHERE title = ?
+                        """,
+                        UUID.class,
+                        title
+                );
+
+        UUID storedOwnerId =
+                jdbcTemplate.queryForObject(
+                        """
+                        SELECT owner_id
+                        FROM work
+                        WHERE title = ?
+                        """,
+                        UUID.class,
+                        title
+                );
 
         UUID authenticatedUserId =
                 identityService
-                        .findByUsername("catalogauthor")
+                        .findByUsername(
+                                "catalogauthor"
+                        )
                         .id();
 
         assertThat(storedOwnerId)
                 .isEqualTo(authenticatedUserId);
+
+        assertThat(
+                jdbcTemplate.queryForList(
+                        """
+                        SELECT genre
+                        FROM work_genre
+                        WHERE work_id = ?
+                        ORDER BY genre
+                        """,
+                        String.class,
+                        storedWorkId
+                )
+        ).containsExactly(
+                "ADVENTURE",
+                "SCI_FI"
+        );
     }
 
     @Test
