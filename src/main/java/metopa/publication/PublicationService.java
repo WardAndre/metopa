@@ -309,6 +309,7 @@ public class PublicationService {
                 work.type(),
                 work.readingDirection(),
                 work.presentationMode(),
+                work.genres(),
                 work.hasCover(),
                 installments
         );
@@ -350,6 +351,7 @@ public class PublicationService {
                                 work.id(),
                                 work.title(),
                                 work.type(),
+                                work.genres(),
                                 work.hasCover()
                         )
                 )

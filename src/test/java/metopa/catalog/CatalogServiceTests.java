@@ -11,6 +11,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.Optional;
 import java.util.UUID;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -90,6 +91,13 @@ class CatalogServiceTests {
                 PresentationMode.SINGLE_PAGE
         );
 
+        work.setGenres(
+                Set.of(
+                        Genre.SCI_FI,
+                        Genre.ADVENTURE
+                )
+        );
+
         when(repository.findById(work.getId()))
                 .thenReturn(Optional.of(work));
 
@@ -108,6 +116,12 @@ class CatalogServiceTests {
                 .isEqualTo(
                         WorkType.GRAPHIC_NOVEL
                 );
+
+        assertThat(summary.genres())
+                .containsExactlyInAnyOrder(
+                        Genre.SCI_FI,
+                        Genre.ADVENTURE
+                );
     }
 
     @Test
@@ -121,6 +135,13 @@ class CatalogServiceTests {
                 WorkType.GRAPHIC_NOVEL,
                 ReadingDirection.LEFT_TO_RIGHT,
                 PresentationMode.SINGLE_PAGE
+        );
+
+        work.setGenres(
+                Set.of(
+                        Genre.SCI_FI,
+                        Genre.ADVENTURE
+                )
         );
 
         when(repository.findById(work.getId()))
@@ -155,6 +176,12 @@ class CatalogServiceTests {
         assertThat(details.presentationMode())
                 .isEqualTo(
                         PresentationMode.SINGLE_PAGE
+                );
+
+        assertThat(details.genres())
+                .containsExactlyInAnyOrder(
+                        Genre.SCI_FI,
+                        Genre.ADVENTURE
                 );
     }
 

@@ -4,6 +4,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
+import java.util.Set;
 import java.util.UUID;
 
 public record CreateWorkCommand(
@@ -25,12 +26,38 @@ public record CreateWorkCommand(
         ReadingDirection readingDirection,
 
         @NotNull
-        PresentationMode presentationMode
+        PresentationMode presentationMode,
+
+        @NotNull
+        Set<Genre> genres
 ) {
 
     public CreateWorkCommand {
         title = normalize(title);
         description = normalizeNullable(description);
+
+        genres = genres == null
+                ? null
+                : Set.copyOf(genres);
+    }
+
+    public CreateWorkCommand(
+            UUID ownerId,
+            String title,
+            String description,
+            WorkType type,
+            ReadingDirection readingDirection,
+            PresentationMode presentationMode
+    ) {
+        this(
+                ownerId,
+                title,
+                description,
+                type,
+                readingDirection,
+                presentationMode,
+                Set.of()
+        );
     }
 
     private static String normalize(String value) {

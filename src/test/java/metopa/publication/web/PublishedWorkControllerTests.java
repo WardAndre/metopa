@@ -3,6 +3,7 @@ package metopa.publication.web;
 import metopa.catalog.PresentationMode;
 import metopa.catalog.ReadingDirection;
 import metopa.catalog.WorkType;
+import metopa.catalog.Genre;
 import metopa.publication.PublicationService;
 import metopa.publication.PublishedWorkNotFoundException;
 import metopa.publication.PublishedWorkView;
@@ -18,9 +19,12 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.UUID;
 import java.util.List;
+import java.util.Set;
 
 import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.Mockito.when;
+import static org.hamcrest.Matchers.containsInAnyOrder;
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -54,6 +58,10 @@ class PublishedWorkControllerTests {
                         WorkType.GRAPHIC_NOVEL,
                         ReadingDirection.LEFT_TO_RIGHT,
                         PresentationMode.SINGLE_PAGE,
+                        Set.of(
+                                Genre.SCI_FI,
+                                Genre.ADVENTURE
+                        ),
                         true,
                         List.of(
                                 new PublishedInstallmentSummary(
@@ -98,6 +106,19 @@ class PublishedWorkControllerTests {
                 .andExpect(
                         jsonPath("$.presentationMode")
                                 .value("SINGLE_PAGE")
+                )
+                .andExpect(
+                        jsonPath("$.genres")
+                                .isArray()
+                )
+                .andExpect(
+                        jsonPath("$.genres")
+                                .value(
+                                        containsInAnyOrder(
+                                                "SCI_FI",
+                                                "ADVENTURE"
+                                        )
+                                )
                 )
                 .andExpect(
                         jsonPath("$.coverUrl")
@@ -184,12 +205,19 @@ class PublishedWorkControllerTests {
                                         firstWorkId,
                                         "Metopa Origins",
                                         WorkType.GRAPHIC_NOVEL,
+                                        Set.of(
+                                                Genre.SCI_FI,
+                                                Genre.ADVENTURE
+                                        ),
                                         true
                                 ),
                                 new PublishedWorkSummary(
                                         secondWorkId,
                                         "Another Work",
                                         WorkType.COMIC,
+                                        Set.of(
+                                                Genre.DRAMA
+                                        ),
                                         false
                                 )
                         )
@@ -216,6 +244,19 @@ class PublishedWorkControllerTests {
                                 .value("GRAPHIC_NOVEL")
                 )
                 .andExpect(
+                        jsonPath("$[0].genres")
+                                .isArray()
+                )
+                .andExpect(
+                        jsonPath("$[0].genres")
+                                .value(
+                                        containsInAnyOrder(
+                                                "SCI_FI",
+                                                "ADVENTURE"
+                                        )
+                                )
+                )
+                .andExpect(
                         jsonPath("$[0].coverUrl")
                                 .value(
                                         "/api/works/"
@@ -234,6 +275,18 @@ class PublishedWorkControllerTests {
                 .andExpect(
                         jsonPath("$[1].type")
                                 .value("COMIC")
+                )
+                .andExpect(
+                        jsonPath("$[1].genres")
+                                .isArray()
+                )
+                .andExpect(
+                        jsonPath("$[1].genres")
+                                .value(
+                                        containsInAnyOrder(
+                                                "DRAMA"
+                                        )
+                                )
                 )
                 .andExpect(
                         jsonPath("$[1].coverUrl")

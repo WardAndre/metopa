@@ -13,6 +13,7 @@ import metopa.publication.internal.InstallmentRepository;
 import metopa.publication.internal.Page;
 import metopa.publication.internal.PageRepository;
 import metopa.catalog.WorkCoverContent;
+import metopa.catalog.Genre;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -22,6 +23,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -996,6 +998,10 @@ class PublicationServiceTests {
                         WorkType.GRAPHIC_NOVEL,
                         ReadingDirection.LEFT_TO_RIGHT,
                         PresentationMode.SINGLE_PAGE,
+                        Set.of(
+                                Genre.SCI_FI,
+                                Genre.ADVENTURE
+                        ),
                         true
                 )
         );
@@ -1032,6 +1038,12 @@ class PublicationServiceTests {
         assertThat(result.presentationMode())
                 .isEqualTo(
                         PresentationMode.SINGLE_PAGE
+                );
+
+        assertThat(result.genres())
+                .containsExactlyInAnyOrder(
+                        Genre.SCI_FI,
+                        Genre.ADVENTURE
                 );
 
         assertThat(result.installments())
@@ -1196,6 +1208,10 @@ class PublicationServiceTests {
                                 firstWorkId,
                                 "Metopa Origins",
                                 WorkType.GRAPHIC_NOVEL,
+                                Set.of(
+                                        Genre.SCI_FI,
+                                        Genre.ADVENTURE
+                                ),
                                 true
                         )
                 );
@@ -1206,6 +1222,9 @@ class PublicationServiceTests {
                                 secondWorkId,
                                 "Another Work",
                                 WorkType.COMIC,
+                                Set.of(
+                                        Genre.DRAMA
+                                ),
                                 false
                         )
                 );
@@ -1232,11 +1251,22 @@ class PublicationServiceTests {
                         WorkType.GRAPHIC_NOVEL
                 );
 
+        assertThat(result.get(0).genres())
+                .containsExactlyInAnyOrder(
+                        Genre.SCI_FI,
+                        Genre.ADVENTURE
+                );
+
         assertThat(result.get(1).id())
                 .isEqualTo(secondWorkId);
 
         assertThat(result.get(1).title())
                 .isEqualTo("Another Work");
+
+        assertThat(result.get(1).genres())
+                .containsExactly(
+                        Genre.DRAMA
+                );
     }
 
     @Test

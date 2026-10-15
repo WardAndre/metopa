@@ -6,12 +6,21 @@ import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.CollectionTable;
+import jakarta.persistence.ElementCollection;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.JoinColumn;
+import metopa.catalog.Genre;
 import metopa.catalog.PresentationMode;
 import metopa.catalog.ReadingDirection;
 import metopa.catalog.WorkType;
 
 import java.time.Instant;
 import java.util.UUID;
+import java.util.HashSet;
+import java.util.Set;
 
 @Entity
 @Table(name = "work")
@@ -53,6 +62,16 @@ public class Work {
     @Column(name = "cover_content_type")
     private String coverContentType;
 
+    @ElementCollection(fetch = FetchType.LAZY)
+    @CollectionTable(
+            name = "work_genre",
+            joinColumns = @JoinColumn(name = "work_id")
+    )
+    @Column(name = "genre", nullable = false)
+    @Enumerated(EnumType.STRING)
+    private Set<Genre> genres =
+            new HashSet<>();
+
     protected Work() {
     }
 
@@ -73,15 +92,6 @@ public class Work {
         this.presentationMode = presentationMode;
         this.createdAt = Instant.now();
         this.updatedAt = this.createdAt;
-    }
-
-    public void setCover(
-            String storageKey,
-            String contentType
-    ) {
-        this.coverStorageKey = storageKey;
-        this.coverContentType = contentType;
-        this.updatedAt = Instant.now();
     }
 
     public UUID getId() {
@@ -126,5 +136,24 @@ public class Work {
 
     public String getCoverContentType() {
         return coverContentType;
+    }
+
+    public void setCover(
+            String storageKey,
+            String contentType
+    ) {
+        this.coverStorageKey = storageKey;
+        this.coverContentType = contentType;
+        this.updatedAt = Instant.now();
+    }
+
+    public Set<Genre> getGenres() {
+        return Set.copyOf(genres);
+    }
+
+    public void setGenres(Set<Genre> genres) {
+        this.genres.clear();
+        this.genres.addAll(genres);
+        this.updatedAt = Instant.now();
     }
 }

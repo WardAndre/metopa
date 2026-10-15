@@ -3,12 +3,14 @@ package metopa.catalog.internal;
 import metopa.catalog.PresentationMode;
 import metopa.catalog.ReadingDirection;
 import metopa.catalog.WorkType;
+import metopa.catalog.Genre;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
 
 import java.util.UUID;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -82,5 +84,40 @@ class WorkRepositoryTests {
 
         assertThat(found.getCoverContentType())
                 .isEqualTo("image/webp");
+    }
+
+    @Test
+    void shouldPersistWorkGenres() {
+        UUID ownerId = UUID.randomUUID();
+
+        Work work =
+                new Work(
+                        ownerId,
+                        "Genre Work",
+                        "A work with multiple genres.",
+                        WorkType.COMIC,
+                        ReadingDirection.LEFT_TO_RIGHT,
+                        PresentationMode.SINGLE_PAGE
+                );
+
+        work.setGenres(
+                Set.of(
+                        Genre.FANTASY,
+                        Genre.ADVENTURE
+                )
+        );
+
+        repository.saveAndFlush(work);
+
+        Work found =
+                repository.findById(
+                        work.getId()
+                ).orElseThrow();
+
+        assertThat(found.getGenres())
+                .containsExactlyInAnyOrder(
+                        Genre.FANTASY,
+                        Genre.ADVENTURE
+                );
     }
 }

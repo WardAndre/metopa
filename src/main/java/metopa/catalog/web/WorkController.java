@@ -44,7 +44,8 @@ class WorkController {
                 request.description(),
                 request.type(),
                 request.readingDirection(),
-                request.presentationMode()
+                request.presentationMode(),
+                request.genres()
         );
 
         UUID workId = catalogService.createWork(command);
