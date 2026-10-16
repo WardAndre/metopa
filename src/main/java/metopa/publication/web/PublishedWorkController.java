@@ -3,10 +3,12 @@ package metopa.publication.web;
 import metopa.publication.PublicationService;
 import metopa.publication.PublishedWorkView;
 import metopa.publication.PublishedWorkSummary;
+import metopa.catalog.Genre;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.RequestParam;
 
 import java.util.UUID;
 import java.util.List;
@@ -36,9 +38,18 @@ class PublishedWorkController {
     }
 
     @GetMapping
-    List<PublishedWorkSummaryResponse> findPublishedWorks() {
-        return publicationService
-                .findPublishedWorks()
+    List<PublishedWorkSummaryResponse> findPublishedWorks(
+            @RequestParam(required = false)
+            Genre genre
+    ) {
+        List<PublishedWorkSummary> works =
+                genre == null
+                        ? publicationService.findPublishedWorks()
+                        : publicationService.findPublishedWorks(
+                        genre
+                );
+
+        return works
                 .stream()
                 .map(PublishedWorkSummaryResponse::from)
                 .toList();

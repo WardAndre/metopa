@@ -5,6 +5,7 @@ import metopa.catalog.CreateWorkCommand;
 import metopa.catalog.PresentationMode;
 import metopa.catalog.ReadingDirection;
 import metopa.catalog.WorkType;
+import metopa.catalog.Genre;
 import metopa.identity.CreateUserCommand;
 import metopa.identity.IdentityService;
 import metopa.identity.UserReference;
@@ -15,6 +16,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.UUID;
+import java.util.Set;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -119,6 +121,85 @@ class PublishedWorkDiscoveryIntegrationTests {
                 );
     }
 
+    @Test
+    void shouldFilterPublishedWorksByGenre()
+            throws Exception {
+
+        UUID ownerId =
+                createUser("genre-discovery-user");
+
+        UUID scienceFictionWorkId =
+                createPublishedWork(
+                        ownerId,
+                        "Science Fiction Published Work",
+                        2,
+                        Set.of(
+                                Genre.SCI_FI,
+                                Genre.ADVENTURE
+                        )
+                );
+
+        UUID dramaWorkId =
+                createPublishedWork(
+                        ownerId,
+                        "Drama Published Work",
+                        1,
+                        Set.of(
+                                Genre.DRAMA
+                        )
+                );
+
+        UUID draftScienceFictionWorkId =
+                createDraftWork(
+                        ownerId,
+                        "Science Fiction Draft Work",
+                        Set.of(
+                                Genre.SCI_FI
+                        )
+                );
+
+        mockMvc.perform(
+                        get("/api/works")
+                                .queryParam(
+                                        "genre",
+                                        "SCI_FI"
+                                )
+                )
+                .andExpect(status().isOk())
+                .andExpect(
+                        jsonPath(
+                                "$[?(@.id == '" +
+                                        scienceFictionWorkId +
+                                        "')]"
+                        ).value(hasSize(1))
+                )
+                .andExpect(
+                        jsonPath(
+                                "$[?(@.id == '" +
+                                        scienceFictionWorkId +
+                                        "')].genres"
+                        ).value(
+                                hasItem(
+                                        hasItem("SCI_FI")
+                                )
+                        )
+                )
+                .andExpect(
+                        jsonPath(
+                                "$[?(@.id == '" +
+                                        dramaWorkId +
+                                        "')]"
+                        ).value(hasSize(0))
+                )
+                .andExpect(
+                        jsonPath(
+                                "$[?(@.id == '" +
+                                        draftScienceFictionWorkId +
+                                        "')]"
+                        ).value(hasSize(0))
+                );
+    }
+
     private UUID createPublishedWork(
             UUID ownerId,
             String title,
@@ -128,6 +209,53 @@ class PublishedWorkDiscoveryIntegrationTests {
                 createWork(
                         ownerId,
                         title
+                );
+
+        for (int number = 1;
+             number <= installmentCount;
+             number++) {
+
+            UUID installmentId =
+                    publicationService.createInstallment(
+                            ownerId,
+                            new CreateInstallmentCommand(
+                                    workId,
+                                    InstallmentType.ISSUE,
+                                    number,
+                                    "Issue " + number
+                            )
+                    );
+
+            publicationService.createPage(
+                    ownerId,
+                    new CreatePageCommand(
+                            installmentId,
+                            1,
+                            "image/jpeg",
+                            ("page-" + number).getBytes()
+                    )
+            );
+
+            publicationService.publishInstallment(
+                    ownerId,
+                    installmentId
+            );
+        }
+
+        return workId;
+    }
+
+    private UUID createPublishedWork(
+            UUID ownerId,
+            String title,
+            int installmentCount,
+            Set<Genre> genres
+    ) {
+        UUID workId =
+                createWork(
+                        ownerId,
+                        title,
+                        genres
                 );
 
         for (int number = 1;
@@ -198,6 +326,42 @@ class PublishedWorkDiscoveryIntegrationTests {
         return workId;
     }
 
+    private UUID createDraftWork(
+            UUID ownerId,
+            String title,
+            Set<Genre> genres
+    ) {
+        UUID workId =
+                createWork(
+                        ownerId,
+                        title,
+                        genres
+                );
+
+        UUID installmentId =
+                publicationService.createInstallment(
+                        ownerId,
+                        new CreateInstallmentCommand(
+                                workId,
+                                InstallmentType.ISSUE,
+                                1,
+                                "Draft Issue"
+                        )
+                );
+
+        publicationService.createPage(
+                ownerId,
+                new CreatePageCommand(
+                        installmentId,
+                        1,
+                        "image/jpeg",
+                        "draft-page".getBytes()
+                )
+        );
+
+        return workId;
+    }
+
     private UUID createWork(
             UUID ownerId,
             String title
@@ -210,6 +374,24 @@ class PublishedWorkDiscoveryIntegrationTests {
                         WorkType.COMIC,
                         ReadingDirection.LEFT_TO_RIGHT,
                         PresentationMode.SINGLE_PAGE
+                )
+        );
+    }
+
+    private UUID createWork(
+            UUID ownerId,
+            String title,
+            Set<Genre> genres
+    ) {
+        return catalogService.createWork(
+                new CreateWorkCommand(
+                        ownerId,
+                        title,
+                        null,
+                        WorkType.COMIC,
+                        ReadingDirection.LEFT_TO_RIGHT,
+                        PresentationMode.SINGLE_PAGE,
+                        genres
                 )
         );
     }
