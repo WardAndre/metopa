@@ -1332,4 +1332,90 @@ class PublicationServiceTests {
                 never()
         ).findWorkCover(workId);
     }
+
+    @Test
+    void shouldFilterPublishedWorksByGenre() {
+        UUID scienceFictionWorkId =
+                UUID.randomUUID();
+
+        UUID dramaWorkId =
+                UUID.randomUUID();
+
+        Installment scienceFictionInstallment =
+                mock(Installment.class);
+
+        Installment dramaInstallment =
+                mock(Installment.class);
+
+        when(scienceFictionInstallment.getWorkId())
+                .thenReturn(scienceFictionWorkId);
+
+        when(dramaInstallment.getWorkId())
+                .thenReturn(dramaWorkId);
+
+        when(
+                installmentRepository
+                        .findByStatusOrderByUpdatedAtDesc(
+                                PublicationStatus.PUBLISHED
+                        )
+        ).thenReturn(
+                List.of(
+                        scienceFictionInstallment,
+                        dramaInstallment
+                )
+        );
+
+        when(
+                catalogService.findWorkSummary(
+                        scienceFictionWorkId
+                )
+        ).thenReturn(
+                new WorkSummary(
+                        scienceFictionWorkId,
+                        "Metopa Origins",
+                        WorkType.GRAPHIC_NOVEL,
+                        Set.of(
+                                Genre.SCI_FI,
+                                Genre.ADVENTURE
+                        ),
+                        true
+                )
+        );
+
+        when(
+                catalogService.findWorkSummary(
+                        dramaWorkId
+                )
+        ).thenReturn(
+                new WorkSummary(
+                        dramaWorkId,
+                        "Another Work",
+                        WorkType.COMIC,
+                        Set.of(
+                                Genre.DRAMA
+                        ),
+                        false
+                )
+        );
+
+        List<PublishedWorkSummary> result =
+                publicationService
+                        .findPublishedWorks(
+                                Genre.SCI_FI
+                        );
+
+        assertThat(result)
+                .hasSize(1);
+
+        assertThat(result.getFirst().id())
+                .isEqualTo(
+                        scienceFictionWorkId
+                );
+
+        assertThat(result.getFirst().genres())
+                .containsExactlyInAnyOrder(
+                        Genre.SCI_FI,
+                        Genre.ADVENTURE
+                );
+    }
 }

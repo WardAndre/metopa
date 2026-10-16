@@ -10,7 +10,7 @@ Projeto em desenvolvimento — MVP.
 
 Nesta primeira fase, toda a infraestrutura é executada localmente, sem dependência de serviços cloud pagos.
 
-A suíte automatizada possui atualmente **150 testes**, cobrindo regras de domínio, persistência, segurança, APIs HTTP, armazenamento binário e fluxos de integração.
+A suíte automatizada possui atualmente **154 testes**, cobrindo regras de domínio, persistência, segurança, APIs HTTP, armazenamento binário e fluxos de integração.
 
 ## Tecnologias
 
@@ -147,6 +147,7 @@ Atualmente suporta:
 - exposição dos gêneros nos endpoints públicos de detalhe e descoberta;
 - exposição pública da capa somente quando a obra possui conteúdo publicado;
 - drafts não são expostos pelos endpoints públicos.
+- filtragem opcional da descoberta pública por gênero;
 
 ### Library
 
@@ -313,7 +314,7 @@ Para limpar o build, compilar o projeto e executar todos os testes:
 Estado atual da suíte:
 
 ```text
-Tests run: 150
+Tests run: 154
 Failures: 0
 Errors: 0
 Skipped: 0
@@ -355,6 +356,10 @@ Os testes cobrem, entre outros cenários:
 - leitura pública da capa de obras publicadas;
 - propagação de `hasCover` entre `catalog` e `publication`;
 - exposição de `coverUrl` nos endpoints públicos de detalhe e descoberta.
+- filtragem de obras publicadas por gênero;
+- integração completa do filtro de gênero com persistência real no PostgreSQL;
+- exclusão de obras draft mesmo quando possuem o gênero filtrado;
+- rejeição de valores inválidos no filtro de gênero.
 
 ## API atual
 
@@ -747,13 +752,37 @@ Endpoint público. Não requer autenticação.
 
 Retorna as obras que possuem pelo menos um installment publicado.
 
-Resposta:
+A listagem pode ser filtrada opcionalmente por gênero:
 
 ```http
-200 OK
+GET /api/works?genre=SCI_FI
 ```
 
-Exemplo:
+Quando `genre` é informado, somente obras publicadas associadas ao gênero solicitado são retornadas.
+
+Os valores aceitos atualmente são:
+
+```text
+ACTION
+ADVENTURE
+COMEDY
+DRAMA
+FANTASY
+HORROR
+MYSTERY
+ROMANCE
+SCI_FI
+SLICE_OF_LIFE
+THRILLER
+```
+
+O filtro utiliza os valores exatos definidos pelo enum `Genre`. Valores desconhecidos são rejeitados com:
+
+```http
+400 Bad Request
+```
+
+Exemplo de resposta:
 
 ```json
 [
@@ -766,28 +795,23 @@ Exemplo:
       "ADVENTURE"
     ],
     "coverUrl": "/api/works/550e8400-e29b-41d4-a716-446655440000/cover"
-  },
-  {
-    "id": "550e8400-e29b-41d4-a716-446655440001",
-    "title": "Another Work",
-    "type": "COMIC",
-    "genres": [
-      "DRAMA"
-    ],
-    "coverUrl": null
   }
 ]
 ```
 
-Caso não existam obras publicadas:
+Sem o parâmetro `genre`, o comportamento permanece o mesmo e todas as obras publicadas são retornadas.
+
+Uma obra aparece apenas uma vez, mesmo que possua vários installments publicados.
+
+Obras que possuem o gênero solicitado, mas não possuem nenhum installment publicado, continuam invisíveis na descoberta pública.
+
+A ordem dos gêneros de cada obra não deve ser utilizada pelo cliente como informação semântica.
+
+Caso nenhuma obra publicada corresponda ao filtro:
 
 ```json
 []
 ```
-
-Uma obra aparece apenas uma vez, mesmo que possua vários installments publicados.
-
-A ordem dos gêneros de cada obra não deve ser utilizada pelo cliente como informação semântica.
 
 ### Adicionar obra à biblioteca
 
@@ -1040,6 +1064,7 @@ feature/catalog-work
 refactor/media-storage
 feature/work-cover
 feature/work-genres
+feature/work-discovery-filtering
 ```
 
 O fluxo utilizado é:

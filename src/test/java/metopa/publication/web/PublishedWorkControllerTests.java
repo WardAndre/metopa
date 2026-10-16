@@ -23,8 +23,8 @@ import java.util.Set;
 
 import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.hamcrest.Matchers.containsInAnyOrder;
-import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -292,5 +292,87 @@ class PublishedWorkControllerTests {
                         jsonPath("$[1].coverUrl")
                                 .value(nullValue())
                 );
+    }
+
+    @Test
+    void shouldReturnPublishedWorksFilteredByGenre()
+            throws Exception {
+
+        UUID workId = UUID.randomUUID();
+
+        when(
+                publicationService.findPublishedWorks(
+                        Genre.SCI_FI
+                )
+        ).thenReturn(
+                List.of(
+                        new PublishedWorkSummary(
+                                workId,
+                                "Metopa Origins",
+                                WorkType.GRAPHIC_NOVEL,
+                                Set.of(
+                                        Genre.SCI_FI,
+                                        Genre.ADVENTURE
+                                ),
+                                true
+                        )
+                )
+        );
+
+        mockMvc.perform(
+                        get("/api/works")
+                                .queryParam(
+                                        "genre",
+                                        "SCI_FI"
+                                )
+                )
+                .andExpect(status().isOk())
+                .andExpect(
+                        jsonPath("$.length()")
+                                .value(1)
+                )
+                .andExpect(
+                        jsonPath("$[0].id")
+                                .value(
+                                        workId.toString()
+                                )
+                )
+                .andExpect(
+                        jsonPath("$[0].title")
+                                .value(
+                                        "Metopa Origins"
+                                )
+                )
+                .andExpect(
+                        jsonPath("$[0].type")
+                                .value(
+                                        "GRAPHIC_NOVEL"
+                                )
+                )
+                .andExpect(
+                        jsonPath("$[0].genres")
+                                .value(
+                                        containsInAnyOrder(
+                                                "SCI_FI",
+                                                "ADVENTURE"
+                                        )
+                                )
+                );
+    }
+
+    @Test
+    void shouldRejectInvalidGenreFilter()
+            throws Exception {
+
+        mockMvc.perform(
+                        get("/api/works")
+                                .queryParam(
+                                        "genre",
+                                        "INVALID"
+                                )
+                )
+                .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(publicationService);
     }
 }

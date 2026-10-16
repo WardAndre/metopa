@@ -4,6 +4,7 @@ import jakarta.validation.Valid;
 import metopa.catalog.CatalogService;
 import metopa.catalog.WorkReference;
 import metopa.catalog.WorkDetails;
+import metopa.catalog.Genre;
 import metopa.media.BinaryStorage;
 import metopa.publication.internal.Installment;
 import metopa.publication.internal.InstallmentRepository;
@@ -338,6 +339,13 @@ public class PublicationService {
 
     @Transactional(readOnly = true)
     public List<PublishedWorkSummary> findPublishedWorks() {
+        return findPublishedWorks(null);
+    }
+
+    @Transactional(readOnly = true)
+    public List<PublishedWorkSummary> findPublishedWorks(
+            Genre genre
+    ) {
         return installmentRepository
                 .findByStatusOrderByUpdatedAtDesc(
                         PublicationStatus.PUBLISHED
@@ -346,6 +354,10 @@ public class PublicationService {
                 .map(Installment::getWorkId)
                 .distinct()
                 .map(catalogService::findWorkSummary)
+                .filter(work ->
+                        genre == null
+                                || work.genres().contains(genre)
+                )
                 .map(work ->
                         new PublishedWorkSummary(
                                 work.id(),
