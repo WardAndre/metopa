@@ -2,6 +2,7 @@ package metopa.catalog.web;
 
 import metopa.catalog.CatalogService;
 import metopa.catalog.CreateWorkCommand;
+import metopa.catalog.UpdateWorkCommand;
 import metopa.identity.IdentityService;
 import metopa.identity.UserReference;
 import org.springframework.http.HttpStatus;
@@ -11,6 +12,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PutMapping;
 
 import java.util.UUID;
 
@@ -51,5 +54,34 @@ class WorkController {
         UUID workId = catalogService.createWork(command);
 
         return new CreateWorkResponse(workId);
+    }
+
+    @PutMapping("/{workId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    void updateWork(
+            @PathVariable UUID workId,
+            @RequestBody UpdateWorkRequest request,
+            Principal principal
+    ) {
+        UserReference user =
+                identityService.findByUsername(
+                        principal.getName()
+                );
+
+        UpdateWorkCommand command =
+                new UpdateWorkCommand(
+                        request.title(),
+                        request.description(),
+                        request.type(),
+                        request.readingDirection(),
+                        request.presentationMode(),
+                        request.genres()
+                );
+
+        catalogService.updateWork(
+                user.id(),
+                workId,
+                command
+        );
     }
 }

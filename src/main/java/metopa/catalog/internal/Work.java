@@ -8,8 +8,6 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import jakarta.persistence.CollectionTable;
 import jakarta.persistence.ElementCollection;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.JoinColumn;
 import metopa.catalog.Genre;
@@ -92,6 +90,26 @@ public class Work {
         this.presentationMode = presentationMode;
         this.createdAt = Instant.now();
         this.updatedAt = this.createdAt;
+    }
+
+    public void updateMetadata(
+            String title,
+            String description,
+            WorkType type,
+            ReadingDirection readingDirection,
+            PresentationMode presentationMode,
+            Set<Genre> genres
+    ) {
+        this.title = title;
+        this.description = description;
+        this.type = type;
+        this.readingDirection = readingDirection;
+        this.presentationMode = presentationMode;
+
+        this.genres.clear();
+        this.genres.addAll(genres);
+
+        this.updatedAt = Instant.now();
     }
 
     public UUID getId() {
