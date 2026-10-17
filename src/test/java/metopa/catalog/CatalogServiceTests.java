@@ -365,4 +365,142 @@ class CatalogServiceTests {
                 never()
         ).read(any(String.class));
     }
+
+    @Test
+    void shouldUpdateWorkMetadataForOwner() {
+        UUID ownerId = UUID.randomUUID();
+
+        Work work = new Work(
+                ownerId,
+                "Old Title",
+                "Old description.",
+                WorkType.COMIC,
+                ReadingDirection.LEFT_TO_RIGHT,
+                PresentationMode.SINGLE_PAGE
+        );
+
+        work.setGenres(
+                Set.of(
+                        Genre.DRAMA,
+                        Genre.ROMANCE
+                )
+        );
+
+        when(repository.findById(work.getId()))
+                .thenReturn(Optional.of(work));
+
+        UpdateWorkCommand command =
+                new UpdateWorkCommand(
+                        "  Updated Title  ",
+                        "  Updated description.  ",
+                        WorkType.MANGA,
+                        ReadingDirection.RIGHT_TO_LEFT,
+                        PresentationMode.DOUBLE_PAGE,
+                        Set.of(
+                                Genre.SCI_FI,
+                                Genre.ADVENTURE
+                        )
+                );
+
+        catalogService.updateWork(
+                ownerId,
+                work.getId(),
+                command
+        );
+
+        assertThat(work.getTitle())
+                .isEqualTo("Updated Title");
+
+        assertThat(work.getDescription())
+                .isEqualTo("Updated description.");
+
+        assertThat(work.getType())
+                .isEqualTo(WorkType.MANGA);
+
+        assertThat(work.getReadingDirection())
+                .isEqualTo(
+                        ReadingDirection.RIGHT_TO_LEFT
+                );
+
+        assertThat(work.getPresentationMode())
+                .isEqualTo(
+                        PresentationMode.DOUBLE_PAGE
+                );
+
+        assertThat(work.getGenres())
+                .containsExactlyInAnyOrder(
+                        Genre.SCI_FI,
+                        Genre.ADVENTURE
+                );
+    }
+
+    @Test
+    void shouldRejectWorkMetadataUpdateFromNonOwner() {
+        UUID ownerId = UUID.randomUUID();
+        UUID anotherUserId = UUID.randomUUID();
+
+        Work work = new Work(
+                ownerId,
+                "Original Title",
+                "Original description.",
+                WorkType.COMIC,
+                ReadingDirection.LEFT_TO_RIGHT,
+                PresentationMode.SINGLE_PAGE
+        );
+
+        work.setGenres(
+                Set.of(
+                        Genre.DRAMA
+                )
+        );
+
+        when(repository.findById(work.getId()))
+                .thenReturn(Optional.of(work));
+
+        UpdateWorkCommand command =
+                new UpdateWorkCommand(
+                        "Changed Title",
+                        "Changed description.",
+                        WorkType.MANGA,
+                        ReadingDirection.RIGHT_TO_LEFT,
+                        PresentationMode.DOUBLE_PAGE,
+                        Set.of(
+                                Genre.SCI_FI
+                        )
+                );
+
+        assertThatThrownBy(() ->
+                catalogService.updateWork(
+                        anotherUserId,
+                        work.getId(),
+                        command
+                )
+        ).isInstanceOf(
+                WorkAccessDeniedException.class
+        );
+
+        assertThat(work.getTitle())
+                .isEqualTo("Original Title");
+
+        assertThat(work.getDescription())
+                .isEqualTo("Original description.");
+
+        assertThat(work.getType())
+                .isEqualTo(WorkType.COMIC);
+
+        assertThat(work.getReadingDirection())
+                .isEqualTo(
+                        ReadingDirection.LEFT_TO_RIGHT
+                );
+
+        assertThat(work.getPresentationMode())
+                .isEqualTo(
+                        PresentationMode.SINGLE_PAGE
+                );
+
+        assertThat(work.getGenres())
+                .containsExactly(
+                        Genre.DRAMA
+                );
+    }
 }

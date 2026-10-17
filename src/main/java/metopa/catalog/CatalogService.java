@@ -46,6 +46,31 @@ public class CatalogService {
         return saved.getId();
     }
 
+    @Transactional
+    public void updateWork(
+            UUID userId,
+            UUID workId,
+            @Valid UpdateWorkCommand command
+    ) {
+        Work work = repository.findById(workId)
+                .orElseThrow(() ->
+                        new WorkNotFoundException(workId)
+                );
+
+        if (!work.getOwnerId().equals(userId)) {
+            throw new WorkAccessDeniedException();
+        }
+
+        work.updateMetadata(
+                command.title(),
+                command.description(),
+                command.type(),
+                command.readingDirection(),
+                command.presentationMode(),
+                command.genres()
+        );
+    }
+
     @Transactional(readOnly = true)
     public WorkReference findWork(UUID workId) {
         Work work = repository.findById(workId)
