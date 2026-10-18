@@ -397,4 +397,56 @@ public class PublicationService {
                 cover.content()
         );
     }
+
+    @Transactional
+    public void updateInstallment(
+            UUID userId,
+            UUID installmentId,
+            @Valid UpdateInstallmentCommand command
+    ) {
+        Installment installment =
+                installmentRepository
+                        .findById(installmentId)
+                        .orElseThrow(() ->
+                                new InstallmentNotFoundException(
+                                        installmentId
+                                )
+                        );
+
+        if (installment.getStatus()
+                == PublicationStatus.PUBLISHED) {
+            throw new PublishedInstallmentModificationException();
+        }
+
+        WorkReference work =
+                catalogService.findWork(
+                        installment.getWorkId()
+                );
+
+        if (!work.ownerId().equals(userId)) {
+            throw new WorkAccessDeniedException();
+        }
+
+        boolean identityChanged =
+                installment.getType()
+                        != command.type()
+                        || installment.getNumber()
+                        != command.number();
+
+        if (identityChanged
+                && installmentRepository
+                .existsByWorkIdAndTypeAndNumber(
+                        installment.getWorkId(),
+                        command.type(),
+                        command.number()
+                )) {
+            throw new InstallmentAlreadyExistsException();
+        }
+
+        installment.updateMetadata(
+                command.type(),
+                command.number(),
+                command.title()
+        );
+    }
 }

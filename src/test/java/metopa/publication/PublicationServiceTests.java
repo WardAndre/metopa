@@ -28,6 +28,7 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -1417,5 +1418,271 @@ class PublicationServiceTests {
                         Genre.SCI_FI,
                         Genre.ADVENTURE
                 );
+    }
+
+    @Test
+    void shouldUpdateDraftInstallmentMetadataForOwner() {
+        UUID userId = UUID.randomUUID();
+        UUID workId = UUID.randomUUID();
+
+        Installment installment =
+                new Installment(
+                        workId,
+                        InstallmentType.CHAPTER,
+                        1,
+                        "Original Title"
+                );
+
+        UpdateInstallmentCommand command =
+                new UpdateInstallmentCommand(
+                        InstallmentType.ISSUE,
+                        2,
+                        "  Updated Title  "
+                );
+
+        when(
+                installmentRepository.findById(
+                        installment.getId()
+                )
+        ).thenReturn(
+                Optional.of(installment)
+        );
+
+        when(catalogService.findWork(workId))
+                .thenReturn(
+                        new WorkReference(
+                                workId,
+                                userId
+                        )
+                );
+
+        when(
+                installmentRepository
+                        .existsByWorkIdAndTypeAndNumber(
+                                workId,
+                                InstallmentType.ISSUE,
+                                2
+                        )
+        ).thenReturn(false);
+
+        publicationService.updateInstallment(
+                userId,
+                installment.getId(),
+                command
+        );
+
+        assertThat(installment.getType())
+                .isEqualTo(
+                        InstallmentType.ISSUE
+                );
+
+        assertThat(installment.getNumber())
+                .isEqualTo(2);
+
+        assertThat(installment.getTitle())
+                .isEqualTo("Updated Title");
+
+        verify(installmentRepository)
+                .existsByWorkIdAndTypeAndNumber(
+                        workId,
+                        InstallmentType.ISSUE,
+                        2
+                );
+    }
+
+    @Test
+    void shouldUpdateOnlyInstallmentTitleWithoutDuplicateCheck() {
+        UUID userId = UUID.randomUUID();
+        UUID workId = UUID.randomUUID();
+
+        Installment installment =
+                new Installment(
+                        workId,
+                        InstallmentType.CHAPTER,
+                        1,
+                        "Original Title"
+                );
+
+        UpdateInstallmentCommand command =
+                new UpdateInstallmentCommand(
+                        InstallmentType.CHAPTER,
+                        1,
+                        "Updated Title"
+                );
+
+        when(
+                installmentRepository.findById(
+                        installment.getId()
+                )
+        ).thenReturn(
+                Optional.of(installment)
+        );
+
+        when(catalogService.findWork(workId))
+                .thenReturn(
+                        new WorkReference(
+                                workId,
+                                userId
+                        )
+                );
+
+        publicationService.updateInstallment(
+                userId,
+                installment.getId(),
+                command
+        );
+
+        assertThat(installment.getType())
+                .isEqualTo(
+                        InstallmentType.CHAPTER
+                );
+
+        assertThat(installment.getNumber())
+                .isEqualTo(1);
+
+        assertThat(installment.getTitle())
+                .isEqualTo("Updated Title");
+
+        verify(
+                installmentRepository,
+                never()
+        ).existsByWorkIdAndTypeAndNumber(
+                any(UUID.class),
+                any(InstallmentType.class),
+                anyInt()
+        );
+    }
+
+    @Test
+    void shouldRejectDuplicateInstallmentMetadata() {
+        UUID userId = UUID.randomUUID();
+        UUID workId = UUID.randomUUID();
+
+        Installment installment =
+                new Installment(
+                        workId,
+                        InstallmentType.CHAPTER,
+                        1,
+                        "Original Title"
+                );
+
+        UpdateInstallmentCommand command =
+                new UpdateInstallmentCommand(
+                        InstallmentType.ISSUE,
+                        2,
+                        "Updated Title"
+                );
+
+        when(
+                installmentRepository.findById(
+                        installment.getId()
+                )
+        ).thenReturn(
+                Optional.of(installment)
+        );
+
+        when(catalogService.findWork(workId))
+                .thenReturn(
+                        new WorkReference(
+                                workId,
+                                userId
+                        )
+                );
+
+        when(
+                installmentRepository
+                        .existsByWorkIdAndTypeAndNumber(
+                                workId,
+                                InstallmentType.ISSUE,
+                                2
+                        )
+        ).thenReturn(true);
+
+        assertThatThrownBy(() ->
+                publicationService.updateInstallment(
+                        userId,
+                        installment.getId(),
+                        command
+                )
+        ).isInstanceOf(
+                InstallmentAlreadyExistsException.class
+        );
+
+        assertThat(installment.getType())
+                .isEqualTo(
+                        InstallmentType.CHAPTER
+                );
+
+        assertThat(installment.getNumber())
+                .isEqualTo(1);
+
+        assertThat(installment.getTitle())
+                .isEqualTo("Original Title");
+    }
+
+    @Test
+    void shouldRejectMetadataUpdateForPublishedInstallment() {
+        UUID userId = UUID.randomUUID();
+        UUID workId = UUID.randomUUID();
+
+        Installment installment =
+                new Installment(
+                        workId,
+                        InstallmentType.CHAPTER,
+                        1,
+                        "Published Title"
+                );
+
+        installment.publish();
+
+        UpdateInstallmentCommand command =
+                new UpdateInstallmentCommand(
+                        InstallmentType.ISSUE,
+                        2,
+                        "Updated Title"
+                );
+
+        when(
+                installmentRepository.findById(
+                        installment.getId()
+                )
+        ).thenReturn(
+                Optional.of(installment)
+        );
+
+        assertThatThrownBy(() ->
+                publicationService.updateInstallment(
+                        userId,
+                        installment.getId(),
+                        command
+                )
+        ).isInstanceOf(
+                PublishedInstallmentModificationException.class
+        );
+
+        assertThat(installment.getType())
+                .isEqualTo(
+                        InstallmentType.CHAPTER
+                );
+
+        assertThat(installment.getNumber())
+                .isEqualTo(1);
+
+        assertThat(installment.getTitle())
+                .isEqualTo("Published Title");
+
+        verify(
+                catalogService,
+                never()
+        ).findWork(any(UUID.class));
+
+        verify(
+                installmentRepository,
+                never()
+        ).existsByWorkIdAndTypeAndNumber(
+                any(UUID.class),
+                any(InstallmentType.class),
+                anyInt()
+        );
     }
 }
