@@ -101,4 +101,15 @@ public class Installment {
         status = PublicationStatus.PUBLISHED;
         updatedAt = Instant.now();
     }
+
+    public void updateMetadata(
+            InstallmentType type,
+            int number,
+            String title
+    ) {
+        this.type = type;
+        this.number = number;
+        this.title = title;
+        this.updatedAt = Instant.now();
+    }
 }

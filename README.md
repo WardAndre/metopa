@@ -10,7 +10,7 @@ Projeto em desenvolvimento — MVP.
 
 Nesta primeira fase, toda a infraestrutura é executada localmente, sem dependência de serviços cloud pagos.
 
-A suíte automatizada possui atualmente **160 testes**, cobrindo regras de domínio, persistência, segurança, APIs HTTP, armazenamento binário e fluxos de integração.
+A suíte automatizada possui atualmente **167 testes**, cobrindo regras de domínio, persistência, segurança, APIs HTTP, armazenamento binário e fluxos de integração.
 
 ## Tecnologias
 
@@ -130,8 +130,11 @@ Atualmente suporta:
 - diferentes tipos de installment: chapter, issue, episode e strip;
 - título opcional para installments;
 - installments criados inicialmente como draft;
+- atualização de tipo, número e título de installments em estado `DRAFT`;
+- normalização do título durante a atualização;
 - validação de propriedade da obra antes de alterações;
 - prevenção de installments duplicados por tipo e número;
+- prevenção de combinações duplicadas de tipo e número durante a atualização;
 - criação e ordenação de páginas;
 - upload de páginas através de `multipart/form-data`;
 - armazenamento local dos arquivos através do módulo `media`;
@@ -221,6 +224,7 @@ Algumas decisões adotadas no MVP:
 - gêneros tratados como vocabulário pertencente ao módulo `catalog`;
 - múltiplos gêneros representados como `Set<Genre>`, sem entidade de domínio dedicada;
 - alterações dos metadados da obra concentradas em uma operação de domínio;
+- alterações dos metadados de installments concentradas em uma operação de domínio;
 - autenticação baseada em sessão HTTP no MVP web;
 - proteção CSRF mantida habilitada;
 - senhas nunca são armazenadas em texto puro;
@@ -317,7 +321,7 @@ Para limpar o build, compilar o projeto e executar todos os testes:
 Estado atual da suíte:
 
 ```text
-Tests run: 160
+Tests run: 167
 Failures: 0
 Errors: 0
 Skipped: 0
@@ -331,16 +335,23 @@ Os testes cobrem, entre outros cenários:
 - persistência de múltiplos gêneros por obra;
 - criação de obra com gêneros através do fluxo HTTP completo;
 - atualização dos metadados de uma obra pelo proprietário;
-- persistência da atualização através do fluxo HTTP completo;
-- normalização de título e descrição durante a atualização;
+- persistência da atualização da obra através do fluxo HTTP completo;
+- normalização de título e descrição durante a atualização da obra;
 - substituição dos gêneros anteriores pelos novos gêneros;
-- rejeição de atualização por usuário que não seja proprietário;
+- rejeição de atualização da obra por usuário que não seja proprietário;
 - preservação do estado da obra após tentativa de atualização não autorizada;
 - rejeição de metadados inválidos sem alteração do estado persistido;
 - propagação de gêneros entre `Work`, `WorkSummary` e `WorkDetails`;
 - propagação de gêneros entre os módulos `catalog` e `publication`;
 - exposição de gêneros nos endpoints públicos de detalhe e descoberta;
 - criação, persistência, publicação e leitura de installments;
+- atualização dos metadados de installments em estado `DRAFT`;
+- persistência da atualização de installments através do fluxo HTTP completo;
+- normalização do título durante a atualização de installments;
+- alteração somente de título sem falso conflito de duplicidade;
+- rejeição de combinações duplicadas de tipo e número durante a atualização;
+- rejeição de alterações em installments publicados;
+- preservação dos metadados persistidos após tentativa de alteração de installment publicado;
 - autorização baseada na propriedade da obra;
 - criação, ordenação e persistência de páginas;
 - upload multipart;
@@ -657,6 +668,69 @@ Exemplo:
 O installment é criado inicialmente com status `DRAFT`.
 
 O usuário autenticado deve ser proprietário da obra.
+
+### Atualizar metadados do installment
+
+```http
+PUT /api/installments/{installmentId}
+```
+
+Requer usuário autenticado e token CSRF válido.
+
+Somente o proprietário da obra pode atualizar os metadados do installment.
+
+A atualização é permitida somente enquanto o installment estiver em estado `DRAFT`.
+
+A operação utiliza `PUT`: a requisição representa o novo estado completo dos metadados editáveis do installment.
+
+Exemplo:
+
+```json
+{
+  "type": "ISSUE",
+  "number": 2,
+  "title": "Issue Two"
+}
+```
+
+Os campos editáveis são:
+
+```text
+type
+number
+title
+```
+
+O campo `type` é obrigatório.
+
+O campo `number` deve ser maior que zero.
+
+O campo `title` é opcional. Espaços nas extremidades são removidos e um título vazio é normalizado para ausência de título.
+
+A combinação de `type` e `number` deve ser única dentro da mesma obra.
+
+Quando apenas o título é alterado, o installment pode manter seu `type` e `number` atuais sem entrar em conflito consigo mesmo.
+
+O identificador do installment, a obra associada, o status e a data de criação não são modificados por esse endpoint.
+
+Resposta de sucesso:
+
+```http
+204 No Content
+```
+
+Possíveis respostas:
+
+```text
+400 → um ou mais campos são inválidos
+401 → usuário não autenticado
+403 → token CSRF ausente ou inválido, ou usuário não é proprietário da obra
+404 → installment não encontrado
+409 → combinação de tipo e número já existe para a obra
+409 → installment já publicado e não pode ser modificado
+```
+
+Installments em estado `PUBLISHED` não podem ter seus metadados modificados.
 
 ### Adicionar página
 
@@ -1108,6 +1182,8 @@ POST   /api/works
 PUT    /api/works/{workId}
 PUT    /api/works/{workId}/cover
 POST   /api/works/{workId}/installments
+
+PUT    /api/installments/{installmentId}
 POST   /api/installments/{installmentId}/pages
 POST   /api/installments/{installmentId}/publish
 
@@ -1142,6 +1218,7 @@ feature/work-cover
 feature/work-genres
 feature/work-discovery-filtering
 feature/work-metadata-update
+feature/installment-metadata-update
 ```
 
 O fluxo utilizado é:

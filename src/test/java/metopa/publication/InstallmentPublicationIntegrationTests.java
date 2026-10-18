@@ -19,12 +19,14 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
 import java.util.UUID;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestBuilders.formLogin;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.response.SecurityMockMvcResultMatchers.authenticated;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -241,6 +243,196 @@ class InstallmentPublicationIntegrationTests {
 
         assertThat(status)
                 .isEqualTo("DRAFT");
+    }
+
+    @Test
+    void shouldUpdateDraftInstallmentMetadata()
+            throws Exception {
+
+        TestUser owner =
+                createUser("update-owner");
+
+        UUID workId =
+                createWork(owner.id());
+
+        UUID installmentId =
+                publicationService.createInstallment(
+                        owner.id(),
+                        new CreateInstallmentCommand(
+                                workId,
+                                InstallmentType.CHAPTER,
+                                1,
+                                "Original Title"
+                        )
+                );
+
+        MockHttpSession session =
+                login(owner.username());
+
+        mockMvc.perform(
+                        put(
+                                "/api/installments/{installmentId}",
+                                installmentId
+                        )
+                                .session(session)
+                                .with(csrf())
+                                .contentType(
+                                        MediaType.APPLICATION_JSON
+                                )
+                                .content("""
+                                    {
+                                      "type": "ISSUE",
+                                      "number": 2,
+                                      "title": "  Updated Title  "
+                                    }
+                                    """)
+                )
+                .andExpect(
+                        status().isNoContent()
+                );
+
+        Map<String, Object> row =
+                jdbcTemplate.queryForMap(
+                        """
+                        SELECT
+                            installment_type,
+                            number,
+                            title,
+                            status
+                        FROM installment
+                        WHERE id = ?
+                        """,
+                        installmentId
+                );
+
+        assertThat(
+                row.get("installment_type")
+        ).isEqualTo("ISSUE");
+
+        assertThat(
+                row.get("number")
+        ).isEqualTo(2);
+
+        assertThat(
+                row.get("title")
+        ).isEqualTo("Updated Title");
+
+        assertThat(
+                row.get("status")
+        ).isEqualTo("DRAFT");
+    }
+
+    @Test
+    void shouldRejectMetadataUpdateForPublishedInstallment()
+            throws Exception {
+
+        TestUser owner =
+                createUser("update-published");
+
+        UUID workId =
+                createWork(owner.id());
+
+        UUID installmentId =
+                publicationService.createInstallment(
+                        owner.id(),
+                        new CreateInstallmentCommand(
+                                workId,
+                                InstallmentType.CHAPTER,
+                                1,
+                                "Published Title"
+                        )
+                );
+
+        publicationService.createPage(
+                owner.id(),
+                new CreatePageCommand(
+                        installmentId,
+                        1,
+                        "image/jpeg",
+                        "page-content".getBytes()
+                )
+        );
+
+        publicationService.publishInstallment(
+                owner.id(),
+                installmentId
+        );
+
+        MockHttpSession session =
+                login(owner.username());
+
+        mockMvc.perform(
+                        put(
+                                "/api/installments/{installmentId}",
+                                installmentId
+                        )
+                                .session(session)
+                                .with(csrf())
+                                .contentType(
+                                        MediaType.APPLICATION_JSON
+                                )
+                                .content("""
+                                    {
+                                      "type": "ISSUE",
+                                      "number": 2,
+                                      "title": "Updated Title"
+                                    }
+                                    """)
+                )
+                .andExpect(
+                        status().isConflict()
+                )
+                .andExpect(
+                        content().contentTypeCompatibleWith(
+                                MediaType.APPLICATION_PROBLEM_JSON
+                        )
+                )
+                .andExpect(
+                        jsonPath("$.title")
+                                .value(
+                                        "Published installment cannot be modified"
+                                )
+                )
+                .andExpect(
+                        jsonPath("$.status")
+                                .value(409)
+                )
+                .andExpect(
+                        jsonPath("$.detail")
+                                .value(
+                                        "Published installments cannot be modified."
+                                )
+                );
+
+        Map<String, Object> row =
+                jdbcTemplate.queryForMap(
+                        """
+                        SELECT
+                            installment_type,
+                            number,
+                            title,
+                            status
+                        FROM installment
+                        WHERE id = ?
+                        """,
+                        installmentId
+                );
+
+        assertThat(
+                row.get("installment_type")
+        ).isEqualTo("CHAPTER");
+
+        assertThat(
+                row.get("number")
+        ).isEqualTo(1);
+
+        assertThat(
+                row.get("title")
+        ).isEqualTo("Published Title");
+
+        assertThat(
+                row.get("status")
+        ).isEqualTo("PUBLISHED");
     }
 
     private UUID createInstallment(UUID ownerId) {
