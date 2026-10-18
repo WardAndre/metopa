@@ -10,7 +10,7 @@ Projeto em desenvolvimento — MVP.
 
 Nesta primeira fase, toda a infraestrutura é executada localmente, sem dependência de serviços cloud pagos.
 
-A suíte automatizada possui atualmente **167 testes**, cobrindo regras de domínio, persistência, segurança, APIs HTTP, armazenamento binário e fluxos de integração.
+A suíte automatizada possui atualmente **170 testes**, cobrindo regras de domínio, persistência, segurança, APIs HTTP, armazenamento binário e fluxos de integração.
 
 ## Tecnologias
 
@@ -86,6 +86,10 @@ Atualmente suporta:
 - criação de obras;
 - associação automática da obra ao usuário autenticado;
 - atualização dos metadados da obra pelo proprietário;
+- listagem das obras pertencentes ao usuário autenticado;
+- inclusão de obras ainda não publicadas na visão de gerenciamento do criador;
+- isolamento das obras por proprietário;
+- ordenação das obras do criador pelas atualizadas mais recentemente;
 - diferentes tipos de obra, como comic, mangá, graphic novel, webtoon e tirinha;
 - direção de leitura configurável;
 - modo de apresentação configurável;
@@ -225,6 +229,8 @@ Algumas decisões adotadas no MVP:
 - múltiplos gêneros representados como `Set<Genre>`, sem entidade de domínio dedicada;
 - alterações dos metadados da obra concentradas em uma operação de domínio;
 - alterações dos metadados de installments concentradas em uma operação de domínio;
+- separação entre descoberta pública e gerenciamento das obras do criador;
+- a listagem das obras do criador pertence ao módulo `catalog` e não depende do estado de publicação;
 - autenticação baseada em sessão HTTP no MVP web;
 - proteção CSRF mantida habilitada;
 - senhas nunca são armazenadas em texto puro;
@@ -321,7 +327,7 @@ Para limpar o build, compilar o projeto e executar todos os testes:
 Estado atual da suíte:
 
 ```text
-Tests run: 167
+Tests run: 170
 Failures: 0
 Errors: 0
 Skipped: 0
@@ -341,6 +347,12 @@ Os testes cobrem, entre outros cenários:
 - rejeição de atualização da obra por usuário que não seja proprietário;
 - preservação do estado da obra após tentativa de atualização não autorizada;
 - rejeição de metadados inválidos sem alteração do estado persistido;
+- listagem das obras pertencentes ao usuário autenticado;
+- conversão das obras do criador para `WorkSummary`;
+- exposição da listagem do criador através do fluxo HTTP;
+- inclusão de obras ainda não publicadas na listagem do proprietário;
+- isolamento entre obras pertencentes a usuários diferentes;
+- integração da consulta por proprietário com persistência real no PostgreSQL;
 - propagação de gêneros entre `Work`, `WorkSummary` e `WorkDetails`;
 - propagação de gêneros entre os módulos `catalog` e `publication`;
 - exposição de gêneros nos endpoints públicos de detalhe e descoberta;
@@ -366,7 +378,7 @@ Os testes cobrem, entre outros cenários:
 - persistência, atualização e consulta do progresso de leitura;
 - rejeição de páginas inexistentes ou ainda não publicadas no progresso;
 - leitura pública dos detalhes de obras publicadas;
-- ocultação de obras que possuem somente conteúdo em draft;
+- ocultação de obras que possuem somente conteúdo em draft na descoberta pública;
 - listagem somente de installments publicados;
 - descoberta pública de obras sem duplicação;
 - filtragem de obras publicadas por gênero;
@@ -585,6 +597,71 @@ Possíveis respostas:
 400 → um ou mais metadados são inválidos
 401 → usuário não autenticado
 403 → token CSRF ausente ou inválido, ou usuário autenticado não é proprietário da obra
+```
+
+### Listar obras do criador
+
+```http
+GET /api/me/works
+```
+
+Requer usuário autenticado.
+
+Retorna as obras pertencentes ao usuário da sessão, independentemente de possuírem conteúdo publicado.
+
+O cliente não informa `userId`. A identidade do proprietário é determinada a partir da sessão autenticada.
+
+Exemplo de resposta:
+
+```json
+[
+  {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "title": "Metopa Origins",
+    "type": "GRAPHIC_NOVEL",
+    "genres": [
+      "SCI_FI",
+      "ADVENTURE"
+    ],
+    "hasCover": true
+  }
+]
+```
+
+A resposta pode incluir:
+
+- obras sem installments;
+- obras que possuem somente installments em estado `DRAFT`;
+- obras com conteúdo publicado.
+
+Somente obras pertencentes ao usuário autenticado são retornadas.
+
+As obras são retornadas das atualizadas mais recentemente para as menos recentes.
+
+A ordem dos elementos de `genres` não faz parte do contrato da API.
+
+Quando o usuário ainda não possui obras:
+
+```json
+[]
+```
+
+Sem autenticação:
+
+```text
+401 → usuário não autenticado
+```
+
+A visão de gerenciamento do criador é independente da descoberta pública:
+
+```text
+GET /api/works
+→ descoberta pública
+→ somente obras com conteúdo publicado
+
+GET /api/me/works
+→ gerenciamento do criador
+→ todas as obras pertencentes ao usuário autenticado
 ```
 
 ### Definir capa da obra
@@ -1182,6 +1259,7 @@ POST   /api/works
 PUT    /api/works/{workId}
 PUT    /api/works/{workId}/cover
 POST   /api/works/{workId}/installments
+GET    /api/me/works
 
 PUT    /api/installments/{installmentId}
 POST   /api/installments/{installmentId}/pages
@@ -1219,6 +1297,7 @@ feature/work-genres
 feature/work-discovery-filtering
 feature/work-metadata-update
 feature/installment-metadata-update
+feature/creator-work-list
 ```
 
 O fluxo utilizado é:

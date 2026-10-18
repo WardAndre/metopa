@@ -9,6 +9,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.validation.annotation.Validated;
 
 import java.util.UUID;
+import java.util.List;
 
 @Service
 @Validated
@@ -172,5 +173,26 @@ public class CatalogService {
                 work.getCoverContentType(),
                 content
         );
+    }
+
+    @Transactional(readOnly = true)
+    public List<WorkSummary> findWorksByOwner(
+            UUID ownerId
+    ) {
+        return repository
+                .findByOwnerIdOrderByUpdatedAtDesc(
+                        ownerId
+                )
+                .stream()
+                .map(work ->
+                        new WorkSummary(
+                                work.getId(),
+                                work.getTitle(),
+                                work.getType(),
+                                work.getGenres(),
+                                work.getCoverStorageKey() != null
+                        )
+                )
+                .toList();
     }
 }
