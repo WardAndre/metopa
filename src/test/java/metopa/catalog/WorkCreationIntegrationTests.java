@@ -21,9 +21,11 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.response.SecurityMockMvcResultMatchers.authenticated;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.hamcrest.Matchers.containsInAnyOrder;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -198,5 +200,155 @@ class WorkCreationIntegrationTests {
                         .value(
                                 "One or more work fields are invalid."
                         ));
+    }
+
+    @Test
+    void shouldListOnlyWorksOwnedByAuthenticatedUser()
+            throws Exception {
+
+        String suffix =
+                UUID.randomUUID()
+                        .toString()
+                        .replace("-", "")
+                        .substring(0, 8);
+
+        String ownerUsername =
+                "creator-" + suffix;
+
+        String otherUsername =
+                "other-" + suffix;
+
+        identityService.createUser(
+                new CreateUserCommand(
+                        ownerUsername,
+                        ownerUsername + "@example.com",
+                        "Creator",
+                        "StrongPassword123!"
+                )
+        );
+
+        identityService.createUser(
+                new CreateUserCommand(
+                        otherUsername,
+                        otherUsername + "@example.com",
+                        "Other Creator",
+                        "StrongPassword123!"
+                )
+        );
+
+        MockHttpSession ownerSession =
+                (MockHttpSession) mockMvc.perform(
+                                formLogin(
+                                        "/api/auth/login"
+                                )
+                                        .user(ownerUsername)
+                                        .password(
+                                                "StrongPassword123!"
+                                        )
+                        )
+                        .andExpect(status().isOk())
+                        .andExpect(
+                                authenticated()
+                                        .withUsername(
+                                                ownerUsername
+                                        )
+                        )
+                        .andReturn()
+                        .getRequest()
+                        .getSession(false);
+
+        MockHttpSession otherSession =
+                (MockHttpSession) mockMvc.perform(
+                                formLogin(
+                                        "/api/auth/login"
+                                )
+                                        .user(otherUsername)
+                                        .password(
+                                                "StrongPassword123!"
+                                        )
+                        )
+                        .andExpect(status().isOk())
+                        .andExpect(
+                                authenticated()
+                                        .withUsername(
+                                                otherUsername
+                                        )
+                        )
+                        .andReturn()
+                        .getRequest()
+                        .getSession(false);
+
+        String firstTitle =
+                "Creator Work A " + suffix;
+
+        String secondTitle =
+                "Creator Work B " + suffix;
+
+        String otherTitle =
+                "Other User Work " + suffix;
+
+        createWorkThroughHttp(
+                ownerSession,
+                firstTitle
+        );
+
+        createWorkThroughHttp(
+                ownerSession,
+                secondTitle
+        );
+
+        createWorkThroughHttp(
+                otherSession,
+                otherTitle
+        );
+
+        mockMvc.perform(
+                        get("/api/me/works")
+                                .session(ownerSession)
+                )
+                .andExpect(
+                        status().isOk()
+                )
+                .andExpect(
+                        jsonPath("$.length()")
+                                .value(2)
+                )
+                .andExpect(
+                        jsonPath("$[*].title")
+                                .value(
+                                        containsInAnyOrder(
+                                                firstTitle,
+                                                secondTitle
+                                        )
+                                )
+                );
+    }
+
+    private void createWorkThroughHttp(
+            MockHttpSession session,
+            String title
+    ) throws Exception {
+
+        mockMvc.perform(
+                        post("/api/works")
+                                .session(session)
+                                .with(csrf())
+                                .contentType(
+                                        MediaType.APPLICATION_JSON
+                                )
+                                .content("""
+                                {
+                                  "title": "%s",
+                                  "description": null,
+                                  "type": "COMIC",
+                                  "readingDirection": "LEFT_TO_RIGHT",
+                                  "presentationMode": "SINGLE_PAGE",
+                                  "genres": []
+                                }
+                                """.formatted(title))
+                )
+                .andExpect(
+                        status().isCreated()
+                );
     }
 }

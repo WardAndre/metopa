@@ -12,6 +12,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.Set;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -121,6 +122,99 @@ class CatalogServiceTests {
                 .containsExactlyInAnyOrder(
                         Genre.SCI_FI,
                         Genre.ADVENTURE
+                );
+    }
+
+    @Test
+    void shouldFindWorksByOwner() {
+        UUID ownerId = UUID.randomUUID();
+
+        Work firstWork = new Work(
+                ownerId,
+                "First Work",
+                null,
+                WorkType.COMIC,
+                ReadingDirection.LEFT_TO_RIGHT,
+                PresentationMode.SINGLE_PAGE
+        );
+
+        firstWork.setGenres(
+                Set.of(
+                        Genre.ACTION
+                )
+        );
+
+        Work secondWork = new Work(
+                ownerId,
+                "Second Work",
+                null,
+                WorkType.GRAPHIC_NOVEL,
+                ReadingDirection.LEFT_TO_RIGHT,
+                PresentationMode.SINGLE_PAGE
+        );
+
+        secondWork.setGenres(
+                Set.of(
+                        Genre.SCI_FI,
+                        Genre.ADVENTURE
+                )
+        );
+
+        when(
+                repository.findByOwnerIdOrderByUpdatedAtDesc(
+                        ownerId
+                )
+        ).thenReturn(
+                List.of(
+                        secondWork,
+                        firstWork
+                )
+        );
+
+        List<WorkSummary> works =
+                catalogService.findWorksByOwner(
+                        ownerId
+                );
+
+        assertThat(works)
+                .hasSize(2);
+
+        assertThat(works.get(0).id())
+                .isEqualTo(secondWork.getId());
+
+        assertThat(works.get(0).title())
+                .isEqualTo("Second Work");
+
+        assertThat(works.get(0).type())
+                .isEqualTo(
+                        WorkType.GRAPHIC_NOVEL
+                );
+
+        assertThat(works.get(0).genres())
+                .containsExactlyInAnyOrder(
+                        Genre.SCI_FI,
+                        Genre.ADVENTURE
+                );
+
+        assertThat(works.get(1).id())
+                .isEqualTo(firstWork.getId());
+
+        assertThat(works.get(1).title())
+                .isEqualTo("First Work");
+
+        assertThat(works.get(1).type())
+                .isEqualTo(
+                        WorkType.COMIC
+                );
+
+        assertThat(works.get(1).genres())
+                .containsExactly(
+                        Genre.ACTION
+                );
+
+        verify(repository)
+                .findByOwnerIdOrderByUpdatedAtDesc(
+                        ownerId
                 );
     }
 
