@@ -480,4 +480,53 @@ public class PublicationService {
                 command.title()
         );
     }
+
+    @Transactional(readOnly = true)
+    public CreatorInstallmentView findCreatorInstallment(
+            UUID userId,
+            UUID installmentId
+    ) {
+        Installment installment =
+                installmentRepository
+                        .findById(installmentId)
+                        .orElseThrow(() ->
+                                new InstallmentNotFoundException(
+                                        installmentId
+                                )
+                        );
+
+        WorkReference work =
+                catalogService.findWork(
+                        installment.getWorkId()
+                );
+
+        if (!work.ownerId().equals(userId)) {
+            throw new WorkAccessDeniedException();
+        }
+
+        List<PageView> pages =
+                pageRepository
+                        .findByInstallmentIdOrderByNumberAsc(
+                                installmentId
+                        )
+                        .stream()
+                        .map(page ->
+                                new PageView(
+                                        page.getId(),
+                                        page.getNumber(),
+                                        page.getContentType()
+                                )
+                        )
+                        .toList();
+
+        return new CreatorInstallmentView(
+                installment.getId(),
+                installment.getWorkId(),
+                installment.getType(),
+                installment.getNumber(),
+                installment.getTitle(),
+                installment.getStatus(),
+                pages
+        );
+    }
 }
