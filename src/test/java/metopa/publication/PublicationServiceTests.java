@@ -1817,4 +1817,176 @@ class PublicationServiceTests {
                 workId
         );
     }
+
+    @Test
+    void shouldFindCreatorInstallmentForWorkOwner() {
+        UUID ownerId = UUID.randomUUID();
+        UUID workId = UUID.randomUUID();
+
+        Installment installment =
+                new Installment(
+                        workId,
+                        InstallmentType.CHAPTER,
+                        1,
+                        "Chapter One"
+                );
+
+        Page firstPage =
+                new Page(
+                        installment.getId(),
+                        1,
+                        "installments/example/page-1",
+                        "image/jpeg"
+                );
+
+        Page secondPage =
+                new Page(
+                        installment.getId(),
+                        2,
+                        "installments/example/page-2",
+                        "image/webp"
+                );
+
+        when(
+                installmentRepository.findById(
+                        installment.getId()
+                )
+        ).thenReturn(
+                Optional.of(installment)
+        );
+
+        when(catalogService.findWork(workId))
+                .thenReturn(
+                        new WorkReference(
+                                workId,
+                                ownerId
+                        )
+                );
+
+        when(
+                pageRepository
+                        .findByInstallmentIdOrderByNumberAsc(
+                                installment.getId()
+                        )
+        ).thenReturn(
+                List.of(
+                        firstPage,
+                        secondPage
+                )
+        );
+
+        CreatorInstallmentView result =
+                publicationService
+                        .findCreatorInstallment(
+                                ownerId,
+                                installment.getId()
+                        );
+
+        assertThat(result.id())
+                .isEqualTo(
+                        installment.getId()
+                );
+
+        assertThat(result.workId())
+                .isEqualTo(workId);
+
+        assertThat(result.type())
+                .isEqualTo(
+                        InstallmentType.CHAPTER
+                );
+
+        assertThat(result.number())
+                .isEqualTo(1);
+
+        assertThat(result.title())
+                .isEqualTo("Chapter One");
+
+        assertThat(result.status())
+                .isEqualTo(
+                        PublicationStatus.DRAFT
+                );
+
+        assertThat(result.pages())
+                .hasSize(2);
+
+        assertThat(result.pages())
+                .extracting(PageView::number)
+                .containsExactly(1, 2);
+
+        assertThat(result.pages())
+                .extracting(PageView::contentType)
+                .containsExactly(
+                        "image/jpeg",
+                        "image/webp"
+                );
+
+        assertThat(result.pages().get(0).id())
+                .isEqualTo(
+                        firstPage.getId()
+                );
+
+        assertThat(result.pages().get(1).id())
+                .isEqualTo(
+                        secondPage.getId()
+                );
+
+        verify(catalogService)
+                .findWork(workId);
+
+        verify(pageRepository)
+                .findByInstallmentIdOrderByNumberAsc(
+                        installment.getId()
+                );
+    }
+
+    @Test
+    void shouldRejectCreatorInstallmentForUserWhoDoesNotOwnWork() {
+        UUID ownerId = UUID.randomUUID();
+        UUID anotherUserId = UUID.randomUUID();
+        UUID workId = UUID.randomUUID();
+
+        Installment installment =
+                new Installment(
+                        workId,
+                        InstallmentType.CHAPTER,
+                        1,
+                        "Private Draft"
+                );
+
+        when(
+                installmentRepository.findById(
+                        installment.getId()
+                )
+        ).thenReturn(
+                Optional.of(installment)
+        );
+
+        when(catalogService.findWork(workId))
+                .thenReturn(
+                        new WorkReference(
+                                workId,
+                                ownerId
+                        )
+                );
+
+        assertThatThrownBy(() ->
+                publicationService
+                        .findCreatorInstallment(
+                                anotherUserId,
+                                installment.getId()
+                        )
+        ).isInstanceOf(
+                WorkAccessDeniedException.class
+        );
+
+        verify(catalogService)
+                .findWork(workId);
+
+        verify(
+                pageRepository,
+                never()
+        ).findByInstallmentIdOrderByNumberAsc(
+                installment.getId()
+        );
+    }
 }

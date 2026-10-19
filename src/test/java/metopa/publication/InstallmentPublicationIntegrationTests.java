@@ -597,6 +597,161 @@ class InstallmentPublicationIntegrationTests {
                 );
     }
 
+    @Test
+    void shouldReturnDraftInstallmentDetailForWorkOwner()
+            throws Exception {
+
+        TestUser owner =
+                createUser("creator-detail-owner");
+
+        UUID workId =
+                createWork(owner.id());
+
+        UUID installmentId =
+                publicationService.createInstallment(
+                        owner.id(),
+                        new CreateInstallmentCommand(
+                                workId,
+                                InstallmentType.CHAPTER,
+                                1,
+                                "Chapter One"
+                        )
+                );
+
+        UUID pageId =
+                publicationService.createPage(
+                        owner.id(),
+                        new CreatePageCommand(
+                                installmentId,
+                                1,
+                                "image/jpeg",
+                                "page-content".getBytes()
+                        )
+                );
+
+        MockHttpSession session =
+                login(owner.username());
+
+        mockMvc.perform(
+                        get(
+                                "/api/me/installments/{installmentId}",
+                                installmentId
+                        )
+                                .session(session)
+                )
+                .andExpect(
+                        status().isOk()
+                )
+                .andExpect(
+                        jsonPath("$.id")
+                                .value(
+                                        installmentId.toString()
+                                )
+                )
+                .andExpect(
+                        jsonPath("$.workId")
+                                .value(
+                                        workId.toString()
+                                )
+                )
+                .andExpect(
+                        jsonPath("$.type")
+                                .value("CHAPTER")
+                )
+                .andExpect(
+                        jsonPath("$.number")
+                                .value(1)
+                )
+                .andExpect(
+                        jsonPath("$.title")
+                                .value("Chapter One")
+                )
+                .andExpect(
+                        jsonPath("$.status")
+                                .value("DRAFT")
+                )
+                .andExpect(
+                        jsonPath("$.pages.length()")
+                                .value(1)
+                )
+                .andExpect(
+                        jsonPath("$.pages[0].id")
+                                .value(
+                                        pageId.toString()
+                                )
+                )
+                .andExpect(
+                        jsonPath("$.pages[0].number")
+                                .value(1)
+                )
+                .andExpect(
+                        jsonPath("$.pages[0].contentType")
+                                .value("image/jpeg")
+                );
+    }
+
+    @Test
+    void shouldRejectCreatorInstallmentDetailForUserWhoDoesNotOwnWork()
+            throws Exception {
+
+        TestUser owner =
+                createUser("creator-detail-owner");
+
+        TestUser anotherUser =
+                createUser("creator-detail-other");
+
+        UUID workId =
+                createWork(owner.id());
+
+        UUID installmentId =
+                publicationService.createInstallment(
+                        owner.id(),
+                        new CreateInstallmentCommand(
+                                workId,
+                                InstallmentType.CHAPTER,
+                                1,
+                                "Private Draft"
+                        )
+                );
+
+        publicationService.createPage(
+                owner.id(),
+                new CreatePageCommand(
+                        installmentId,
+                        1,
+                        "image/jpeg",
+                        "private-page".getBytes()
+                )
+        );
+
+        MockHttpSession session =
+                login(anotherUser.username());
+
+        mockMvc.perform(
+                        get(
+                                "/api/me/installments/{installmentId}",
+                                installmentId
+                        )
+                                .session(session)
+                )
+                .andExpect(
+                        status().isForbidden()
+                )
+                .andExpect(
+                        content().contentTypeCompatibleWith(
+                                MediaType.APPLICATION_PROBLEM_JSON
+                        )
+                )
+                .andExpect(
+                        jsonPath("$.title")
+                                .value("Access denied")
+                )
+                .andExpect(
+                        jsonPath("$.status")
+                                .value(403)
+                );
+    }
+
     private UUID createInstallment(UUID ownerId) {
         UUID workId = createWork(ownerId);
 

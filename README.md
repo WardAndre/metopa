@@ -10,7 +10,7 @@ Projeto em desenvolvimento — MVP.
 
 Nesta primeira fase, toda a infraestrutura é executada localmente, sem dependência de serviços cloud pagos.
 
-A suíte automatizada possui atualmente **175 testes**, cobrindo regras de domínio, persistência, segurança, APIs HTTP, armazenamento binário e fluxos de integração.
+A suíte automatizada possui atualmente **180 testes**, cobrindo regras de domínio, persistência, segurança, APIs HTTP, armazenamento binário e fluxos de integração.
 
 ## Tecnologias
 
@@ -126,7 +126,7 @@ Como os gêneros são representados pelo domínio como um conjunto, sua ordem n�
 
 ### Publication
 
-Responsável pela criação, publicação e leitura pública do conteúdo das obras.
+Responsável pela criação, gerenciamento, publicação e leitura pública do conteúdo das obras.
 
 Atualmente suporta:
 
@@ -144,6 +144,10 @@ Atualmente suporta:
 - exposição explícita do status do installment na visão administrativa;
 - isolamento da listagem administrativa por propriedade da obra;
 - ordenação dos installments por número e data de criação;
+- consulta administrativa dos detalhes de um installment pelo proprietário;
+- consulta administrativa de installments em estado `DRAFT` ou `PUBLISHED`;
+- consulta das páginas de installments ainda não publicados para gerenciamento;
+- validação de propriedade da obra antes da consulta das páginas;
 - criação e ordenação de páginas;
 - upload de páginas através de `multipart/form-data`;
 - armazenamento local dos arquivos através do módulo `media`;
@@ -238,6 +242,8 @@ Algumas decisões adotadas no MVP:
 - a listagem das obras do criador pertence ao módulo `catalog` e não depende do estado de publicação;
 - separação entre leitura pública de installments e gerenciamento dos installments pelo criador;
 - a visão administrativa de installments pertence ao módulo `publication` e pode expor conteúdo ainda em `DRAFT`;
+- separação entre a leitura pública de um installment e sua visualização administrativa pelo criador;
+- a visão administrativa permite consultar drafts e suas páginas sem expô-los através dos endpoints públicos;
 - autenticação baseada em sessão HTTP no MVP web;
 - proteção CSRF mantida habilitada;
 - senhas nunca são armazenadas em texto puro;
@@ -334,7 +340,7 @@ Para limpar o build, compilar o projeto e executar todos os testes:
 Estado atual da suíte:
 
 ```text
-Tests run: 175
+Tests run: 180
 Failures: 0
 Errors: 0
 Skipped: 0
@@ -380,6 +386,13 @@ Os testes cobrem, entre outros cenários:
 - integração completa da listagem administrativa com sessão real e PostgreSQL;
 - preservação da ordem dos installments por número;
 - isolamento da visão administrativa entre proprietários diferentes;
+- consulta administrativa dos detalhes de installments;
+- consulta de installments em estado `DRAFT` pelo proprietário;
+- exposição de status e páginas através da visão administrativa;
+- rejeição da consulta de detalhes por usuário que não seja proprietário da obra;
+- impedimento da consulta das páginas quando a validação de propriedade falha;
+- exposição do detalhe administrativo através do fluxo MVC autenticado;
+- integração completa do detalhe administrativo com sessão real e PostgreSQL;
 - autorização baseada na propriedade da obra;
 - criação, ordenação e persistência de páginas;
 - upload multipart;
@@ -836,6 +849,89 @@ GET /api/me/works/{workId}/installments
 → gerenciamento do criador
 → installments DRAFT + PUBLISHED
 → status explícito
+```
+
+### Consultar installment para o criador
+
+```http
+GET /api/me/installments/{installmentId}
+```
+
+Requer usuário autenticado.
+
+Retorna os detalhes de um installment pertencente a uma obra do usuário autenticado.
+
+Diferentemente do endpoint público, a consulta administrativa permite installments nos estados `DRAFT` e `PUBLISHED`.
+
+O cliente não informa `userId`. A identidade do usuário é determinada através da sessão autenticada e a propriedade da obra é validada antes da consulta das páginas.
+
+Exemplo:
+
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440001",
+  "workId": "550e8400-e29b-41d4-a716-446655440000",
+  "type": "CHAPTER",
+  "number": 1,
+  "title": "Chapter One",
+  "status": "DRAFT",
+  "pages": [
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440002",
+      "number": 1,
+      "contentType": "image/jpeg"
+    }
+  ]
+}
+```
+
+A resposta contém:
+
+```text
+id
+workId
+type
+number
+title
+status
+pages
+```
+
+Cada página expõe:
+
+```text
+id
+number
+contentType
+```
+
+O `storageKey` não é exposto.
+
+As páginas são retornadas em ordem crescente de número.
+
+Um installment em estado `DRAFT` pode ser consultado através desta visão administrativa, mas continua indisponível através dos endpoints públicos.
+
+Possíveis respostas:
+
+```text
+401 → usuário não autenticado
+403 → usuário autenticado não é proprietário da obra
+404 → installment não encontrado
+```
+
+A visão administrativa e a leitura pública possuem contratos distintos:
+
+```text
+GET /api/installments/{installmentId}
+→ leitura pública
+→ somente PUBLISHED
+→ status não é exposto
+
+GET /api/me/installments/{installmentId}
+→ gerenciamento do criador
+→ DRAFT ou PUBLISHED
+→ status explícito
+→ páginas disponíveis para gerenciamento
 ```
 
 ### Atualizar metadados do installment
@@ -1354,6 +1450,7 @@ POST   /api/works/{workId}/installments
 
 GET    /api/me/works
 GET    /api/me/works/{workId}/installments
+GET    /api/me/installments/{installmentId}
 
 PUT    /api/installments/{installmentId}
 POST   /api/installments/{installmentId}/pages
@@ -1393,6 +1490,7 @@ feature/work-metadata-update
 feature/installment-metadata-update
 feature/creator-work-list
 feature/creator-installment-list
+feature/creator-installment-detail
 ```
 
 O fluxo utilizado é:
