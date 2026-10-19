@@ -1685,4 +1685,136 @@ class PublicationServiceTests {
                 anyInt()
         );
     }
+
+    @Test
+    void shouldFindCreatorInstallmentsForWorkOwner() {
+        UUID ownerId = UUID.randomUUID();
+        UUID workId = UUID.randomUUID();
+
+        Installment firstInstallment =
+                new Installment(
+                        workId,
+                        InstallmentType.CHAPTER,
+                        1,
+                        "Chapter One"
+                );
+
+        firstInstallment.publish();
+
+        Installment secondInstallment =
+                new Installment(
+                        workId,
+                        InstallmentType.CHAPTER,
+                        2,
+                        "Chapter Two"
+                );
+
+        when(catalogService.findWork(workId))
+                .thenReturn(
+                        new WorkReference(
+                                workId,
+                                ownerId
+                        )
+                );
+
+        when(
+                installmentRepository
+                        .findByWorkIdOrderByNumberAscCreatedAtAsc(
+                                workId
+                        )
+        ).thenReturn(
+                List.of(
+                        firstInstallment,
+                        secondInstallment
+                )
+        );
+
+        List<CreatorInstallmentSummary> installments =
+                publicationService.findCreatorInstallments(
+                        ownerId,
+                        workId
+                );
+
+        assertThat(installments)
+                .hasSize(2);
+
+        assertThat(installments.get(0).id())
+                .isEqualTo(
+                        firstInstallment.getId()
+                );
+
+        assertThat(installments.get(0).type())
+                .isEqualTo(
+                        InstallmentType.CHAPTER
+                );
+
+        assertThat(installments.get(0).number())
+                .isEqualTo(1);
+
+        assertThat(installments.get(0).title())
+                .isEqualTo("Chapter One");
+
+        assertThat(installments.get(0).status())
+                .isEqualTo(
+                        PublicationStatus.PUBLISHED
+                );
+
+        assertThat(installments.get(1).id())
+                .isEqualTo(
+                        secondInstallment.getId()
+                );
+
+        assertThat(installments.get(1).number())
+                .isEqualTo(2);
+
+        assertThat(installments.get(1).title())
+                .isEqualTo("Chapter Two");
+
+        assertThat(installments.get(1).status())
+                .isEqualTo(
+                        PublicationStatus.DRAFT
+                );
+
+        verify(catalogService)
+                .findWork(workId);
+
+        verify(installmentRepository)
+                .findByWorkIdOrderByNumberAscCreatedAtAsc(
+                        workId
+                );
+    }
+
+    @Test
+    void shouldRejectCreatorInstallmentListForUserWhoDoesNotOwnWork() {
+        UUID ownerId = UUID.randomUUID();
+        UUID anotherUserId = UUID.randomUUID();
+        UUID workId = UUID.randomUUID();
+
+        when(catalogService.findWork(workId))
+                .thenReturn(
+                        new WorkReference(
+                                workId,
+                                ownerId
+                        )
+                );
+
+        assertThatThrownBy(() ->
+                publicationService.findCreatorInstallments(
+                        anotherUserId,
+                        workId
+                )
+        ).isInstanceOf(
+                WorkAccessDeniedException.class
+        );
+
+        verify(catalogService)
+                .findWork(workId);
+
+        verify(
+                installmentRepository,
+                never()
+        ).findByWorkIdOrderByNumberAscCreatedAtAsc(
+                workId
+        );
+    }
 }

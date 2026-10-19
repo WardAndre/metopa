@@ -10,7 +10,7 @@ Projeto em desenvolvimento — MVP.
 
 Nesta primeira fase, toda a infraestrutura é executada localmente, sem dependência de serviços cloud pagos.
 
-A suíte automatizada possui atualmente **170 testes**, cobrindo regras de domínio, persistência, segurança, APIs HTTP, armazenamento binário e fluxos de integração.
+A suíte automatizada possui atualmente **175 testes**, cobrindo regras de domínio, persistência, segurança, APIs HTTP, armazenamento binário e fluxos de integração.
 
 ## Tecnologias
 
@@ -139,6 +139,11 @@ Atualmente suporta:
 - validação de propriedade da obra antes de alterações;
 - prevenção de installments duplicados por tipo e número;
 - prevenção de combinações duplicadas de tipo e número durante a atualização;
+- listagem administrativa dos installments de uma obra pelo proprietário;
+- exposição conjunta de installments `DRAFT` e `PUBLISHED` na visão do criador;
+- exposição explícita do status do installment na visão administrativa;
+- isolamento da listagem administrativa por propriedade da obra;
+- ordenação dos installments por número e data de criação;
 - criação e ordenação de páginas;
 - upload de páginas através de `multipart/form-data`;
 - armazenamento local dos arquivos através do módulo `media`;
@@ -231,6 +236,8 @@ Algumas decisões adotadas no MVP:
 - alterações dos metadados de installments concentradas em uma operação de domínio;
 - separação entre descoberta pública e gerenciamento das obras do criador;
 - a listagem das obras do criador pertence ao módulo `catalog` e não depende do estado de publicação;
+- separação entre leitura pública de installments e gerenciamento dos installments pelo criador;
+- a visão administrativa de installments pertence ao módulo `publication` e pode expor conteúdo ainda em `DRAFT`;
 - autenticação baseada em sessão HTTP no MVP web;
 - proteção CSRF mantida habilitada;
 - senhas nunca são armazenadas em texto puro;
@@ -327,7 +334,7 @@ Para limpar o build, compilar o projeto e executar todos os testes:
 Estado atual da suíte:
 
 ```text
-Tests run: 170
+Tests run: 175
 Failures: 0
 Errors: 0
 Skipped: 0
@@ -364,6 +371,15 @@ Os testes cobrem, entre outros cenários:
 - rejeição de combinações duplicadas de tipo e número durante a atualização;
 - rejeição de alterações em installments publicados;
 - preservação dos metadados persistidos após tentativa de alteração de installment publicado;
+- listagem administrativa dos installments de uma obra pelo proprietário;
+- conversão de installments para `CreatorInstallmentSummary`;
+- retorno conjunto de installments `DRAFT` e `PUBLISHED` na visão do criador;
+- exposição explícita do status na listagem administrativa;
+- rejeição da listagem de installments para usuário que não seja proprietário da obra;
+- exposição da listagem administrativa através do fluxo MVC autenticado;
+- integração completa da listagem administrativa com sessão real e PostgreSQL;
+- preservação da ordem dos installments por número;
+- isolamento da visão administrativa entre proprietários diferentes;
 - autorização baseada na propriedade da obra;
 - criação, ordenação e persistência de páginas;
 - upload multipart;
@@ -379,7 +395,7 @@ Os testes cobrem, entre outros cenários:
 - rejeição de páginas inexistentes ou ainda não publicadas no progresso;
 - leitura pública dos detalhes de obras publicadas;
 - ocultação de obras que possuem somente conteúdo em draft na descoberta pública;
-- listagem somente de installments publicados;
+- listagem somente de installments publicados na visão pública;
 - descoberta pública de obras sem duplicação;
 - filtragem de obras publicadas por gênero;
 - integração completa do filtro de gênero com persistência real no PostgreSQL;
@@ -745,6 +761,82 @@ Exemplo:
 O installment é criado inicialmente com status `DRAFT`.
 
 O usuário autenticado deve ser proprietário da obra.
+
+### Listar installments da obra para o criador
+
+```http
+GET /api/me/works/{workId}/installments
+```
+
+Requer usuário autenticado.
+
+Retorna todos os installments da obra quando o usuário autenticado é seu proprietário.
+
+A listagem inclui installments em estado `DRAFT` e `PUBLISHED`.
+
+O cliente não informa `userId`. A identidade do usuário é determinada a partir da sessão autenticada e a propriedade da obra é validada pelo backend.
+
+Exemplo de resposta:
+
+```json
+[
+  {
+    "id": "550e8400-e29b-41d4-a716-446655440001",
+    "type": "CHAPTER",
+    "number": 1,
+    "title": "Chapter One",
+    "status": "PUBLISHED"
+  },
+  {
+    "id": "550e8400-e29b-41d4-a716-446655440002",
+    "type": "CHAPTER",
+    "number": 2,
+    "title": "Chapter Two",
+    "status": "DRAFT"
+  }
+]
+```
+
+Cada item contém:
+
+```text
+id
+type
+number
+title
+status
+```
+
+O `workId` não é repetido em cada item porque a obra já é identificada pelo recurso solicitado.
+
+Os installments são ordenados por número crescente e, em caso de empate, pela data de criação.
+
+Quando a obra não possui installments:
+
+```json
+[]
+```
+
+Possíveis respostas:
+
+```text
+401 → usuário não autenticado
+403 → usuário autenticado não é proprietário da obra
+404 → obra não encontrada
+```
+
+A visão administrativa é distinta da leitura pública:
+
+```text
+GET /api/works/{workId}
+→ visão pública
+→ somente installments PUBLISHED
+
+GET /api/me/works/{workId}/installments
+→ gerenciamento do criador
+→ installments DRAFT + PUBLISHED
+→ status explícito
+```
 
 ### Atualizar metadados do installment
 
@@ -1259,7 +1351,9 @@ POST   /api/works
 PUT    /api/works/{workId}
 PUT    /api/works/{workId}/cover
 POST   /api/works/{workId}/installments
+
 GET    /api/me/works
+GET    /api/me/works/{workId}/installments
 
 PUT    /api/installments/{installmentId}
 POST   /api/installments/{installmentId}/pages
@@ -1298,6 +1392,7 @@ feature/work-discovery-filtering
 feature/work-metadata-update
 feature/installment-metadata-update
 feature/creator-work-list
+feature/creator-installment-list
 ```
 
 O fluxo utilizado é:

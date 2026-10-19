@@ -338,6 +338,37 @@ public class PublicationService {
     }
 
     @Transactional(readOnly = true)
+    public List<CreatorInstallmentSummary> findCreatorInstallments(
+            UUID userId,
+            UUID workId
+    ) {
+        WorkReference work =
+                catalogService.findWork(
+                        workId
+                );
+
+        if (!work.ownerId().equals(userId)) {
+            throw new WorkAccessDeniedException();
+        }
+
+        return installmentRepository
+                .findByWorkIdOrderByNumberAscCreatedAtAsc(
+                        workId
+                )
+                .stream()
+                .map(installment ->
+                        new CreatorInstallmentSummary(
+                                installment.getId(),
+                                installment.getType(),
+                                installment.getNumber(),
+                                installment.getTitle(),
+                                installment.getStatus()
+                        )
+                )
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
     public List<PublishedWorkSummary> findPublishedWorks() {
         return findPublishedWorks(null);
     }
