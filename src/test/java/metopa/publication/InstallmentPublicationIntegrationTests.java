@@ -27,6 +27,7 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.security.test.web.servlet.response.SecurityMockMvcResultMatchers.authenticated;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -433,6 +434,167 @@ class InstallmentPublicationIntegrationTests {
         assertThat(
                 row.get("status")
         ).isEqualTo("PUBLISHED");
+    }
+
+    @Test
+    void shouldListDraftAndPublishedInstallmentsForWorkOwner()
+            throws Exception {
+
+        TestUser owner =
+                createUser("creator-list-owner");
+
+        UUID workId =
+                createWork(owner.id());
+
+        UUID publishedInstallmentId =
+                publicationService.createInstallment(
+                        owner.id(),
+                        new CreateInstallmentCommand(
+                                workId,
+                                InstallmentType.CHAPTER,
+                                1,
+                                "Chapter One"
+                        )
+                );
+
+        publicationService.createPage(
+                owner.id(),
+                new CreatePageCommand(
+                        publishedInstallmentId,
+                        1,
+                        "image/jpeg",
+                        "page-content".getBytes()
+                )
+        );
+
+        publicationService.publishInstallment(
+                owner.id(),
+                publishedInstallmentId
+        );
+
+        UUID draftInstallmentId =
+                publicationService.createInstallment(
+                        owner.id(),
+                        new CreateInstallmentCommand(
+                                workId,
+                                InstallmentType.CHAPTER,
+                                2,
+                                "Chapter Two"
+                        )
+                );
+
+        MockHttpSession session =
+                login(owner.username());
+
+        mockMvc.perform(
+                        get(
+                                "/api/me/works/{workId}/installments",
+                                workId
+                        )
+                                .session(session)
+                )
+                .andExpect(
+                        status().isOk()
+                )
+                .andExpect(
+                        jsonPath("$.length()")
+                                .value(2)
+                )
+                .andExpect(
+                        jsonPath("$[0].id")
+                                .value(
+                                        publishedInstallmentId.toString()
+                                )
+                )
+                .andExpect(
+                        jsonPath("$[0].type")
+                                .value("CHAPTER")
+                )
+                .andExpect(
+                        jsonPath("$[0].number")
+                                .value(1)
+                )
+                .andExpect(
+                        jsonPath("$[0].title")
+                                .value("Chapter One")
+                )
+                .andExpect(
+                        jsonPath("$[0].status")
+                                .value("PUBLISHED")
+                )
+                .andExpect(
+                        jsonPath("$[1].id")
+                                .value(
+                                        draftInstallmentId.toString()
+                                )
+                )
+                .andExpect(
+                        jsonPath("$[1].type")
+                                .value("CHAPTER")
+                )
+                .andExpect(
+                        jsonPath("$[1].number")
+                                .value(2)
+                )
+                .andExpect(
+                        jsonPath("$[1].title")
+                                .value("Chapter Two")
+                )
+                .andExpect(
+                        jsonPath("$[1].status")
+                                .value("DRAFT")
+                );
+    }
+
+    @Test
+    void shouldRejectCreatorInstallmentListForUserWhoDoesNotOwnWork()
+            throws Exception {
+
+        TestUser owner =
+                createUser("creator-list-owner");
+
+        TestUser anotherUser =
+                createUser("creator-list-other");
+
+        UUID workId =
+                createWork(owner.id());
+
+        publicationService.createInstallment(
+                owner.id(),
+                new CreateInstallmentCommand(
+                        workId,
+                        InstallmentType.CHAPTER,
+                        1,
+                        "Private Draft"
+                )
+        );
+
+        MockHttpSession session =
+                login(anotherUser.username());
+
+        mockMvc.perform(
+                        get(
+                                "/api/me/works/{workId}/installments",
+                                workId
+                        )
+                                .session(session)
+                )
+                .andExpect(
+                        status().isForbidden()
+                )
+                .andExpect(
+                        content().contentTypeCompatibleWith(
+                                MediaType.APPLICATION_PROBLEM_JSON
+                        )
+                )
+                .andExpect(
+                        jsonPath("$.title")
+                                .value("Access denied")
+                )
+                .andExpect(
+                        jsonPath("$.status")
+                                .value(403)
+                );
     }
 
     private UUID createInstallment(UUID ownerId) {

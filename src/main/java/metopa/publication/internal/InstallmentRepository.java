@@ -21,6 +21,10 @@ public interface InstallmentRepository
             PublicationStatus status
     );
 
+    List<Installment> findByWorkIdOrderByNumberAscCreatedAtAsc(
+            UUID workId
+    );
+
     List<Installment> findByWorkIdAndStatusOrderByNumberAscCreatedAtAsc(
             UUID workId,
             PublicationStatus status
