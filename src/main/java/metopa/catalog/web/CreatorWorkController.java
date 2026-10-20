@@ -1,15 +1,18 @@
 package metopa.catalog.web;
 
 import metopa.catalog.CatalogService;
+import metopa.catalog.WorkDetails;
 import metopa.catalog.WorkSummary;
 import metopa.identity.IdentityService;
 import metopa.identity.UserReference;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.security.Principal;
 import java.util.List;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/me/works")
@@ -37,6 +40,22 @@ class CreatorWorkController {
 
         return catalogService.findWorksByOwner(
                 user.id()
+        );
+    }
+
+    @GetMapping("/{workId}")
+    WorkDetails findOwnWork(
+            @PathVariable UUID workId,
+            Principal principal
+    ) {
+        UserReference user =
+                identityService.findByUsername(
+                        principal.getName()
+                );
+
+        return catalogService.findCreatorWorkDetails(
+                user.id(),
+                workId
         );
     }
 }

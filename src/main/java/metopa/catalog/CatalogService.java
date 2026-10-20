@@ -195,4 +195,30 @@ public class CatalogService {
                 )
                 .toList();
     }
+
+    @Transactional(readOnly = true)
+    public WorkDetails findCreatorWorkDetails(
+            UUID userId,
+            UUID workId
+    ) {
+        Work work = repository.findById(workId)
+                .orElseThrow(() ->
+                        new WorkNotFoundException(workId)
+                );
+
+        if (!work.getOwnerId().equals(userId)) {
+            throw new WorkAccessDeniedException();
+        }
+
+        return new WorkDetails(
+                work.getId(),
+                work.getTitle(),
+                work.getDescription(),
+                work.getType(),
+                work.getReadingDirection(),
+                work.getPresentationMode(),
+                work.getGenres(),
+                work.getCoverStorageKey() != null
+        );
+    }
 }
