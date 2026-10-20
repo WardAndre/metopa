@@ -752,6 +752,129 @@ class InstallmentPublicationIntegrationTests {
                 );
     }
 
+    @Test
+    void shouldReturnDraftPageContentForWorkOwner()
+            throws Exception {
+
+        TestUser owner =
+                createUser("creator-page-owner");
+
+        UUID workId =
+                createWork(owner.id());
+
+        UUID installmentId =
+                publicationService.createInstallment(
+                        owner.id(),
+                        new CreateInstallmentCommand(
+                                workId,
+                                InstallmentType.CHAPTER,
+                                1,
+                                "Chapter One"
+                        )
+                );
+
+        byte[] pageContent =
+                "draft-page-content".getBytes();
+
+        UUID pageId =
+                publicationService.createPage(
+                        owner.id(),
+                        new CreatePageCommand(
+                                installmentId,
+                                1,
+                                "image/jpeg",
+                                pageContent
+                        )
+                );
+
+        MockHttpSession session =
+                login(owner.username());
+
+        mockMvc.perform(
+                        get(
+                                "/api/me/pages/{pageId}/content",
+                                pageId
+                        )
+                                .session(session)
+                )
+                .andExpect(
+                        status().isOk()
+                )
+                .andExpect(
+                        content().contentType(
+                                MediaType.IMAGE_JPEG
+                        )
+                )
+                .andExpect(
+                        content().bytes(
+                                pageContent
+                        )
+                );
+    }
+
+    @Test
+    void shouldRejectCreatorPageContentForUserWhoDoesNotOwnWork()
+            throws Exception {
+
+        TestUser owner =
+                createUser("creator-page-owner");
+
+        TestUser anotherUser =
+                createUser("creator-page-other");
+
+        UUID workId =
+                createWork(owner.id());
+
+        UUID installmentId =
+                publicationService.createInstallment(
+                        owner.id(),
+                        new CreateInstallmentCommand(
+                                workId,
+                                InstallmentType.CHAPTER,
+                                1,
+                                "Private Draft"
+                        )
+                );
+
+        UUID pageId =
+                publicationService.createPage(
+                        owner.id(),
+                        new CreatePageCommand(
+                                installmentId,
+                                1,
+                                "image/jpeg",
+                                "private-page-content".getBytes()
+                        )
+                );
+
+        MockHttpSession session =
+                login(anotherUser.username());
+
+        mockMvc.perform(
+                        get(
+                                "/api/me/pages/{pageId}/content",
+                                pageId
+                        )
+                                .session(session)
+                )
+                .andExpect(
+                        status().isForbidden()
+                )
+                .andExpect(
+                        content().contentTypeCompatibleWith(
+                                MediaType.APPLICATION_PROBLEM_JSON
+                        )
+                )
+                .andExpect(
+                        jsonPath("$.title")
+                                .value("Access denied")
+                )
+                .andExpect(
+                        jsonPath("$.status")
+                                .value(403)
+                );
+    }
+
     private UUID createInstallment(UUID ownerId) {
         UUID workId = createWork(ownerId);
 

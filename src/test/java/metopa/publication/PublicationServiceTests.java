@@ -1989,4 +1989,152 @@ class PublicationServiceTests {
                 installment.getId()
         );
     }
+
+    @Test
+    void shouldReadCreatorPageContentForWorkOwner() {
+        UUID ownerId = UUID.randomUUID();
+        UUID workId = UUID.randomUUID();
+
+        Installment installment =
+                new Installment(
+                        workId,
+                        InstallmentType.CHAPTER,
+                        1,
+                        null
+                );
+
+        Page page =
+                new Page(
+                        installment.getId(),
+                        1,
+                        "installments/example/page-file",
+                        "image/jpeg"
+                );
+
+        byte[] content =
+                "page-content".getBytes();
+
+        when(
+                pageRepository.findById(
+                        page.getId()
+                )
+        ).thenReturn(
+                Optional.of(page)
+        );
+
+        when(
+                installmentRepository.findById(
+                        installment.getId()
+                )
+        ).thenReturn(
+                Optional.of(installment)
+        );
+
+        when(catalogService.findWork(workId))
+                .thenReturn(
+                        new WorkReference(
+                                workId,
+                                ownerId
+                        )
+                );
+
+        when(
+                binaryStorage.read(
+                        page.getStorageKey()
+                )
+        ).thenReturn(content);
+
+        CreatorPageContent result =
+                publicationService
+                        .findCreatorPageContent(
+                                ownerId,
+                                page.getId()
+                        );
+
+        assertThat(installment.getStatus())
+                .isEqualTo(
+                        PublicationStatus.DRAFT
+                );
+
+        assertThat(result.contentType())
+                .isEqualTo("image/jpeg");
+
+        assertThat(result.content())
+                .isEqualTo(content);
+
+        verify(catalogService)
+                .findWork(workId);
+
+        verify(binaryStorage)
+                .read(
+                        page.getStorageKey()
+                );
+    }
+
+    @Test
+    void shouldRejectCreatorPageContentForUserWhoDoesNotOwnWork() {
+        UUID ownerId = UUID.randomUUID();
+        UUID anotherUserId = UUID.randomUUID();
+        UUID workId = UUID.randomUUID();
+
+        Installment installment =
+                new Installment(
+                        workId,
+                        InstallmentType.CHAPTER,
+                        1,
+                        null
+                );
+
+        Page page =
+                new Page(
+                        installment.getId(),
+                        1,
+                        "installments/example/private-page",
+                        "image/jpeg"
+                );
+
+        when(
+                pageRepository.findById(
+                        page.getId()
+                )
+        ).thenReturn(
+                Optional.of(page)
+        );
+
+        when(
+                installmentRepository.findById(
+                        installment.getId()
+                )
+        ).thenReturn(
+                Optional.of(installment)
+        );
+
+        when(catalogService.findWork(workId))
+                .thenReturn(
+                        new WorkReference(
+                                workId,
+                                ownerId
+                        )
+                );
+
+        assertThatThrownBy(() ->
+                publicationService
+                        .findCreatorPageContent(
+                                anotherUserId,
+                                page.getId()
+                        )
+        ).isInstanceOf(
+                WorkAccessDeniedException.class
+        );
+
+        verify(catalogService)
+                .findWork(workId);
+
+        verify(
+                binaryStorage,
+                never()
+        ).read(
+                any(String.class)
+        );
+    }
 }

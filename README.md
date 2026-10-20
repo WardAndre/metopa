@@ -10,7 +10,7 @@ Projeto em desenvolvimento — MVP.
 
 Nesta primeira fase, toda a infraestrutura é executada localmente, sem dependência de serviços cloud pagos.
 
-A suíte automatizada possui atualmente **180 testes**, cobrindo regras de domínio, persistência, segurança, APIs HTTP, armazenamento binário e fluxos de integração.
+A suíte automatizada possui atualmente **185 testes**, cobrindo regras de domínio, persistência, segurança, APIs HTTP, armazenamento binário e fluxos de integração.
 
 ## Tecnologias
 
@@ -148,6 +148,10 @@ Atualmente suporta:
 - consulta administrativa de installments em estado `DRAFT` ou `PUBLISHED`;
 - consulta das páginas de installments ainda não publicados para gerenciamento;
 - validação de propriedade da obra antes da consulta das páginas;
+- leitura administrativa do conteúdo binário de páginas pelo proprietário;
+- acesso a páginas pertencentes a installments `DRAFT` ou `PUBLISHED` na visão do criador;
+- validação de propriedade da obra antes da leitura do conteúdo binário;
+- preservação do `Content-Type` ao retornar o conteúdo da página;
 - criação e ordenação de páginas;
 - upload de páginas através de `multipart/form-data`;
 - armazenamento local dos arquivos através do módulo `media`;
@@ -244,6 +248,8 @@ Algumas decisões adotadas no MVP:
 - a visão administrativa de installments pertence ao módulo `publication` e pode expor conteúdo ainda em `DRAFT`;
 - separação entre a leitura pública de um installment e sua visualização administrativa pelo criador;
 - a visão administrativa permite consultar drafts e suas páginas sem expô-los através dos endpoints públicos;
+- separação entre a leitura pública do conteúdo de uma página e sua visualização administrativa pelo criador;
+- o conteúdo binário de páginas em `DRAFT` somente pode ser lido pelo proprietário da obra através da visão administrativa;
 - autenticação baseada em sessão HTTP no MVP web;
 - proteção CSRF mantida habilitada;
 - senhas nunca são armazenadas em texto puro;
@@ -340,7 +346,7 @@ Para limpar o build, compilar o projeto e executar todos os testes:
 Estado atual da suíte:
 
 ```text
-Tests run: 180
+Tests run: 185
 Failures: 0
 Errors: 0
 Skipped: 0
@@ -393,6 +399,12 @@ Os testes cobrem, entre outros cenários:
 - impedimento da consulta das páginas quando a validação de propriedade falha;
 - exposição do detalhe administrativo através do fluxo MVC autenticado;
 - integração completa do detalhe administrativo com sessão real e PostgreSQL;
+- leitura administrativa do conteúdo de páginas;
+- leitura de página pertencente a installment `DRAFT` pelo proprietário;
+- rejeição da leitura de página por usuário que não seja proprietário da obra;
+- impedimento da leitura do `BinaryStorage` quando a validação de propriedade falha;
+- exposição do conteúdo binário através do fluxo MVC autenticado;
+- integração completa da leitura administrativa com sessão real, PostgreSQL e armazenamento local;
 - autorização baseada na propriedade da obra;
 - criação, ordenação e persistência de páginas;
 - upload multipart;
@@ -1020,6 +1032,54 @@ file   → arquivo da página
 
 O cliente não informa o local físico do arquivo. O `storageKey` é gerado internamente pelo backend.
 
+### Ler conteúdo de página para o criador
+
+```http
+GET /api/me/pages/{pageId}/content
+```
+
+Requer usuário autenticado.
+
+Retorna diretamente o conteúdo binário de uma página pertencente a uma obra do usuário autenticado.
+
+Diferentemente do endpoint público, a leitura administrativa permite páginas pertencentes a installments em estado `DRAFT` ou `PUBLISHED`.
+
+O cliente não informa `userId`. A identidade do usuário é determinada através da sessão autenticada.
+
+A propriedade da obra é validada antes que o conteúdo seja lido do armazenamento binário.
+
+Exemplo:
+
+```text
+HTTP/1.1 200 OK
+Content-Type: image/jpeg
+
+<conteúdo binário da página>
+```
+
+O `storageKey` não é exposto.
+
+Possíveis respostas:
+
+```text
+401 → usuário não autenticado
+403 → usuário autenticado não é proprietário da obra
+404 → página não encontrada
+```
+
+A leitura administrativa e a leitura pública possuem contratos distintos:
+
+```text
+GET /api/pages/{pageId}/content
+→ leitura pública
+→ somente páginas de installments PUBLISHED
+
+GET /api/me/pages/{pageId}/content
+→ gerenciamento do criador
+→ páginas de installments DRAFT ou PUBLISHED
+→ somente proprietário
+```
+
 ### Publicar installment
 
 ```http
@@ -1451,6 +1511,7 @@ POST   /api/works/{workId}/installments
 GET    /api/me/works
 GET    /api/me/works/{workId}/installments
 GET    /api/me/installments/{installmentId}
+GET    /api/me/pages/{pageId}/content
 
 PUT    /api/installments/{installmentId}
 POST   /api/installments/{installmentId}/pages
@@ -1491,6 +1552,7 @@ feature/installment-metadata-update
 feature/creator-work-list
 feature/creator-installment-list
 feature/creator-installment-detail
+feature/creator-page-content
 ```
 
 O fluxo utilizado é:
