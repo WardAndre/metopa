@@ -12,6 +12,7 @@ import metopa.publication.PublishedInstallmentNotFoundException;
 import metopa.publication.PublishedPageNotFoundException;
 import metopa.publication.PublishedWorkNotFoundException;
 import metopa.publication.PublishedWorkCoverNotFoundException;
+import metopa.publication.PageNotFoundException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -68,6 +69,23 @@ class PublicationExceptionHandler {
         problem.setTitle("Installment not found");
         problem.setDetail(
                 "The requested installment could not be found."
+        );
+
+        return problem;
+    }
+
+    @ExceptionHandler(PageNotFoundException.class)
+    ProblemDetail handlePageNotFound(
+            PageNotFoundException exception
+    ) {
+        ProblemDetail problem =
+                ProblemDetail.forStatus(
+                        HttpStatus.NOT_FOUND
+                );
+
+        problem.setTitle("Page not found");
+        problem.setDetail(
+                "The requested page could not be found."
         );
 
         return problem;

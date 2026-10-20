@@ -247,6 +247,51 @@ public class PublicationService {
     }
 
     @Transactional(readOnly = true)
+    public CreatorPageContent findCreatorPageContent(
+            UUID userId,
+            UUID pageId
+    ) {
+        Page page =
+                pageRepository
+                        .findById(pageId)
+                        .orElseThrow(() ->
+                                new PageNotFoundException(
+                                        pageId
+                                )
+                        );
+
+        Installment installment =
+                installmentRepository
+                        .findById(
+                                page.getInstallmentId()
+                        )
+                        .orElseThrow(() ->
+                                new InstallmentNotFoundException(
+                                        page.getInstallmentId()
+                                )
+                        );
+
+        WorkReference work =
+                catalogService.findWork(
+                        installment.getWorkId()
+                );
+
+        if (!work.ownerId().equals(userId)) {
+            throw new WorkAccessDeniedException();
+        }
+
+        byte[] content =
+                binaryStorage.read(
+                        page.getStorageKey()
+                );
+
+        return new CreatorPageContent(
+                page.getContentType(),
+                content
+        );
+    }
+
+    @Transactional(readOnly = true)
     public boolean hasPublishedContent(UUID workId) {
         return installmentRepository
                 .existsByWorkIdAndStatus(
