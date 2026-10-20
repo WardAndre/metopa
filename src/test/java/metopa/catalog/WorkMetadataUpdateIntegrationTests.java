@@ -19,12 +19,14 @@ import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestBuilders.formLogin;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.response.SecurityMockMvcResultMatchers.authenticated;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest
@@ -440,5 +442,206 @@ class WorkMetadataUpdateIntegrationTests {
 
         assertThat(storedTitle)
                 .isEqualTo("Valid Work");
+    }
+
+    @Test
+    void shouldReturnCreatorWorkDetailsForOwner()
+            throws Exception {
+
+        UUID ownerId =
+                identityService
+                        .findByUsername(
+                                "metadataauthor"
+                        )
+                        .id();
+
+        UUID workId =
+                catalogService.createWork(
+                        new CreateWorkCommand(
+                                ownerId,
+                                "Creator Work",
+                                "A work still being prepared.",
+                                WorkType.GRAPHIC_NOVEL,
+                                ReadingDirection.LEFT_TO_RIGHT,
+                                PresentationMode.DOUBLE_PAGE,
+                                Set.of(
+                                        Genre.SCI_FI,
+                                        Genre.ADVENTURE
+                                )
+                        )
+                );
+
+        MvcResult loginResult =
+                mockMvc.perform(
+                                formLogin("/api/auth/login")
+                                        .user("metadataauthor")
+                                        .password(PASSWORD)
+                        )
+                        .andExpect(
+                                status().isOk()
+                        )
+                        .andExpect(
+                                authenticated()
+                                        .withUsername(
+                                                "metadataauthor"
+                                        )
+                        )
+                        .andReturn();
+
+        MockHttpSession session =
+                (MockHttpSession) loginResult
+                        .getRequest()
+                        .getSession(false);
+
+        mockMvc.perform(
+                        get(
+                                "/api/me/works/{workId}",
+                                workId
+                        )
+                                .session(session)
+                )
+                .andExpect(
+                        status().isOk()
+                )
+                .andExpect(
+                        jsonPath("$.id")
+                                .value(
+                                        workId.toString()
+                                )
+                )
+                .andExpect(
+                        jsonPath("$.title")
+                                .value("Creator Work")
+                )
+                .andExpect(
+                        jsonPath("$.description")
+                                .value(
+                                        "A work still being prepared."
+                                )
+                )
+                .andExpect(
+                        jsonPath("$.type")
+                                .value(
+                                        "GRAPHIC_NOVEL"
+                                )
+                )
+                .andExpect(
+                        jsonPath("$.readingDirection")
+                                .value(
+                                        "LEFT_TO_RIGHT"
+                                )
+                )
+                .andExpect(
+                        jsonPath("$.presentationMode")
+                                .value(
+                                        "DOUBLE_PAGE"
+                                )
+                )
+                .andExpect(
+                        jsonPath("$.genres")
+                                .value(
+                                        containsInAnyOrder(
+                                                "SCI_FI",
+                                                "ADVENTURE"
+                                        )
+                                )
+                )
+                .andExpect(
+                        jsonPath("$.hasCover")
+                                .value(false)
+                );
+    }
+
+    @Test
+    void shouldRejectCreatorWorkDetailsFromNonOwner()
+            throws Exception {
+
+        UUID ownerId =
+                identityService
+                        .findByUsername(
+                                "metadataauthor"
+                        )
+                        .id();
+
+        UUID workId =
+                catalogService.createWork(
+                        new CreateWorkCommand(
+                                ownerId,
+                                "Private Creator Work",
+                                "Private draft metadata.",
+                                WorkType.COMIC,
+                                ReadingDirection.LEFT_TO_RIGHT,
+                                PresentationMode.SINGLE_PAGE,
+                                Set.of(
+                                        Genre.DRAMA
+                                )
+                        )
+                );
+
+        String suffix =
+                UUID.randomUUID()
+                        .toString()
+                        .replace("-", "")
+                        .substring(0, 8);
+
+        String anotherUsername =
+                "creator-detail-other-" + suffix;
+
+        identityService.createUser(
+                new CreateUserCommand(
+                        anotherUsername,
+                        anotherUsername + "@example.com",
+                        "Another Creator Detail User",
+                        PASSWORD
+                )
+        );
+
+        MvcResult loginResult =
+                mockMvc.perform(
+                                formLogin("/api/auth/login")
+                                        .user(anotherUsername)
+                                        .password(PASSWORD)
+                        )
+                        .andExpect(
+                                status().isOk()
+                        )
+                        .andExpect(
+                                authenticated()
+                                        .withUsername(
+                                                anotherUsername
+                                        )
+                        )
+                        .andReturn();
+
+        MockHttpSession session =
+                (MockHttpSession) loginResult
+                        .getRequest()
+                        .getSession(false);
+
+        mockMvc.perform(
+                        get(
+                                "/api/me/works/{workId}",
+                                workId
+                        )
+                                .session(session)
+                )
+                .andExpect(
+                        status().isForbidden()
+                )
+                .andExpect(
+                        content().contentTypeCompatibleWith(
+                                MediaType.APPLICATION_PROBLEM_JSON
+                        )
+                )
+                .andExpect(
+                        jsonPath("$.title")
+                                .value(
+                                        "Work access denied"
+                                )
+                )
+                .andExpect(
+                        jsonPath("$.status")
+                                .value(403)
+                );
     }
 }

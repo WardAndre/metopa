@@ -597,4 +597,107 @@ class CatalogServiceTests {
                         Genre.DRAMA
                 );
     }
+
+    @Test
+    void shouldFindCreatorWorkDetailsForOwner() {
+        UUID ownerId = UUID.randomUUID();
+
+        Work work = new Work(
+                ownerId,
+                "Metopa Origins",
+                "A science fiction graphic novel.",
+                WorkType.GRAPHIC_NOVEL,
+                ReadingDirection.LEFT_TO_RIGHT,
+                PresentationMode.SINGLE_PAGE
+        );
+
+        work.setGenres(
+                Set.of(
+                        Genre.SCI_FI,
+                        Genre.ADVENTURE
+                )
+        );
+
+        work.setCover(
+                "covers/example/cover-file",
+                "image/webp"
+        );
+
+        when(repository.findById(work.getId()))
+                .thenReturn(Optional.of(work));
+
+        WorkDetails details =
+                catalogService.findCreatorWorkDetails(
+                        ownerId,
+                        work.getId()
+                );
+
+        assertThat(details.id())
+                .isEqualTo(work.getId());
+
+        assertThat(details.title())
+                .isEqualTo("Metopa Origins");
+
+        assertThat(details.description())
+                .isEqualTo(
+                        "A science fiction graphic novel."
+                );
+
+        assertThat(details.type())
+                .isEqualTo(
+                        WorkType.GRAPHIC_NOVEL
+                );
+
+        assertThat(details.readingDirection())
+                .isEqualTo(
+                        ReadingDirection.LEFT_TO_RIGHT
+                );
+
+        assertThat(details.presentationMode())
+                .isEqualTo(
+                        PresentationMode.SINGLE_PAGE
+                );
+
+        assertThat(details.genres())
+                .containsExactlyInAnyOrder(
+                        Genre.SCI_FI,
+                        Genre.ADVENTURE
+                );
+
+        assertThat(details.hasCover())
+                .isTrue();
+
+        verify(repository)
+                .findById(work.getId());
+    }
+
+    @Test
+    void shouldRejectCreatorWorkDetailsFromNonOwner() {
+        UUID ownerId = UUID.randomUUID();
+        UUID anotherUserId = UUID.randomUUID();
+
+        Work work = new Work(
+                ownerId,
+                "Private Work",
+                null,
+                WorkType.COMIC,
+                ReadingDirection.LEFT_TO_RIGHT,
+                PresentationMode.SINGLE_PAGE
+        );
+
+        when(repository.findById(work.getId()))
+                .thenReturn(Optional.of(work));
+
+        assertThatThrownBy(() ->
+                catalogService.findCreatorWorkDetails(
+                        anotherUserId,
+                        work.getId()
+                )
+        ).isInstanceOf(
+                WorkAccessDeniedException.class
+        );
+
+        verify(repository)
+                .findById(work.getId());
+    }
 }

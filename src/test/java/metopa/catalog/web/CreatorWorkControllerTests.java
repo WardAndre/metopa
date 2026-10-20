@@ -4,6 +4,9 @@ import metopa.catalog.CatalogService;
 import metopa.catalog.Genre;
 import metopa.catalog.WorkSummary;
 import metopa.catalog.WorkType;
+import metopa.catalog.PresentationMode;
+import metopa.catalog.ReadingDirection;
+import metopa.catalog.WorkDetails;
 import metopa.identity.IdentityService;
 import metopa.identity.UserReference;
 import org.junit.jupiter.api.Test;
@@ -156,6 +159,114 @@ class CreatorWorkControllerTests {
         verify(catalogService)
                 .findWorksByOwner(
                         ownerId
+                );
+    }
+
+    @Test
+    void shouldReturnWorkDetailsForAuthenticatedOwner()
+            throws Exception {
+
+        UUID ownerId = UUID.randomUUID();
+        UUID workId = UUID.randomUUID();
+
+        when(identityService.findByUsername("andre"))
+                .thenReturn(
+                        new UserReference(
+                                ownerId,
+                                "andre"
+                        )
+                );
+
+        when(
+                catalogService.findCreatorWorkDetails(
+                        ownerId,
+                        workId
+                )
+        ).thenReturn(
+                new WorkDetails(
+                        workId,
+                        "Metopa Origins",
+                        "A science fiction graphic novel.",
+                        WorkType.GRAPHIC_NOVEL,
+                        ReadingDirection.LEFT_TO_RIGHT,
+                        PresentationMode.SINGLE_PAGE,
+                        Set.of(
+                                Genre.SCI_FI,
+                                Genre.ADVENTURE
+                        ),
+                        true
+                )
+        );
+
+        mockMvc.perform(
+                        get(
+                                "/api/me/works/{workId}",
+                                workId
+                        )
+                                .principal(
+                                        () -> "andre"
+                                )
+                )
+                .andExpect(
+                        status().isOk()
+                )
+                .andExpect(
+                        jsonPath("$.id")
+                                .value(
+                                        workId.toString()
+                                )
+                )
+                .andExpect(
+                        jsonPath("$.title")
+                                .value(
+                                        "Metopa Origins"
+                                )
+                )
+                .andExpect(
+                        jsonPath("$.description")
+                                .value(
+                                        "A science fiction graphic novel."
+                                )
+                )
+                .andExpect(
+                        jsonPath("$.type")
+                                .value(
+                                        "GRAPHIC_NOVEL"
+                                )
+                )
+                .andExpect(
+                        jsonPath("$.readingDirection")
+                                .value(
+                                        "LEFT_TO_RIGHT"
+                                )
+                )
+                .andExpect(
+                        jsonPath("$.presentationMode")
+                                .value(
+                                        "SINGLE_PAGE"
+                                )
+                )
+                .andExpect(
+                        jsonPath("$.genres")
+                                .value(
+                                        containsInAnyOrder(
+                                                "SCI_FI",
+                                                "ADVENTURE"
+                                        )
+                                )
+                )
+                .andExpect(
+                        jsonPath("$.hasCover")
+                                .value(true)
+                );
+
+        verify(identityService)
+                .findByUsername("andre");
+
+        verify(catalogService)
+                .findCreatorWorkDetails(
+                        ownerId,
+                        workId
                 );
     }
 }

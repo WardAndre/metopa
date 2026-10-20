@@ -10,7 +10,7 @@ Projeto em desenvolvimento — MVP.
 
 Nesta primeira fase, toda a infraestrutura é executada localmente, sem dependência de serviços cloud pagos.
 
-A suíte automatizada possui atualmente **185 testes**, cobrindo regras de domínio, persistência, segurança, APIs HTTP, armazenamento binário e fluxos de integração.
+A suíte automatizada possui atualmente **190 testes**, cobrindo regras de domínio, persistência, segurança, APIs HTTP, armazenamento binário e fluxos de integração.
 
 ## Tecnologias
 
@@ -87,6 +87,9 @@ Atualmente suporta:
 - associação automática da obra ao usuário autenticado;
 - atualização dos metadados da obra pelo proprietário;
 - listagem das obras pertencentes ao usuário autenticado;
+- consulta administrativa dos detalhes de uma obra pelo proprietário;
+- consulta de obras independentemente de possuírem conteúdo publicado;
+- exposição dos metadados completos da obra na visão do criador;
 - inclusão de obras ainda não publicadas na visão de gerenciamento do criador;
 - isolamento das obras por proprietário;
 - ordenação das obras do criador pelas atualizadas mais recentemente;
@@ -244,6 +247,8 @@ Algumas decisões adotadas no MVP:
 - alterações dos metadados de installments concentradas em uma operação de domínio;
 - separação entre descoberta pública e gerenciamento das obras do criador;
 - a listagem das obras do criador pertence ao módulo `catalog` e não depende do estado de publicação;
+- separação entre a consulta pública de uma obra e sua visualização administrativa pelo criador;
+- a visão administrativa da obra independe da existência de conteúdo publicado e exige validação de propriedade;
 - separação entre leitura pública de installments e gerenciamento dos installments pelo criador;
 - a visão administrativa de installments pertence ao módulo `publication` e pode expor conteúdo ainda em `DRAFT`;
 - separação entre a leitura pública de um installment e sua visualização administrativa pelo criador;
@@ -346,7 +351,7 @@ Para limpar o build, compilar o projeto e executar todos os testes:
 Estado atual da suíte:
 
 ```text
-Tests run: 185
+Tests run: 190
 Failures: 0
 Errors: 0
 Skipped: 0
@@ -372,6 +377,12 @@ Os testes cobrem, entre outros cenários:
 - inclusão de obras ainda não publicadas na listagem do proprietário;
 - isolamento entre obras pertencentes a usuários diferentes;
 - integração da consulta por proprietário com persistência real no PostgreSQL;
+- consulta administrativa dos detalhes de uma obra pelo proprietário;
+- exposição dos metadados completos da obra na visão administrativa;
+- consulta de obra ainda sem conteúdo publicado pelo proprietário;
+- rejeição da consulta administrativa por usuário que não seja proprietário;
+- exposição do detalhe da obra através do fluxo MVC autenticado;
+- integração completa da consulta administrativa com sessão real e PostgreSQL;
 - propagação de gêneros entre `Work`, `WorkSummary` e `WorkDetails`;
 - propagação de gêneros entre os módulos `catalog` e `publication`;
 - exposição de gêneros nos endpoints públicos de detalhe e descoberta;
@@ -703,6 +714,76 @@ GET /api/works
 GET /api/me/works
 → gerenciamento do criador
 → todas as obras pertencentes ao usuário autenticado
+```
+
+### Consultar obra para o criador
+
+```http
+GET /api/me/works/{workId}
+```
+
+Requer usuário autenticado.
+
+Retorna os metadados completos de uma obra quando o usuário autenticado é seu proprietário.
+
+A consulta administrativa independe da existência de installments publicados. Obras sem installments ou com apenas conteúdo em estado `DRAFT` também podem ser consultadas pelo proprietário.
+
+O cliente não informa `userId`. A identidade do usuário é determinada através da sessão autenticada e a propriedade da obra é validada pelo backend.
+
+Exemplo de resposta:
+
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "title": "Metopa Origins",
+  "description": "A science fiction graphic novel.",
+  "type": "GRAPHIC_NOVEL",
+  "readingDirection": "LEFT_TO_RIGHT",
+  "presentationMode": "SINGLE_PAGE",
+  "genres": [
+    "SCI_FI",
+    "ADVENTURE"
+  ],
+  "hasCover": true
+}
+```
+
+A resposta contém:
+
+```text
+id
+title
+description
+type
+readingDirection
+presentationMode
+genres
+hasCover
+```
+
+O `storageKey` da capa não é exposto.
+
+A ordem dos elementos de `genres` não faz parte do contrato da API.
+
+Possíveis respostas:
+
+```text
+401 → usuário não autenticado
+403 → usuário autenticado não é proprietário da obra
+404 → obra não encontrada
+```
+
+A visão administrativa e a visão pública possuem contratos distintos:
+
+```text
+GET /api/works/{workId}
+→ visão pública
+→ somente obras com conteúdo publicado
+
+GET /api/me/works/{workId}
+→ gerenciamento do criador
+→ independe do estado de publicação
+→ somente proprietário
 ```
 
 ### Definir capa da obra
@@ -1509,6 +1590,7 @@ PUT    /api/works/{workId}/cover
 POST   /api/works/{workId}/installments
 
 GET    /api/me/works
+GET    /api/me/works/{workId}
 GET    /api/me/works/{workId}/installments
 GET    /api/me/installments/{installmentId}
 GET    /api/me/pages/{pageId}/content
@@ -1553,6 +1635,7 @@ feature/creator-work-list
 feature/creator-installment-list
 feature/creator-installment-detail
 feature/creator-page-content
+feature/creator-work-detail
 ```
 
 O fluxo utilizado é:
