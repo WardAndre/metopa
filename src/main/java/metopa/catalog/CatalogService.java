@@ -221,4 +221,35 @@ public class CatalogService {
                 work.getCoverStorageKey() != null
         );
     }
+
+    @Transactional(readOnly = true)
+    public WorkCoverContent findCreatorWorkCover(
+            UUID userId,
+            UUID workId
+    ) {
+        Work work = repository.findById(workId)
+                .orElseThrow(() ->
+                        new WorkNotFoundException(workId)
+                );
+
+        if (!work.getOwnerId().equals(userId)) {
+            throw new WorkAccessDeniedException();
+        }
+
+        if (work.getCoverStorageKey() == null) {
+            throw new WorkCoverNotFoundException(
+                    workId
+            );
+        }
+
+        byte[] content =
+                binaryStorage.read(
+                        work.getCoverStorageKey()
+                );
+
+        return new WorkCoverContent(
+                work.getCoverContentType(),
+                content
+        );
+    }
 }
