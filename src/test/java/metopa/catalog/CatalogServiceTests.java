@@ -700,4 +700,104 @@ class CatalogServiceTests {
         verify(repository)
                 .findById(work.getId());
     }
+
+    @Test
+    void shouldReadCreatorWorkCoverForOwner() {
+        UUID ownerId = UUID.randomUUID();
+
+        Work work =
+                new Work(
+                        ownerId,
+                        "Draft Work",
+                        null,
+                        WorkType.COMIC,
+                        ReadingDirection.LEFT_TO_RIGHT,
+                        PresentationMode.SINGLE_PAGE
+                );
+
+        String storageKey =
+                "covers/"
+                        + work.getId()
+                        + "/cover-file";
+
+        work.setCover(
+                storageKey,
+                "image/webp"
+        );
+
+        byte[] content =
+                "creator-cover-content".getBytes();
+
+        when(repository.findById(work.getId()))
+                .thenReturn(Optional.of(work));
+
+        when(binaryStorage.read(storageKey))
+                .thenReturn(content);
+
+        WorkCoverContent result =
+                catalogService.findCreatorWorkCover(
+                        ownerId,
+                        work.getId()
+                );
+
+        assertThat(result.contentType())
+                .isEqualTo("image/webp");
+
+        assertThat(result.content())
+                .isEqualTo(content);
+
+        verify(repository)
+                .findById(work.getId());
+
+        verify(binaryStorage)
+                .read(storageKey);
+    }
+
+    @Test
+    void shouldRejectCreatorWorkCoverFromNonOwner() {
+        UUID ownerId = UUID.randomUUID();
+        UUID anotherUserId = UUID.randomUUID();
+
+        Work work =
+                new Work(
+                        ownerId,
+                        "Private Draft Work",
+                        null,
+                        WorkType.COMIC,
+                        ReadingDirection.LEFT_TO_RIGHT,
+                        PresentationMode.SINGLE_PAGE
+                );
+
+        String storageKey =
+                "covers/"
+                        + work.getId()
+                        + "/cover-file";
+
+        work.setCover(
+                storageKey,
+                "image/webp"
+        );
+
+        when(repository.findById(work.getId()))
+                .thenReturn(Optional.of(work));
+
+        assertThatThrownBy(() ->
+                catalogService.findCreatorWorkCover(
+                        anotherUserId,
+                        work.getId()
+                )
+        ).isInstanceOf(
+                WorkAccessDeniedException.class
+        );
+
+        verify(repository)
+                .findById(work.getId());
+
+        verify(
+                binaryStorage,
+                never()
+        ).read(
+                any(String.class)
+        );
+    }
 }

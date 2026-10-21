@@ -21,6 +21,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestBuilders.formLogin;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.response.SecurityMockMvcResultMatchers.authenticated;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -261,6 +263,101 @@ class WorkCoverIntegrationTests {
                                 .session(session)
                 )
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void shouldReturnCreatorWorkCoverForOwner()
+            throws Exception {
+
+        TestUser owner =
+                createUser("creator-cover-owner");
+
+        UUID workId =
+                createWork(owner.id());
+
+        byte[] coverContent =
+                "creator-cover-content".getBytes();
+
+        catalogService.setCover(
+                owner.id(),
+                workId,
+                "image/webp",
+                coverContent
+        );
+
+        MockHttpSession session =
+                login(owner.username());
+
+        mockMvc.perform(
+                        get(
+                                "/api/me/works/{workId}/cover",
+                                workId
+                        )
+                                .session(session)
+                )
+                .andExpect(
+                        status().isOk()
+                )
+                .andExpect(
+                        content().contentType(
+                                "image/webp"
+                        )
+                )
+                .andExpect(
+                        content().bytes(
+                                coverContent
+                        )
+                );
+    }
+
+    @Test
+    void shouldRejectCreatorWorkCoverFromNonOwner()
+            throws Exception {
+
+        TestUser owner =
+                createUser("creator-cover-owner");
+
+        TestUser anotherUser =
+                createUser("creator-cover-other");
+
+        UUID workId =
+                createWork(owner.id());
+
+        catalogService.setCover(
+                owner.id(),
+                workId,
+                "image/webp",
+                "private-cover-content".getBytes()
+        );
+
+        MockHttpSession session =
+                login(anotherUser.username());
+
+        mockMvc.perform(
+                        get(
+                                "/api/me/works/{workId}/cover",
+                                workId
+                        )
+                                .session(session)
+                )
+                .andExpect(
+                        status().isForbidden()
+                )
+                .andExpect(
+                        content().contentTypeCompatibleWith(
+                                "application/problem+json"
+                        )
+                )
+                .andExpect(
+                        jsonPath("$.title")
+                                .value(
+                                        "Work access denied"
+                                )
+                )
+                .andExpect(
+                        jsonPath("$.status")
+                                .value(403)
+                );
     }
 
     private UUID createWork(UUID ownerId) {
