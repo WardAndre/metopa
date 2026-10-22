@@ -130,6 +130,58 @@ public class PublicationService {
     }
 
     @Transactional
+    public void deletePage(
+            UUID userId,
+            UUID installmentId,
+            UUID pageId
+    ) {
+        Installment installment =
+                installmentRepository
+                        .findById(installmentId)
+                        .orElseThrow(() ->
+                                new InstallmentNotFoundException(
+                                        installmentId
+                                )
+                        );
+
+        if (installment.getStatus()
+                == PublicationStatus.PUBLISHED) {
+            throw new PublishedInstallmentModificationException();
+        }
+
+        WorkReference work =
+                catalogService.findWork(
+                        installment.getWorkId()
+                );
+
+        if (!work.ownerId().equals(userId)) {
+            throw new WorkAccessDeniedException();
+        }
+
+        Page page =
+                pageRepository
+                        .findById(pageId)
+                        .filter(candidate ->
+                                candidate
+                                        .getInstallmentId()
+                                        .equals(installmentId)
+                        )
+                        .orElseThrow(() ->
+                                new PageNotFoundException(
+                                        pageId
+                                )
+                        );
+
+        String storageKey =
+                page.getStorageKey();
+
+        pageRepository.delete(page);
+        pageRepository.flush();
+
+        binaryStorage.delete(storageKey);
+    }
+
+    @Transactional
     public void publishInstallment(
             UUID userId,
             UUID installmentId

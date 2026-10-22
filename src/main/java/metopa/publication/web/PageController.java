@@ -8,6 +8,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestPart;
@@ -65,5 +66,24 @@ class PageController {
                 );
 
         return new CreatePageResponse(pageId);
+    }
+
+    @DeleteMapping("/{pageId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    void deletePage(
+            @PathVariable UUID installmentId,
+            @PathVariable UUID pageId,
+            Principal principal
+    ) {
+        UserReference user =
+                identityService.findByUsername(
+                        principal.getName()
+                );
+
+        publicationService.deletePage(
+                user.id(),
+                installmentId,
+                pageId
+        );
     }
 }

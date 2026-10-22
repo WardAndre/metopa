@@ -10,7 +10,7 @@ Projeto em desenvolvimento — MVP.
 
 Nesta primeira fase, toda a infraestrutura é executada localmente, sem dependência de serviços cloud pagos.
 
-A suíte automatizada possui atualmente **195 testes**, cobrindo regras de domínio, persistência, segurança, APIs HTTP, armazenamento binário e fluxos de integração.
+A suíte automatizada possui atualmente **204 testes**, cobrindo regras de domínio, persistência, segurança, APIs HTTP, armazenamento binário e fluxos de integração.
 
 ## Tecnologias
 
@@ -158,11 +158,18 @@ Atualmente suporta:
 - acesso a páginas pertencentes a installments `DRAFT` ou `PUBLISHED` na visão do criador;
 - validação de propriedade da obra antes da leitura do conteúdo binário;
 - preservação do `Content-Type` ao retornar o conteúdo da página;
-- criação e ordenação de páginas;
+- criação de páginas com número de leitura;
+- retorno das páginas ordenadas pelo número;
 - upload de páginas através de `multipart/form-data`;
 - armazenamento local dos arquivos através do módulo `media`;
 - armazenamento de metadados das páginas no PostgreSQL;
 - prevenção de números de página duplicados;
+- exclusão de páginas pertencentes a installments em estado `DRAFT`;
+- validação de propriedade da obra antes da exclusão de páginas;
+- validação de que a página pertence ao installment informado;
+- remoção do registro da página no PostgreSQL antes da exclusão do conteúdo binário;
+- remoção do arquivo físico associado à página através do módulo `media`;
+- bloqueio da exclusão de páginas pertencentes a installments publicados;
 - publicação de installments;
 - publicação permitida somente quando existe pelo menos uma página;
 - bloqueio de alterações em installments já publicados;
@@ -218,7 +225,9 @@ Atualmente suporta:
 - armazenamento por namespace e identificador do recurso;
 - geração interna de `storageKey`;
 - leitura de conteúdo binário a partir da chave;
-- proteção contra resolução de caminhos fora da raiz configurada;
+- exclusão de conteúdo binário a partir da chave;
+- exclusão idempotente de arquivos físicos inexistentes;
+- proteção contra resolução de caminhos fora da raiz configurada em operações de leitura e exclusão;
 - implementação local baseada em filesystem;
 - uso compartilhado por páginas de installments e capas de obras.
 
@@ -242,8 +251,11 @@ Algumas decisões adotadas no MVP:
 - API pública dos módulos separada de detalhes de persistência;
 - referências entre módulos feitas por identificadores e APIs públicas, evitando relacionamentos JPA entre módulos;
 - arquivos binários armazenados fora do PostgreSQL;
-- armazenamento binário acessado através de uma abstração compartilhada;
+- armazenamento, leitura e exclusão de conteúdo binário acessados através da abstração compartilhada `BinaryStorage`;
 - `storageKey` tratado como detalhe interno de infraestrutura;
+- operações destrutivas de conteúdo binário permanecem encapsuladas no módulo `media`;
+- na exclusão de páginas, a remoção do registro é enviada ao PostgreSQL antes da exclusão física do arquivo;
+- PostgreSQL e filesystem não compartilham uma transação distribuída no MVP;
 - gêneros tratados como vocabulário pertencente ao módulo `catalog`;
 - múltiplos gêneros representados como `Set<Genre>`, sem entidade de domínio dedicada;
 - alterações dos metadados da obra concentradas em uma operação de domínio;
@@ -260,6 +272,9 @@ Algumas decisões adotadas no MVP:
 - a visão administrativa permite consultar drafts e suas páginas sem expô-los através dos endpoints públicos;
 - separação entre a leitura pública do conteúdo de uma página e sua visualização administrativa pelo criador;
 - o conteúdo binário de páginas em `DRAFT` somente pode ser lido pelo proprietário da obra através da visão administrativa;
+- páginas somente podem ser removidas enquanto o installment permanece em estado `DRAFT`;
+- a exclusão de uma página valida installment, estado, propriedade da obra e associação da página antes de qualquer operação destrutiva;
+- installments publicados permanecem imutáveis no MVP;
 - autenticação baseada em sessão HTTP no MVP web;
 - proteção CSRF mantida habilitada;
 - senhas nunca são armazenadas em texto puro;
@@ -356,7 +371,7 @@ Para limpar o build, compilar o projeto e executar todos os testes:
 Estado atual da suíte:
 
 ```text
-Tests run: 195
+Tests run: 204
 Failures: 0
 Errors: 0
 Skipped: 0
@@ -436,9 +451,20 @@ Os testes cobrem, entre outros cenários:
 - exposição do conteúdo binário através do fluxo MVC autenticado;
 - integração completa da leitura administrativa com sessão real, PostgreSQL e armazenamento local;
 - autorização baseada na propriedade da obra;
-- criação, ordenação e persistência de páginas;
+- criação e persistência de páginas com número de leitura;
+- retorno de páginas ordenadas por número;
 - upload multipart;
 - armazenamento físico local e geração interna de `storageKey`;
+- exclusão de conteúdo binário através de `BinaryStorage`;
+- proteção contra exclusão de arquivos fora da raiz configurada;
+- exclusão de página de installment `DRAFT` pelo proprietário;
+- rejeição de exclusão de página por usuário que não seja proprietário;
+- rejeição de exclusão de página pertencente a outro installment;
+- rejeição de exclusão de página de installment `PUBLISHED`;
+- ordem entre remoção persistida e exclusão física do arquivo;
+- integração completa da exclusão de página com sessão real, CSRF, PostgreSQL e filesystem local;
+- remoção do registro da página e do arquivo físico após exclusão válida;
+- preservação do registro e do arquivo físico quando a exclusão de página publicada é rejeitada;
 - prevenção de installments e páginas duplicados;
 - impedimento de publicação sem páginas;
 - impedimento de alteração de installments publicados;
@@ -1172,6 +1198,56 @@ file   → arquivo da página
 
 O cliente não informa o local físico do arquivo. O `storageKey` é gerado internamente pelo backend.
 
+A página somente pode ser adicionada enquanto o installment estiver em estado `DRAFT`.
+
+O número da página deve ser único dentro do installment.
+
+Resposta de sucesso:
+
+```http
+201 Created
+```
+
+### Excluir página de installment em draft
+
+```http
+DELETE /api/installments/{installmentId}/pages/{pageId}
+```
+
+Requer usuário autenticado e token CSRF válido.
+
+Somente o proprietário da obra pode excluir a página.
+
+A exclusão é permitida somente enquanto o installment estiver em estado `DRAFT`.
+
+A página informada deve pertencer ao installment presente na URL.
+
+Quando a operação é válida:
+
+- o registro da página é removido do PostgreSQL;
+- a remoção persistida é enviada ao banco antes da exclusão do conteúdo físico;
+- o arquivo associado é removido através de `BinaryStorage`;
+- o `storageKey` permanece um detalhe interno e não é exposto ao cliente.
+
+Resposta de sucesso:
+
+```http
+204 No Content
+```
+
+Possíveis respostas:
+
+```text
+401 → usuário não autenticado
+403 → token CSRF ausente ou inválido, ou usuário não é proprietário da obra
+404 → installment ou página não encontrada, ou página não pertence ao installment informado
+409 → installment já publicado e não pode ser modificado
+```
+
+Installments em estado `PUBLISHED` permanecem imutáveis. Quando a exclusão é rejeitada por esse motivo, tanto o registro da página quanto seu arquivo físico permanecem preservados.
+
+A exclusão não renumera automaticamente as páginas restantes. Reordenação de páginas é uma funcionalidade separada e ainda não faz parte deste contrato.
+
 ### Ler conteúdo de página para o criador
 
 ```http
@@ -1617,6 +1693,8 @@ A migration `V9__create_work_genre.sql` introduz a tabela `work_genre`, utilizad
 
 A relação utiliza o identificador da obra e o valor do gênero, mantendo a associação dentro do módulo `catalog`.
 
+A exclusão de páginas não exige alteração no schema existente. A tabela `installment_page` já possui os dados e relacionamentos necessários para que seus registros sejam removidos.
+
 Migrations já executadas não devem ser alteradas. Novas mudanças no banco devem ser implementadas através de uma nova migration versionada.
 
 ## Segurança
@@ -1657,6 +1735,7 @@ GET    /api/me/pages/{pageId}/content
 
 PUT    /api/installments/{installmentId}
 POST   /api/installments/{installmentId}/pages
+DELETE /api/installments/{installmentId}/pages/{pageId}
 POST   /api/installments/{installmentId}/publish
 
 GET    /api/library
@@ -1668,6 +1747,10 @@ PUT    /api/reading/progress/pages/{pageId}
 ```
 
 Operações que alteram estado permanecem protegidas por CSRF.
+
+A exclusão de páginas exige sessão autenticada, token CSRF válido, propriedade da obra e installment em estado `DRAFT`.
+
+Installments em estado `PUBLISHED` permanecem imutáveis.
 
 Senhas são processadas utilizando `PasswordEncoder` e armazenadas somente como hash.
 
@@ -1697,6 +1780,7 @@ feature/creator-installment-detail
 feature/creator-page-content
 feature/creator-work-detail
 feature/creator-cover-content
+feature/page-management
 ```
 
 O fluxo utilizado é:
