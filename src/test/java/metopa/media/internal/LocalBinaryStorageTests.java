@@ -62,4 +62,45 @@ class LocalBinaryStorageTests {
                 IllegalArgumentException.class
         );
     }
+
+    @Test
+    void shouldDeleteBinaryContent() {
+        LocalBinaryStorage storage =
+                new LocalBinaryStorage(
+                        tempDir.toString()
+                );
+
+        UUID ownerId = UUID.randomUUID();
+
+        String storageKey =
+                storage.store(
+                        "installments",
+                        ownerId,
+                        "binary-content".getBytes()
+                );
+
+        storage.delete(storageKey);
+
+        assertThatThrownBy(() ->
+                storage.read(storageKey)
+        ).isInstanceOf(
+                metopa.media.BinaryStorageException.class
+        );
+    }
+
+    @Test
+    void shouldRejectDeleteStorageKeyOutsideRoot() {
+        LocalBinaryStorage storage =
+                new LocalBinaryStorage(
+                        tempDir.toString()
+                );
+
+        assertThatThrownBy(() ->
+                storage.delete(
+                        "../outside-file"
+                )
+        ).isInstanceOf(
+                IllegalArgumentException.class
+        );
+    }
 }

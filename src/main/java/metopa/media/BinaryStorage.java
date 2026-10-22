@@ -11,4 +11,6 @@ public interface BinaryStorage {
     );
 
     byte[] read(String storageKey);
+
+    void delete(String storageKey);
 }

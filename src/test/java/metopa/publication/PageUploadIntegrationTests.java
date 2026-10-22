@@ -31,6 +31,7 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.response.SecurityMockMvcResultMatchers.authenticated;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -169,6 +170,158 @@ class PageUploadIntegrationTests {
                 STORAGE_ROOT
                         .resolve(storageKey)
                         .normalize();
+
+        assertThat(storedFile)
+                .exists();
+
+        assertThat(
+                Files.readAllBytes(storedFile)
+        ).isEqualTo(content);
+    }
+
+    @Test
+    void shouldDeleteDraftPageAndStoredContent()
+            throws Exception {
+
+        byte[] content =
+                "page-to-delete".getBytes();
+
+        UUID pageId =
+                publicationService.createPage(
+                        userId,
+                        new CreatePageCommand(
+                                installmentId,
+                                1,
+                                "image/jpeg",
+                                content
+                        )
+                );
+
+        String storageKey =
+                jdbcTemplate.queryForObject(
+                        """
+                        SELECT storage_key
+                        FROM installment_page
+                        WHERE id = ?
+                        """,
+                        String.class,
+                        pageId
+                );
+
+        Path storedFile =
+                STORAGE_ROOT
+                        .resolve(storageKey)
+                        .normalize();
+
+        assertThat(storedFile)
+                .exists();
+
+        assertThat(
+                Files.readAllBytes(storedFile)
+        ).isEqualTo(content);
+
+        MockHttpSession session =
+                login();
+
+        mockMvc.perform(
+                        delete(
+                                "/api/installments/{installmentId}/pages/{pageId}",
+                                installmentId,
+                                pageId
+                        )
+                                .session(session)
+                                .with(csrf())
+                )
+                .andExpect(
+                        status().isNoContent()
+                );
+
+        Integer remainingPages =
+                jdbcTemplate.queryForObject(
+                        """
+                        SELECT COUNT(*)
+                        FROM installment_page
+                        WHERE id = ?
+                        """,
+                        Integer.class,
+                        pageId
+                );
+
+        assertThat(remainingPages)
+                .isZero();
+
+        assertThat(storedFile)
+                .doesNotExist();
+    }
+
+    @Test
+    void shouldRejectDeletingPageFromPublishedInstallment()
+            throws Exception {
+
+        byte[] content =
+                "published-page-content".getBytes();
+
+        UUID pageId =
+                publicationService.createPage(
+                        userId,
+                        new CreatePageCommand(
+                                installmentId,
+                                1,
+                                "image/jpeg",
+                                content
+                        )
+                );
+
+        String storageKey =
+                jdbcTemplate.queryForObject(
+                        """
+                        SELECT storage_key
+                        FROM installment_page
+                        WHERE id = ?
+                        """,
+                        String.class,
+                        pageId
+                );
+
+        Path storedFile =
+                STORAGE_ROOT
+                        .resolve(storageKey)
+                        .normalize();
+
+        publicationService.publishInstallment(
+                userId,
+                installmentId
+        );
+
+        MockHttpSession session =
+                login();
+
+        mockMvc.perform(
+                        delete(
+                                "/api/installments/{installmentId}/pages/{pageId}",
+                                installmentId,
+                                pageId
+                        )
+                                .session(session)
+                                .with(csrf())
+                )
+                .andExpect(
+                        status().isConflict()
+                );
+
+        Integer remainingPages =
+                jdbcTemplate.queryForObject(
+                        """
+                        SELECT COUNT(*)
+                        FROM installment_page
+                        WHERE id = ?
+                        """,
+                        Integer.class,
+                        pageId
+                );
+
+        assertThat(remainingPages)
+                .isEqualTo(1);
 
         assertThat(storedFile)
                 .exists();

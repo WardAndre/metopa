@@ -79,6 +79,22 @@ class LocalBinaryStorage
         }
     }
 
+    @Override
+    public void delete(String storageKey) {
+        Path target =
+                resolve(storageKey);
+
+        try {
+            Files.deleteIfExists(target);
+
+        } catch (IOException exception) {
+            throw new BinaryStorageException(
+                    "Failed to delete binary content.",
+                    exception
+            );
+        }
+    }
+
     private Path resolve(String storageKey) {
         Path target =
                 root.resolve(storageKey)

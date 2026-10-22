@@ -18,6 +18,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.InOrder;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.List;
@@ -33,6 +34,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.inOrder;
 
 @ExtendWith(MockitoExtension.class)
 class PublicationServiceTests {
@@ -2134,6 +2136,287 @@ class PublicationServiceTests {
                 binaryStorage,
                 never()
         ).read(
+                any(String.class)
+        );
+    }
+
+    @Test
+    void shouldDeletePageFromDraftInstallmentForWorkOwner() {
+        UUID ownerId = UUID.randomUUID();
+        UUID workId = UUID.randomUUID();
+
+        Installment installment =
+                new Installment(
+                        workId,
+                        InstallmentType.CHAPTER,
+                        1,
+                        null
+                );
+
+        Page page =
+                new Page(
+                        installment.getId(),
+                        1,
+                        "installments/example/page-file",
+                        "image/jpeg"
+                );
+
+        when(
+                installmentRepository.findById(
+                        installment.getId()
+                )
+        ).thenReturn(
+                Optional.of(installment)
+        );
+
+        when(catalogService.findWork(workId))
+                .thenReturn(
+                        new WorkReference(
+                                workId,
+                                ownerId
+                        )
+                );
+
+        when(
+                pageRepository.findById(
+                        page.getId()
+                )
+        ).thenReturn(
+                Optional.of(page)
+        );
+
+        publicationService.deletePage(
+                ownerId,
+                installment.getId(),
+                page.getId()
+        );
+
+        InOrder deletionOrder =
+                inOrder(
+                        pageRepository,
+                        binaryStorage
+                );
+
+        deletionOrder.verify(pageRepository)
+                .delete(page);
+
+        deletionOrder.verify(pageRepository)
+                .flush();
+
+        deletionOrder.verify(binaryStorage)
+                .delete(
+                        page.getStorageKey()
+                );
+    }
+
+    @Test
+    void shouldRejectPageDeletionFromUserWhoDoesNotOwnWork() {
+        UUID ownerId = UUID.randomUUID();
+        UUID anotherUserId = UUID.randomUUID();
+        UUID workId = UUID.randomUUID();
+
+        Installment installment =
+                new Installment(
+                        workId,
+                        InstallmentType.CHAPTER,
+                        1,
+                        null
+                );
+
+        when(
+                installmentRepository.findById(
+                        installment.getId()
+                )
+        ).thenReturn(
+                Optional.of(installment)
+        );
+
+        when(catalogService.findWork(workId))
+                .thenReturn(
+                        new WorkReference(
+                                workId,
+                                ownerId
+                        )
+                );
+
+        assertThatThrownBy(() ->
+                publicationService.deletePage(
+                        anotherUserId,
+                        installment.getId(),
+                        UUID.randomUUID()
+                )
+        ).isInstanceOf(
+                WorkAccessDeniedException.class
+        );
+
+        verify(
+                pageRepository,
+                never()
+        ).findById(
+                any(UUID.class)
+        );
+
+        verify(
+                pageRepository,
+                never()
+        ).delete(
+                any(Page.class)
+        );
+
+        verify(
+                pageRepository,
+                never()
+        ).flush();
+
+        verify(
+                binaryStorage,
+                never()
+        ).delete(
+                any(String.class)
+        );
+    }
+
+    @Test
+    void shouldRejectPageDeletionFromPublishedInstallment() {
+        UUID userId = UUID.randomUUID();
+        UUID workId = UUID.randomUUID();
+
+        Installment installment =
+                new Installment(
+                        workId,
+                        InstallmentType.CHAPTER,
+                        1,
+                        null
+                );
+
+        installment.publish();
+
+        when(
+                installmentRepository.findById(
+                        installment.getId()
+                )
+        ).thenReturn(
+                Optional.of(installment)
+        );
+
+        assertThatThrownBy(() ->
+                publicationService.deletePage(
+                        userId,
+                        installment.getId(),
+                        UUID.randomUUID()
+                )
+        ).isInstanceOf(
+                PublishedInstallmentModificationException.class
+        );
+
+        verify(
+                catalogService,
+                never()
+        ).findWork(
+                any(UUID.class)
+        );
+
+        verify(
+                pageRepository,
+                never()
+        ).findById(
+                any(UUID.class)
+        );
+
+        verify(
+                pageRepository,
+                never()
+        ).delete(
+                any(Page.class)
+        );
+
+        verify(
+                binaryStorage,
+                never()
+        ).delete(
+                any(String.class)
+        );
+    }
+
+    @Test
+    void shouldRejectPageDeletionWhenPageBelongsToAnotherInstallment() {
+        UUID ownerId = UUID.randomUUID();
+        UUID workId = UUID.randomUUID();
+
+        Installment installment =
+                new Installment(
+                        workId,
+                        InstallmentType.CHAPTER,
+                        1,
+                        null
+                );
+
+        Installment anotherInstallment =
+                new Installment(
+                        workId,
+                        InstallmentType.CHAPTER,
+                        2,
+                        null
+                );
+
+        Page page =
+                new Page(
+                        anotherInstallment.getId(),
+                        1,
+                        "installments/example/other-page",
+                        "image/jpeg"
+                );
+
+        when(
+                installmentRepository.findById(
+                        installment.getId()
+                )
+        ).thenReturn(
+                Optional.of(installment)
+        );
+
+        when(catalogService.findWork(workId))
+                .thenReturn(
+                        new WorkReference(
+                                workId,
+                                ownerId
+                        )
+                );
+
+        when(
+                pageRepository.findById(
+                        page.getId()
+                )
+        ).thenReturn(
+                Optional.of(page)
+        );
+
+        assertThatThrownBy(() ->
+                publicationService.deletePage(
+                        ownerId,
+                        installment.getId(),
+                        page.getId()
+                )
+        ).isInstanceOf(
+                PageNotFoundException.class
+        );
+
+        verify(
+                pageRepository,
+                never()
+        ).delete(
+                any(Page.class)
+        );
+
+        verify(
+                pageRepository,
+                never()
+        ).flush();
+
+        verify(
+                binaryStorage,
+                never()
+        ).delete(
                 any(String.class)
         );
     }

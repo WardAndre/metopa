@@ -22,6 +22,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -113,5 +114,44 @@ class PageControllerTests {
 
         assertThat(command.content())
                 .isEqualTo(content);
+    }
+
+    @Test
+    void shouldDeletePageForAuthenticatedUser()
+            throws Exception {
+
+        UUID userId = UUID.randomUUID();
+        UUID installmentId = UUID.randomUUID();
+        UUID pageId = UUID.randomUUID();
+
+        when(identityService.findByUsername("andre"))
+                .thenReturn(
+                        new UserReference(
+                                userId,
+                                "andre"
+                        )
+                );
+
+        mockMvc.perform(
+                        delete(
+                                "/api/installments/{installmentId}/pages/{pageId}",
+                                installmentId,
+                                pageId
+                        )
+                                .principal(() -> "andre")
+                )
+                .andExpect(
+                        status().isNoContent()
+                );
+
+        verify(identityService)
+                .findByUsername("andre");
+
+        verify(publicationService)
+                .deletePage(
+                        userId,
+                        installmentId,
+                        pageId
+                );
     }
 }
