@@ -18,6 +18,9 @@ import org.springframework.validation.annotation.Validated;
 
 import java.util.List;
 import java.util.UUID;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
 
 @Service
 @Validated
@@ -81,7 +84,7 @@ public class PublicationService {
     ) {
         Installment installment =
                 installmentRepository
-                        .findById(command.installmentId())
+                        .findByIdForUpdate(command.installmentId())
                         .orElseThrow(() ->
                                 new InstallmentNotFoundException(
                                         command.installmentId()
@@ -137,7 +140,7 @@ public class PublicationService {
     ) {
         Installment installment =
                 installmentRepository
-                        .findById(installmentId)
+                        .findByIdForUpdate(installmentId)
                         .orElseThrow(() ->
                                 new InstallmentNotFoundException(
                                         installmentId
@@ -167,13 +170,10 @@ public class PublicationService {
                                         .equals(installmentId)
                         )
                         .orElseThrow(() ->
-                                new PageNotFoundException(
-                                        pageId
-                                )
+                                new PageNotFoundException(pageId)
                         );
 
-        String storageKey =
-                page.getStorageKey();
+        String storageKey = page.getStorageKey();
 
         pageRepository.delete(page);
         pageRepository.flush();
@@ -188,7 +188,7 @@ public class PublicationService {
     ) {
         Installment installment =
                 installmentRepository
-                        .findById(installmentId)
+                        .findByIdForUpdate(installmentId)
                         .orElseThrow(() ->
                                 new InstallmentNotFoundException(
                                         installmentId
@@ -534,7 +534,7 @@ public class PublicationService {
     ) {
         Installment installment =
                 installmentRepository
-                        .findById(installmentId)
+                        .findByIdForUpdate(installmentId)
                         .orElseThrow(() ->
                                 new InstallmentNotFoundException(
                                         installmentId
@@ -625,5 +625,99 @@ public class PublicationService {
                 installment.getStatus(),
                 pages
         );
+    }
+
+    @Transactional
+    public void reorderPages(
+            UUID userId,
+            UUID installmentId,
+            @Valid ReorderPagesCommand command
+    ) {
+        Installment installment =
+                installmentRepository
+                        .findByIdForUpdate(installmentId)
+                        .orElseThrow(() ->
+                                new InstallmentNotFoundException(
+                                        installmentId
+                                )
+                        );
+
+        if (installment.getStatus()
+                == PublicationStatus.PUBLISHED) {
+            throw new PublishedInstallmentModificationException();
+        }
+
+        WorkReference work =
+                catalogService.findWork(
+                        installment.getWorkId()
+                );
+
+        if (!work.ownerId().equals(userId)) {
+            throw new WorkAccessDeniedException();
+        }
+
+        List<Page> pages =
+                pageRepository
+                        .findByInstallmentIdOrderByNumberAsc(
+                                installmentId
+                        );
+
+        List<UUID> requestedIds = command.pageIds();
+
+        if (requestedIds == null
+                || requestedIds.isEmpty()
+                || requestedIds.size() != pages.size()) {
+            throw new InvalidPageOrderException();
+        }
+
+        Map<UUID, Page> pagesById =
+                new HashMap<>();
+
+        for (Page page : pages) {
+            pagesById.put(
+                    page.getId(),
+                    page
+            );
+        }
+
+        if (new HashSet<>(requestedIds).size()
+                != requestedIds.size()
+                || !pagesById.keySet()
+                .containsAll(requestedIds)) {
+            throw new InvalidPageOrderException();
+        }
+
+        int maxNumber =
+                pages.stream()
+                        .mapToInt(Page::getNumber)
+                        .max()
+                        .orElseThrow();
+
+        if (maxNumber > Integer.MAX_VALUE - pages.size()) {
+            throw new IllegalStateException(
+                    "Cannot allocate temporary page numbers."
+            );
+        }
+
+        // Phase 1: move pages to unused positive numbers.
+
+        for (int i = 0; i < pages.size(); i++) {
+            pages.get(i).changeNumber(
+                    maxNumber + i + 1
+            );
+        }
+
+        pageRepository.flush();
+
+        // Phase 2: assign the requested final order.
+
+        for (int i = 0; i < requestedIds.size(); i++) {
+            Page page =
+                    pagesById.get(
+                            requestedIds.get(i)
+                    );
+
+            page.changeNumber(i + 1);
+        }
     }
 }

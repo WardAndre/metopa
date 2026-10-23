@@ -1,8 +1,10 @@
 package metopa.publication;
 
 import metopa.catalog.CatalogService;
+import metopa.catalog.Genre;
 import metopa.catalog.PresentationMode;
 import metopa.catalog.ReadingDirection;
+import metopa.catalog.WorkCoverContent;
 import metopa.catalog.WorkDetails;
 import metopa.catalog.WorkReference;
 import metopa.catalog.WorkSummary;
@@ -12,29 +14,27 @@ import metopa.publication.internal.Installment;
 import metopa.publication.internal.InstallmentRepository;
 import metopa.publication.internal.Page;
 import metopa.publication.internal.PageRepository;
-import metopa.catalog.WorkCoverContent;
-import metopa.catalog.Genre;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
-import org.mockito.InOrder;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.List;
 import java.util.Optional;
-import java.util.UUID;
 import java.util.Set;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
-import static org.mockito.Mockito.inOrder;
 
 @ExtendWith(MockitoExtension.class)
 class PublicationServiceTests {
@@ -68,36 +68,21 @@ class PublicationServiceTests {
                 );
 
         when(catalogService.findWork(workId))
-                .thenReturn(
-                        new WorkReference(
-                                workId,
-                                userId
-                        )
-                );
+                .thenReturn(new WorkReference(workId, userId));
 
         when(
-                installmentRepository
-                        .existsByWorkIdAndTypeAndNumber(
-                                workId,
-                                InstallmentType.CHAPTER,
-                                1
-                        )
+                installmentRepository.existsByWorkIdAndTypeAndNumber(
+                        workId,
+                        InstallmentType.CHAPTER,
+                        1
+                )
         ).thenReturn(false);
 
-        when(
-                installmentRepository.save(
-                        any(Installment.class)
-                )
-        ).thenAnswer(
-                invocation ->
-                        invocation.getArgument(0)
-        );
+        when(installmentRepository.save(any(Installment.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
 
         UUID installmentId =
-                publicationService.createInstallment(
-                        userId,
-                        command
-                );
+                publicationService.createInstallment(userId, command);
 
         assertThat(installmentId).isNotNull();
 
@@ -120,26 +105,16 @@ class PublicationServiceTests {
                 );
 
         when(catalogService.findWork(workId))
-                .thenReturn(
-                        new WorkReference(
-                                workId,
-                                ownerId
-                        )
-                );
+                .thenReturn(new WorkReference(workId, ownerId));
 
         assertThatThrownBy(() ->
                 publicationService.createInstallment(
                         anotherUserId,
                         command
                 )
-        ).isInstanceOf(
-                WorkAccessDeniedException.class
-        );
+        ).isInstanceOf(WorkAccessDeniedException.class);
 
-        verify(
-                installmentRepository,
-                never()
-        ).save(any());
+        verify(installmentRepository, never()).save(any());
     }
 
     @Test
@@ -156,35 +131,21 @@ class PublicationServiceTests {
                 );
 
         when(catalogService.findWork(workId))
-                .thenReturn(
-                        new WorkReference(
-                                workId,
-                                userId
-                        )
-                );
+                .thenReturn(new WorkReference(workId, userId));
 
         when(
-                installmentRepository
-                        .existsByWorkIdAndTypeAndNumber(
-                                workId,
-                                InstallmentType.CHAPTER,
-                                1
-                        )
+                installmentRepository.existsByWorkIdAndTypeAndNumber(
+                        workId,
+                        InstallmentType.CHAPTER,
+                        1
+                )
         ).thenReturn(true);
 
         assertThatThrownBy(() ->
-                publicationService.createInstallment(
-                        userId,
-                        command
-                )
-        ).isInstanceOf(
-                InstallmentAlreadyExistsException.class
-        );
+                publicationService.createInstallment(userId, command)
+        ).isInstanceOf(InstallmentAlreadyExistsException.class);
 
-        verify(
-                installmentRepository,
-                never()
-        ).save(any());
+        verify(installmentRepository, never()).save(any());
     }
 
     @Test
@@ -200,8 +161,7 @@ class PublicationServiceTests {
                         null
                 );
 
-        byte[] content =
-                "page-content".getBytes();
+        byte[] content = "page-content".getBytes();
 
         CreatePageCommand command =
                 new CreatePageCommand(
@@ -212,27 +172,19 @@ class PublicationServiceTests {
                 );
 
         when(
-                installmentRepository.findById(
+                installmentRepository.findByIdForUpdate(
                         installment.getId()
                 )
-        ).thenReturn(
-                Optional.of(installment)
-        );
+        ).thenReturn(Optional.of(installment));
 
         when(catalogService.findWork(workId))
-                .thenReturn(
-                        new WorkReference(
-                                workId,
-                                userId
-                        )
-                );
+                .thenReturn(new WorkReference(workId, userId));
 
         when(
-                pageRepository
-                        .existsByInstallmentIdAndNumber(
-                                installment.getId(),
-                                1
-                        )
+                pageRepository.existsByInstallmentIdAndNumber(
+                        installment.getId(),
+                        1
+                )
         ).thenReturn(false);
 
         when(
@@ -242,37 +194,30 @@ class PublicationServiceTests {
                         content
                 )
         ).thenReturn(
-                "installments/"
-                        + installment.getId()
-                        + "/page-file"
+                "installments/" + installment.getId() + "/page-file"
         );
 
-        when(
-                pageRepository.save(
-                        any(Page.class)
-                )
-        ).thenAnswer(
-                invocation ->
-                        invocation.getArgument(0)
-        );
+        when(pageRepository.save(any(Page.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
 
         UUID pageId =
-                publicationService.createPage(
-                        userId,
-                        command
-                );
+                publicationService.createPage(userId, command);
 
         assertThat(pageId).isNotNull();
 
-        verify(binaryStorage)
-                .store(
-                        "installments",
-                        installment.getId(),
-                        content
-                );
+        verify(installmentRepository)
+                .findByIdForUpdate(installment.getId());
 
-        verify(pageRepository)
-                .save(any(Page.class));
+        verify(installmentRepository, never())
+                .findById(installment.getId());
+
+        verify(binaryStorage).store(
+                "installments",
+                installment.getId(),
+                content
+        );
+
+        verify(pageRepository).save(any(Page.class));
     }
 
     @Test
@@ -280,8 +225,7 @@ class PublicationServiceTests {
         UUID userId = UUID.randomUUID();
         UUID installmentId = UUID.randomUUID();
 
-        byte[] content =
-                "page-content".getBytes();
+        byte[] content = "page-content".getBytes();
 
         CreatePageCommand command =
                 new CreatePageCommand(
@@ -291,36 +235,20 @@ class PublicationServiceTests {
                         content
                 );
 
-        when(
-                installmentRepository.findById(
-                        installmentId
-                )
-        ).thenReturn(
-                Optional.empty()
-        );
+        when(installmentRepository.findByIdForUpdate(installmentId))
+                .thenReturn(Optional.empty());
 
         assertThatThrownBy(() ->
-                publicationService.createPage(
-                        userId,
-                        command
-                )
-        ).isInstanceOf(
-                InstallmentNotFoundException.class
-        );
+                publicationService.createPage(userId, command)
+        ).isInstanceOf(InstallmentNotFoundException.class);
 
-        verify(
-                binaryStorage,
-                never()
-        ).store(
+        verify(binaryStorage, never()).store(
                 any(String.class),
                 any(UUID.class),
                 any(byte[].class)
         );
 
-        verify(
-                pageRepository,
-                never()
-        ).save(any());
+        verify(pageRepository, never()).save(any());
     }
 
     @Test
@@ -337,8 +265,7 @@ class PublicationServiceTests {
                         null
                 );
 
-        byte[] content =
-                "page-content".getBytes();
+        byte[] content = "page-content".getBytes();
 
         CreatePageCommand command =
                 new CreatePageCommand(
@@ -349,43 +276,28 @@ class PublicationServiceTests {
                 );
 
         when(
-                installmentRepository.findById(
+                installmentRepository.findByIdForUpdate(
                         installment.getId()
                 )
-        ).thenReturn(
-                Optional.of(installment)
-        );
+        ).thenReturn(Optional.of(installment));
 
         when(catalogService.findWork(workId))
-                .thenReturn(
-                        new WorkReference(
-                                workId,
-                                ownerId
-                        )
-                );
+                .thenReturn(new WorkReference(workId, ownerId));
 
         assertThatThrownBy(() ->
                 publicationService.createPage(
                         anotherUserId,
                         command
                 )
-        ).isInstanceOf(
-                WorkAccessDeniedException.class
-        );
+        ).isInstanceOf(WorkAccessDeniedException.class);
 
-        verify(
-                binaryStorage,
-                never()
-        ).store(
+        verify(binaryStorage, never()).store(
                 any(String.class),
                 any(UUID.class),
                 any(byte[].class)
         );
 
-        verify(
-                pageRepository,
-                never()
-        ).save(any());
+        verify(pageRepository, never()).save(any());
     }
 
     @Test
@@ -401,8 +313,7 @@ class PublicationServiceTests {
                         null
                 );
 
-        byte[] content =
-                "page-content".getBytes();
+        byte[] content = "page-content".getBytes();
 
         CreatePageCommand command =
                 new CreatePageCommand(
@@ -413,51 +324,32 @@ class PublicationServiceTests {
                 );
 
         when(
-                installmentRepository.findById(
+                installmentRepository.findByIdForUpdate(
                         installment.getId()
                 )
-        ).thenReturn(
-                Optional.of(installment)
-        );
+        ).thenReturn(Optional.of(installment));
 
         when(catalogService.findWork(workId))
-                .thenReturn(
-                        new WorkReference(
-                                workId,
-                                userId
-                        )
-                );
+                .thenReturn(new WorkReference(workId, userId));
 
         when(
-                pageRepository
-                        .existsByInstallmentIdAndNumber(
-                                installment.getId(),
-                                1
-                        )
+                pageRepository.existsByInstallmentIdAndNumber(
+                        installment.getId(),
+                        1
+                )
         ).thenReturn(true);
 
         assertThatThrownBy(() ->
-                publicationService.createPage(
-                        userId,
-                        command
-                )
-        ).isInstanceOf(
-                PageAlreadyExistsException.class
-        );
+                publicationService.createPage(userId, command)
+        ).isInstanceOf(PageAlreadyExistsException.class);
 
-        verify(
-                binaryStorage,
-                never()
-        ).store(
+        verify(binaryStorage, never()).store(
                 any(String.class),
                 any(UUID.class),
                 any(byte[].class)
         );
 
-        verify(
-                pageRepository,
-                never()
-        ).save(any());
+        verify(pageRepository, never()).save(any());
     }
 
     @Test
@@ -473,35 +365,28 @@ class PublicationServiceTests {
                         null
                 );
 
-        when(
-                installmentRepository.findById(
-                        installment.getId()
-                )
-        ).thenReturn(Optional.of(installment));
+        when(installmentRepository.findByIdForUpdate(installment.getId()))
+                .thenReturn(Optional.of(installment));
 
         when(catalogService.findWork(workId))
-                .thenReturn(
-                        new WorkReference(
-                                workId,
-                                userId
-                        )
-                );
+                .thenReturn(new WorkReference(workId, userId));
 
-        when(
-                pageRepository.existsByInstallmentId(
-                        installment.getId()
-                )
-        ).thenReturn(true);
+        when(pageRepository.existsByInstallmentId(installment.getId()))
+                .thenReturn(true);
 
         publicationService.publishInstallment(
                 userId,
                 installment.getId()
         );
 
+        verify(installmentRepository)
+                .findByIdForUpdate(installment.getId());
+
+        verify(installmentRepository, never())
+                .findById(installment.getId());
+
         assertThat(installment.getStatus())
-                .isEqualTo(
-                        PublicationStatus.PUBLISHED
-                );
+                .isEqualTo(PublicationStatus.PUBLISHED);
     }
 
     @Test
@@ -517,39 +402,24 @@ class PublicationServiceTests {
                         null
                 );
 
-        when(
-                installmentRepository.findById(
-                        installment.getId()
-                )
-        ).thenReturn(Optional.of(installment));
+        when(installmentRepository.findByIdForUpdate(installment.getId()))
+                .thenReturn(Optional.of(installment));
 
         when(catalogService.findWork(workId))
-                .thenReturn(
-                        new WorkReference(
-                                workId,
-                                userId
-                        )
-                );
+                .thenReturn(new WorkReference(workId, userId));
 
-        when(
-                pageRepository.existsByInstallmentId(
-                        installment.getId()
-                )
-        ).thenReturn(false);
+        when(pageRepository.existsByInstallmentId(installment.getId()))
+                .thenReturn(false);
 
         assertThatThrownBy(() ->
                 publicationService.publishInstallment(
                         userId,
                         installment.getId()
                 )
-        ).isInstanceOf(
-                InstallmentHasNoPagesException.class
-        );
+        ).isInstanceOf(InstallmentHasNoPagesException.class);
 
         assertThat(installment.getStatus())
-                .isEqualTo(
-                        PublicationStatus.DRAFT
-                );
+                .isEqualTo(PublicationStatus.DRAFT);
     }
 
     @Test
@@ -576,33 +446,24 @@ class PublicationServiceTests {
                 );
 
         when(
-                installmentRepository.findById(
+                installmentRepository.findByIdForUpdate(
                         installment.getId()
                 )
         ).thenReturn(Optional.of(installment));
 
         assertThatThrownBy(() ->
-                publicationService.createPage(
-                        userId,
-                        command
-                )
+                publicationService.createPage(userId, command)
         ).isInstanceOf(
                 PublishedInstallmentModificationException.class
         );
 
-        verify(
-                binaryStorage,
-                never()
-        ).store(
+        verify(binaryStorage, never()).store(
                 any(String.class),
                 any(UUID.class),
                 any(byte[].class)
         );
 
-        verify(
-                pageRepository,
-                never()
-        ).save(any());
+        verify(pageRepository, never()).save(any());
     }
 
     @Test
@@ -635,51 +496,26 @@ class PublicationServiceTests {
                         "image/webp"
                 );
 
+        when(installmentRepository.findById(installment.getId()))
+                .thenReturn(Optional.of(installment));
+
         when(
-                installmentRepository.findById(
+                pageRepository.findByInstallmentIdOrderByNumberAsc(
                         installment.getId()
                 )
-        ).thenReturn(
-                Optional.of(installment)
-        );
-
-        when(
-                pageRepository
-                        .findByInstallmentIdOrderByNumberAsc(
-                                installment.getId()
-                        )
-        ).thenReturn(
-                List.of(
-                        firstPage,
-                        secondPage
-                )
-        );
+        ).thenReturn(List.of(firstPage, secondPage));
 
         PublishedInstallmentView result =
-                publicationService
-                        .findPublishedInstallment(
-                                installment.getId()
-                        );
-
-        assertThat(result.id())
-                .isEqualTo(installment.getId());
-
-        assertThat(result.workId())
-                .isEqualTo(workId);
-
-        assertThat(result.type())
-                .isEqualTo(
-                        InstallmentType.CHAPTER
+                publicationService.findPublishedInstallment(
+                        installment.getId()
                 );
 
-        assertThat(result.number())
-                .isEqualTo(1);
-
-        assertThat(result.title())
-                .isEqualTo("The Beginning");
-
-        assertThat(result.pages())
-                .hasSize(2);
+        assertThat(result.id()).isEqualTo(installment.getId());
+        assertThat(result.workId()).isEqualTo(workId);
+        assertThat(result.type()).isEqualTo(InstallmentType.CHAPTER);
+        assertThat(result.number()).isEqualTo(1);
+        assertThat(result.title()).isEqualTo("The Beginning");
+        assertThat(result.pages()).hasSize(2);
 
         assertThat(result.pages())
                 .extracting(PageView::number)
@@ -687,10 +523,7 @@ class PublicationServiceTests {
 
         assertThat(result.pages())
                 .extracting(PageView::contentType)
-                .containsExactly(
-                        "image/jpeg",
-                        "image/webp"
-                );
+                .containsExactly("image/jpeg", "image/webp");
     }
 
     @Test
@@ -705,59 +538,34 @@ class PublicationServiceTests {
                         null
                 );
 
-        when(
-                installmentRepository.findById(
-                        installment.getId()
-                )
-        ).thenReturn(
-                Optional.of(installment)
-        );
+        when(installmentRepository.findById(installment.getId()))
+                .thenReturn(Optional.of(installment));
 
         assertThatThrownBy(() ->
-                publicationService
-                        .findPublishedInstallment(
-                                installment.getId()
-                        )
-        ).isInstanceOf(
-                PublishedInstallmentNotFoundException.class
-        );
+                publicationService.findPublishedInstallment(
+                        installment.getId()
+                )
+        ).isInstanceOf(PublishedInstallmentNotFoundException.class);
 
-        verify(
-                pageRepository,
-                never()
-        ).findByInstallmentIdOrderByNumberAsc(
-                any(UUID.class)
-        );
+        verify(pageRepository, never())
+                .findByInstallmentIdOrderByNumberAsc(any(UUID.class));
     }
 
     @Test
     void shouldRejectUnknownPublishedInstallment() {
-        UUID installmentId =
-                UUID.randomUUID();
+        UUID installmentId = UUID.randomUUID();
 
-        when(
-                installmentRepository.findById(
-                        installmentId
-                )
-        ).thenReturn(
-                Optional.empty()
-        );
+        when(installmentRepository.findById(installmentId))
+                .thenReturn(Optional.empty());
 
         assertThatThrownBy(() ->
-                publicationService
-                        .findPublishedInstallment(
-                                installmentId
-                        )
-        ).isInstanceOf(
-                PublishedInstallmentNotFoundException.class
-        );
+                publicationService.findPublishedInstallment(
+                        installmentId
+                )
+        ).isInstanceOf(PublishedInstallmentNotFoundException.class);
 
-        verify(
-                pageRepository,
-                never()
-        ).findByInstallmentIdOrderByNumberAsc(
-                any(UUID.class)
-        );
+        verify(pageRepository, never())
+                .findByInstallmentIdOrderByNumberAsc(any(UUID.class));
     }
 
     @Test
@@ -782,41 +590,26 @@ class PublicationServiceTests {
                         "image/jpeg"
                 );
 
-        byte[] content =
-                "page-content".getBytes();
+        byte[] content = "page-content".getBytes();
 
-        when(
-                pageRepository.findById(
-                        page.getId()
-                )
-        ).thenReturn(Optional.of(page));
+        when(pageRepository.findById(page.getId()))
+                .thenReturn(Optional.of(page));
 
-        when(
-                installmentRepository.findById(
-                        installment.getId()
-                )
-        ).thenReturn(Optional.of(installment));
+        when(installmentRepository.findById(installment.getId()))
+                .thenReturn(Optional.of(installment));
 
-        when(
-                binaryStorage.read(
-                        page.getStorageKey()
-                )
-        ).thenReturn(content);
+        when(binaryStorage.read(page.getStorageKey()))
+                .thenReturn(content);
 
         PublishedPageContent result =
-                publicationService
-                        .findPublishedPageContent(
-                                page.getId()
-                        );
+                publicationService.findPublishedPageContent(
+                        page.getId()
+                );
 
-        assertThat(result.contentType())
-                .isEqualTo("image/jpeg");
+        assertThat(result.contentType()).isEqualTo("image/jpeg");
+        assertThat(result.content()).isEqualTo(content);
 
-        assertThat(result.content())
-                .isEqualTo(content);
-
-        verify(binaryStorage)
-                .read(page.getStorageKey());
+        verify(binaryStorage).read(page.getStorageKey());
     }
 
     @Test
@@ -839,54 +632,33 @@ class PublicationServiceTests {
                         "image/jpeg"
                 );
 
-        when(
-                pageRepository.findById(
-                        page.getId()
-                )
-        ).thenReturn(Optional.of(page));
+        when(pageRepository.findById(page.getId()))
+                .thenReturn(Optional.of(page));
 
-        when(
-                installmentRepository.findById(
-                        installment.getId()
-                )
-        ).thenReturn(Optional.of(installment));
+        when(installmentRepository.findById(installment.getId()))
+                .thenReturn(Optional.of(installment));
 
         assertThatThrownBy(() ->
-                publicationService
-                        .findPublishedPageContent(
-                                page.getId()
-                        )
-        ).isInstanceOf(
-                PublishedPageNotFoundException.class
-        );
+                publicationService.findPublishedPageContent(
+                        page.getId()
+                )
+        ).isInstanceOf(PublishedPageNotFoundException.class);
 
-        verify(
-                binaryStorage,
-                never()
-        ).read(any(String.class));
+        verify(binaryStorage, never()).read(any(String.class));
     }
 
     @Test
     void shouldRejectUnknownPublishedPage() {
         UUID pageId = UUID.randomUUID();
 
-        when(
-                pageRepository.findById(pageId)
-        ).thenReturn(Optional.empty());
+        when(pageRepository.findById(pageId))
+                .thenReturn(Optional.empty());
 
         assertThatThrownBy(() ->
-                publicationService
-                        .findPublishedPageContent(
-                                pageId
-                        )
-        ).isInstanceOf(
-                PublishedPageNotFoundException.class
-        );
+                publicationService.findPublishedPageContent(pageId)
+        ).isInstanceOf(PublishedPageNotFoundException.class);
 
-        verify(
-                binaryStorage,
-                never()
-        ).read(any(String.class));
+        verify(binaryStorage, never()).read(any(String.class));
     }
 
     @Test
@@ -913,52 +685,28 @@ class PublicationServiceTests {
         UUID workId = UUID.randomUUID();
 
         Page page = mock(Page.class);
-
-        Installment installment =
-                mock(Installment.class);
+        Installment installment = mock(Installment.class);
 
         when(pageRepository.findById(pageId))
                 .thenReturn(Optional.of(page));
 
-        when(page.getId())
-                .thenReturn(pageId);
+        when(page.getId()).thenReturn(pageId);
+        when(page.getInstallmentId()).thenReturn(installmentId);
 
-        when(page.getInstallmentId())
-                .thenReturn(installmentId);
+        when(installmentRepository.findById(installmentId))
+                .thenReturn(Optional.of(installment));
 
-        when(
-                installmentRepository.findById(
-                        installmentId
-                )
-        ).thenReturn(
-                Optional.of(installment)
-        );
-
-        when(installment.getId())
-                .thenReturn(installmentId);
-
-        when(installment.getWorkId())
-                .thenReturn(workId);
-
+        when(installment.getId()).thenReturn(installmentId);
+        when(installment.getWorkId()).thenReturn(workId);
         when(installment.getStatus())
-                .thenReturn(
-                        PublicationStatus.PUBLISHED
-                );
+                .thenReturn(PublicationStatus.PUBLISHED);
 
         PublishedPageReference reference =
-                publicationService
-                        .findPublishedPageReference(
-                                pageId
-                        );
+                publicationService.findPublishedPageReference(pageId);
 
-        assertThat(reference.pageId())
-                .isEqualTo(pageId);
-
-        assertThat(reference.installmentId())
-                .isEqualTo(installmentId);
-
-        assertThat(reference.workId())
-                .isEqualTo(workId);
+        assertThat(reference.pageId()).isEqualTo(pageId);
+        assertThat(reference.installmentId()).isEqualTo(installmentId);
+        assertThat(reference.workId()).isEqualTo(workId);
     }
 
     @Test
@@ -966,20 +714,12 @@ class PublicationServiceTests {
         UUID workId = UUID.randomUUID();
         UUID installmentId = UUID.randomUUID();
 
-        Installment installment =
-                mock(Installment.class);
+        Installment installment = mock(Installment.class);
 
-        when(installment.getId())
-                .thenReturn(installmentId);
-
-        when(installment.getType())
-                .thenReturn(InstallmentType.ISSUE);
-
-        when(installment.getNumber())
-                .thenReturn(1);
-
-        when(installment.getTitle())
-                .thenReturn("Issue One");
+        when(installment.getId()).thenReturn(installmentId);
+        when(installment.getType()).thenReturn(InstallmentType.ISSUE);
+        when(installment.getNumber()).thenReturn(1);
+        when(installment.getTitle()).thenReturn("Issue One");
 
         when(
                 installmentRepository
@@ -987,61 +727,38 @@ class PublicationServiceTests {
                                 workId,
                                 PublicationStatus.PUBLISHED
                         )
-        ).thenReturn(
-                List.of(installment)
-        );
+        ).thenReturn(List.of(installment));
 
-        when(
-                catalogService.findWorkDetails(workId)
-        ).thenReturn(
-                new WorkDetails(
-                        workId,
-                        "Metopa Origins",
-                        "A science fiction graphic novel.",
-                        WorkType.GRAPHIC_NOVEL,
-                        ReadingDirection.LEFT_TO_RIGHT,
-                        PresentationMode.SINGLE_PAGE,
-                        Set.of(
-                                Genre.SCI_FI,
-                                Genre.ADVENTURE
-                        ),
-                        true
-                )
-        );
+        when(catalogService.findWorkDetails(workId))
+                .thenReturn(
+                        new WorkDetails(
+                                workId,
+                                "Metopa Origins",
+                                "A science fiction graphic novel.",
+                                WorkType.GRAPHIC_NOVEL,
+                                ReadingDirection.LEFT_TO_RIGHT,
+                                PresentationMode.SINGLE_PAGE,
+                                Set.of(
+                                        Genre.SCI_FI,
+                                        Genre.ADVENTURE
+                                ),
+                                true
+                        )
+                );
 
         PublishedWorkView result =
-                publicationService.findPublishedWork(
-                        workId
-                );
+                publicationService.findPublishedWork(workId);
 
-        assertThat(result.hasCover())
-                .isTrue();
-
-        assertThat(result.id())
-                .isEqualTo(workId);
-
-        assertThat(result.title())
-                .isEqualTo("Metopa Origins");
-
+        assertThat(result.hasCover()).isTrue();
+        assertThat(result.id()).isEqualTo(workId);
+        assertThat(result.title()).isEqualTo("Metopa Origins");
         assertThat(result.description())
-                .isEqualTo(
-                        "A science fiction graphic novel."
-                );
-
-        assertThat(result.type())
-                .isEqualTo(
-                        WorkType.GRAPHIC_NOVEL
-                );
-
+                .isEqualTo("A science fiction graphic novel.");
+        assertThat(result.type()).isEqualTo(WorkType.GRAPHIC_NOVEL);
         assertThat(result.readingDirection())
-                .isEqualTo(
-                        ReadingDirection.LEFT_TO_RIGHT
-                );
-
+                .isEqualTo(ReadingDirection.LEFT_TO_RIGHT);
         assertThat(result.presentationMode())
-                .isEqualTo(
-                        PresentationMode.SINGLE_PAGE
-                );
+                .isEqualTo(PresentationMode.SINGLE_PAGE);
 
         assertThat(result.genres())
                 .containsExactlyInAnyOrder(
@@ -1049,23 +766,15 @@ class PublicationServiceTests {
                         Genre.ADVENTURE
                 );
 
-        assertThat(result.installments())
-                .hasSize(1);
+        assertThat(result.installments()).hasSize(1);
 
         PublishedInstallmentSummary summary =
                 result.installments().getFirst();
 
-        assertThat(summary.id())
-                .isEqualTo(installmentId);
-
-        assertThat(summary.type())
-                .isEqualTo(InstallmentType.ISSUE);
-
-        assertThat(summary.number())
-                .isEqualTo(1);
-
-        assertThat(summary.title())
-                .isEqualTo("Issue One");
+        assertThat(summary.id()).isEqualTo(installmentId);
+        assertThat(summary.type()).isEqualTo(InstallmentType.ISSUE);
+        assertThat(summary.number()).isEqualTo(1);
+        assertThat(summary.title()).isEqualTo("Issue One");
     }
 
     @Test
@@ -1081,55 +790,31 @@ class PublicationServiceTests {
         ).thenReturn(List.of());
 
         assertThatThrownBy(() ->
-                publicationService.findPublishedWork(
-                        workId
-                )
-        ).isInstanceOf(
-                PublishedWorkNotFoundException.class
-        );
+                publicationService.findPublishedWork(workId)
+        ).isInstanceOf(PublishedWorkNotFoundException.class);
 
-        verify(
-                catalogService,
-                never()
-        ).findWorkDetails(workId);
+        verify(catalogService, never()).findWorkDetails(workId);
     }
 
     @Test
     void shouldReturnPublishedInstallmentsForWork() {
         UUID workId = UUID.randomUUID();
 
-        Installment first =
-                mock(Installment.class);
-
-        Installment second =
-                mock(Installment.class);
+        Installment first = mock(Installment.class);
+        Installment second = mock(Installment.class);
 
         UUID firstId = UUID.randomUUID();
         UUID secondId = UUID.randomUUID();
 
-        when(first.getId())
-                .thenReturn(firstId);
+        when(first.getId()).thenReturn(firstId);
+        when(first.getType()).thenReturn(InstallmentType.ISSUE);
+        when(first.getNumber()).thenReturn(1);
+        when(first.getTitle()).thenReturn("The Beginning");
 
-        when(first.getType())
-                .thenReturn(InstallmentType.ISSUE);
-
-        when(first.getNumber())
-                .thenReturn(1);
-
-        when(first.getTitle())
-                .thenReturn("The Beginning");
-
-        when(second.getId())
-                .thenReturn(secondId);
-
-        when(second.getType())
-                .thenReturn(InstallmentType.ISSUE);
-
-        when(second.getNumber())
-                .thenReturn(2);
-
-        when(second.getTitle())
-                .thenReturn(null);
+        when(second.getId()).thenReturn(secondId);
+        when(second.getType()).thenReturn(InstallmentType.ISSUE);
+        when(second.getNumber()).thenReturn(2);
+        when(second.getTitle()).thenReturn(null);
 
         when(
                 installmentRepository
@@ -1137,36 +822,21 @@ class PublicationServiceTests {
                                 workId,
                                 PublicationStatus.PUBLISHED
                         )
-        ).thenReturn(
-                List.of(first, second)
-        );
+        ).thenReturn(List.of(first, second));
 
         List<PublishedInstallmentSummary> result =
-                publicationService
-                        .findPublishedInstallments(workId);
+                publicationService.findPublishedInstallments(workId);
 
         assertThat(result).hasSize(2);
 
-        assertThat(result.get(0).id())
-                .isEqualTo(firstId);
+        assertThat(result.get(0).id()).isEqualTo(firstId);
+        assertThat(result.get(0).type()).isEqualTo(InstallmentType.ISSUE);
+        assertThat(result.get(0).number()).isEqualTo(1);
+        assertThat(result.get(0).title()).isEqualTo("The Beginning");
 
-        assertThat(result.get(0).type())
-                .isEqualTo(InstallmentType.ISSUE);
-
-        assertThat(result.get(0).number())
-                .isEqualTo(1);
-
-        assertThat(result.get(0).title())
-                .isEqualTo("The Beginning");
-
-        assertThat(result.get(1).id())
-                .isEqualTo(secondId);
-
-        assertThat(result.get(1).number())
-                .isEqualTo(2);
-
-        assertThat(result.get(1).title())
-                .isNull();
+        assertThat(result.get(1).id()).isEqualTo(secondId);
+        assertThat(result.get(1).number()).isEqualTo(2);
+        assertThat(result.get(1).title()).isNull();
     }
 
     @Test
@@ -1193,10 +863,9 @@ class PublicationServiceTests {
                 .thenReturn(secondWorkId);
 
         when(
-                installmentRepository
-                        .findByStatusOrderByUpdatedAtDesc(
-                                PublicationStatus.PUBLISHED
-                        )
+                installmentRepository.findByStatusOrderByUpdatedAtDesc(
+                        PublicationStatus.PUBLISHED
+                )
         ).thenReturn(
                 List.of(
                         newestFirstWorkInstallment,
@@ -1225,9 +894,7 @@ class PublicationServiceTests {
                                 secondWorkId,
                                 "Another Work",
                                 WorkType.COMIC,
-                                Set.of(
-                                        Genre.DRAMA
-                                ),
+                                Set.of(Genre.DRAMA),
                                 false
                         )
                 );
@@ -1235,78 +902,51 @@ class PublicationServiceTests {
         List<PublishedWorkSummary> result =
                 publicationService.findPublishedWorks();
 
-        assertThat(result.get(0).hasCover())
-                .isTrue();
-
-        assertThat(result.get(1).hasCover())
-                .isFalse();
-
+        assertThat(result.get(0).hasCover()).isTrue();
+        assertThat(result.get(1).hasCover()).isFalse();
         assertThat(result).hasSize(2);
 
-        assertThat(result.get(0).id())
-                .isEqualTo(firstWorkId);
-
-        assertThat(result.get(0).title())
-                .isEqualTo("Metopa Origins");
-
+        assertThat(result.get(0).id()).isEqualTo(firstWorkId);
+        assertThat(result.get(0).title()).isEqualTo("Metopa Origins");
         assertThat(result.get(0).type())
-                .isEqualTo(
-                        WorkType.GRAPHIC_NOVEL
-                );
-
+                .isEqualTo(WorkType.GRAPHIC_NOVEL);
         assertThat(result.get(0).genres())
                 .containsExactlyInAnyOrder(
                         Genre.SCI_FI,
                         Genre.ADVENTURE
                 );
 
-        assertThat(result.get(1).id())
-                .isEqualTo(secondWorkId);
-
-        assertThat(result.get(1).title())
-                .isEqualTo("Another Work");
-
+        assertThat(result.get(1).id()).isEqualTo(secondWorkId);
+        assertThat(result.get(1).title()).isEqualTo("Another Work");
         assertThat(result.get(1).genres())
-                .containsExactly(
-                        Genre.DRAMA
-                );
+                .containsExactly(Genre.DRAMA);
     }
 
     @Test
     void shouldReadCoverForPublishedWork() {
         UUID workId = UUID.randomUUID();
-
-        byte[] content =
-                "cover-content".getBytes();
+        byte[] content = "cover-content".getBytes();
 
         when(
-                installmentRepository
-                        .existsByWorkIdAndStatus(
-                                workId,
-                                PublicationStatus.PUBLISHED
-                        )
+                installmentRepository.existsByWorkIdAndStatus(
+                        workId,
+                        PublicationStatus.PUBLISHED
+                )
         ).thenReturn(true);
 
-        when(
-                catalogService.findWorkCover(workId)
-        ).thenReturn(
-                new WorkCoverContent(
-                        "image/webp",
-                        content
-                )
-        );
+        when(catalogService.findWorkCover(workId))
+                .thenReturn(
+                        new WorkCoverContent(
+                                "image/webp",
+                                content
+                        )
+                );
 
         PublishedWorkCoverContent result =
-                publicationService
-                        .findPublishedWorkCover(
-                                workId
-                        );
+                publicationService.findPublishedWorkCover(workId);
 
-        assertThat(result.contentType())
-                .isEqualTo("image/webp");
-
-        assertThat(result.content())
-                .isEqualTo(content);
+        assertThat(result.contentType()).isEqualTo("image/webp");
+        assertThat(result.content()).isEqualTo(content);
     }
 
     @Test
@@ -1314,35 +954,23 @@ class PublicationServiceTests {
         UUID workId = UUID.randomUUID();
 
         when(
-                installmentRepository
-                        .existsByWorkIdAndStatus(
-                                workId,
-                                PublicationStatus.PUBLISHED
-                        )
+                installmentRepository.existsByWorkIdAndStatus(
+                        workId,
+                        PublicationStatus.PUBLISHED
+                )
         ).thenReturn(false);
 
         assertThatThrownBy(() ->
-                publicationService
-                        .findPublishedWorkCover(
-                                workId
-                        )
-        ).isInstanceOf(
-                PublishedWorkCoverNotFoundException.class
-        );
+                publicationService.findPublishedWorkCover(workId)
+        ).isInstanceOf(PublishedWorkCoverNotFoundException.class);
 
-        verify(
-                catalogService,
-                never()
-        ).findWorkCover(workId);
+        verify(catalogService, never()).findWorkCover(workId);
     }
 
     @Test
     void shouldFilterPublishedWorksByGenre() {
-        UUID scienceFictionWorkId =
-                UUID.randomUUID();
-
-        UUID dramaWorkId =
-                UUID.randomUUID();
+        UUID scienceFictionWorkId = UUID.randomUUID();
+        UUID dramaWorkId = UUID.randomUUID();
 
         Installment scienceFictionInstallment =
                 mock(Installment.class);
@@ -1357,10 +985,9 @@ class PublicationServiceTests {
                 .thenReturn(dramaWorkId);
 
         when(
-                installmentRepository
-                        .findByStatusOrderByUpdatedAtDesc(
-                                PublicationStatus.PUBLISHED
-                        )
+                installmentRepository.findByStatusOrderByUpdatedAtDesc(
+                        PublicationStatus.PUBLISHED
+                )
         ).thenReturn(
                 List.of(
                         scienceFictionInstallment,
@@ -1368,52 +995,40 @@ class PublicationServiceTests {
                 )
         );
 
-        when(
-                catalogService.findWorkSummary(
-                        scienceFictionWorkId
-                )
-        ).thenReturn(
-                new WorkSummary(
-                        scienceFictionWorkId,
-                        "Metopa Origins",
-                        WorkType.GRAPHIC_NOVEL,
-                        Set.of(
-                                Genre.SCI_FI,
-                                Genre.ADVENTURE
-                        ),
-                        true
-                )
-        );
+        when(catalogService.findWorkSummary(scienceFictionWorkId))
+                .thenReturn(
+                        new WorkSummary(
+                                scienceFictionWorkId,
+                                "Metopa Origins",
+                                WorkType.GRAPHIC_NOVEL,
+                                Set.of(
+                                        Genre.SCI_FI,
+                                        Genre.ADVENTURE
+                                ),
+                                true
+                        )
+                );
 
-        when(
-                catalogService.findWorkSummary(
-                        dramaWorkId
-                )
-        ).thenReturn(
-                new WorkSummary(
-                        dramaWorkId,
-                        "Another Work",
-                        WorkType.COMIC,
-                        Set.of(
-                                Genre.DRAMA
-                        ),
-                        false
-                )
-        );
+        when(catalogService.findWorkSummary(dramaWorkId))
+                .thenReturn(
+                        new WorkSummary(
+                                dramaWorkId,
+                                "Another Work",
+                                WorkType.COMIC,
+                                Set.of(Genre.DRAMA),
+                                false
+                        )
+                );
 
         List<PublishedWorkSummary> result =
-                publicationService
-                        .findPublishedWorks(
-                                Genre.SCI_FI
-                        );
+                publicationService.findPublishedWorks(
+                        Genre.SCI_FI
+                );
 
-        assertThat(result)
-                .hasSize(1);
+        assertThat(result).hasSize(1);
 
         assertThat(result.getFirst().id())
-                .isEqualTo(
-                        scienceFictionWorkId
-                );
+                .isEqualTo(scienceFictionWorkId);
 
         assertThat(result.getFirst().genres())
                 .containsExactlyInAnyOrder(
@@ -1443,28 +1058,20 @@ class PublicationServiceTests {
                 );
 
         when(
-                installmentRepository.findById(
+                installmentRepository.findByIdForUpdate(
                         installment.getId()
                 )
-        ).thenReturn(
-                Optional.of(installment)
-        );
+        ).thenReturn(Optional.of(installment));
 
         when(catalogService.findWork(workId))
-                .thenReturn(
-                        new WorkReference(
-                                workId,
-                                userId
-                        )
-                );
+                .thenReturn(new WorkReference(workId, userId));
 
         when(
-                installmentRepository
-                        .existsByWorkIdAndTypeAndNumber(
-                                workId,
-                                InstallmentType.ISSUE,
-                                2
-                        )
+                installmentRepository.existsByWorkIdAndTypeAndNumber(
+                        workId,
+                        InstallmentType.ISSUE,
+                        2
+                )
         ).thenReturn(false);
 
         publicationService.updateInstallment(
@@ -1474,15 +1081,16 @@ class PublicationServiceTests {
         );
 
         assertThat(installment.getType())
-                .isEqualTo(
-                        InstallmentType.ISSUE
-                );
+                .isEqualTo(InstallmentType.ISSUE);
 
-        assertThat(installment.getNumber())
-                .isEqualTo(2);
+        assertThat(installment.getNumber()).isEqualTo(2);
+        assertThat(installment.getTitle()).isEqualTo("Updated Title");
 
-        assertThat(installment.getTitle())
-                .isEqualTo("Updated Title");
+        verify(installmentRepository)
+                .findByIdForUpdate(installment.getId());
+
+        verify(installmentRepository, never())
+                .findById(installment.getId());
 
         verify(installmentRepository)
                 .existsByWorkIdAndTypeAndNumber(
@@ -1513,20 +1121,13 @@ class PublicationServiceTests {
                 );
 
         when(
-                installmentRepository.findById(
+                installmentRepository.findByIdForUpdate(
                         installment.getId()
                 )
-        ).thenReturn(
-                Optional.of(installment)
-        );
+        ).thenReturn(Optional.of(installment));
 
         when(catalogService.findWork(workId))
-                .thenReturn(
-                        new WorkReference(
-                                workId,
-                                userId
-                        )
-                );
+                .thenReturn(new WorkReference(workId, userId));
 
         publicationService.updateInstallment(
                 userId,
@@ -1535,24 +1136,17 @@ class PublicationServiceTests {
         );
 
         assertThat(installment.getType())
-                .isEqualTo(
-                        InstallmentType.CHAPTER
+                .isEqualTo(InstallmentType.CHAPTER);
+
+        assertThat(installment.getNumber()).isEqualTo(1);
+        assertThat(installment.getTitle()).isEqualTo("Updated Title");
+
+        verify(installmentRepository, never())
+                .existsByWorkIdAndTypeAndNumber(
+                        any(UUID.class),
+                        any(InstallmentType.class),
+                        anyInt()
                 );
-
-        assertThat(installment.getNumber())
-                .isEqualTo(1);
-
-        assertThat(installment.getTitle())
-                .isEqualTo("Updated Title");
-
-        verify(
-                installmentRepository,
-                never()
-        ).existsByWorkIdAndTypeAndNumber(
-                any(UUID.class),
-                any(InstallmentType.class),
-                anyInt()
-        );
     }
 
     @Test
@@ -1576,28 +1170,20 @@ class PublicationServiceTests {
                 );
 
         when(
-                installmentRepository.findById(
+                installmentRepository.findByIdForUpdate(
                         installment.getId()
                 )
-        ).thenReturn(
-                Optional.of(installment)
-        );
+        ).thenReturn(Optional.of(installment));
 
         when(catalogService.findWork(workId))
-                .thenReturn(
-                        new WorkReference(
-                                workId,
-                                userId
-                        )
-                );
+                .thenReturn(new WorkReference(workId, userId));
 
         when(
-                installmentRepository
-                        .existsByWorkIdAndTypeAndNumber(
-                                workId,
-                                InstallmentType.ISSUE,
-                                2
-                        )
+                installmentRepository.existsByWorkIdAndTypeAndNumber(
+                        workId,
+                        InstallmentType.ISSUE,
+                        2
+                )
         ).thenReturn(true);
 
         assertThatThrownBy(() ->
@@ -1606,20 +1192,13 @@ class PublicationServiceTests {
                         installment.getId(),
                         command
                 )
-        ).isInstanceOf(
-                InstallmentAlreadyExistsException.class
-        );
+        ).isInstanceOf(InstallmentAlreadyExistsException.class);
 
         assertThat(installment.getType())
-                .isEqualTo(
-                        InstallmentType.CHAPTER
-                );
+                .isEqualTo(InstallmentType.CHAPTER);
 
-        assertThat(installment.getNumber())
-                .isEqualTo(1);
-
-        assertThat(installment.getTitle())
-                .isEqualTo("Original Title");
+        assertThat(installment.getNumber()).isEqualTo(1);
+        assertThat(installment.getTitle()).isEqualTo("Original Title");
     }
 
     @Test
@@ -1645,12 +1224,10 @@ class PublicationServiceTests {
                 );
 
         when(
-                installmentRepository.findById(
+                installmentRepository.findByIdForUpdate(
                         installment.getId()
                 )
-        ).thenReturn(
-                Optional.of(installment)
-        );
+        ).thenReturn(Optional.of(installment));
 
         assertThatThrownBy(() ->
                 publicationService.updateInstallment(
@@ -1663,29 +1240,20 @@ class PublicationServiceTests {
         );
 
         assertThat(installment.getType())
-                .isEqualTo(
-                        InstallmentType.CHAPTER
+                .isEqualTo(InstallmentType.CHAPTER);
+
+        assertThat(installment.getNumber()).isEqualTo(1);
+        assertThat(installment.getTitle()).isEqualTo("Published Title");
+
+        verify(catalogService, never())
+                .findWork(any(UUID.class));
+
+        verify(installmentRepository, never())
+                .existsByWorkIdAndTypeAndNumber(
+                        any(UUID.class),
+                        any(InstallmentType.class),
+                        anyInt()
                 );
-
-        assertThat(installment.getNumber())
-                .isEqualTo(1);
-
-        assertThat(installment.getTitle())
-                .isEqualTo("Published Title");
-
-        verify(
-                catalogService,
-                never()
-        ).findWork(any(UUID.class));
-
-        verify(
-                installmentRepository,
-                never()
-        ).existsByWorkIdAndTypeAndNumber(
-                any(UUID.class),
-                any(InstallmentType.class),
-                anyInt()
-        );
     }
 
     @Test
@@ -1712,23 +1280,14 @@ class PublicationServiceTests {
                 );
 
         when(catalogService.findWork(workId))
-                .thenReturn(
-                        new WorkReference(
-                                workId,
-                                ownerId
-                        )
-                );
+                .thenReturn(new WorkReference(workId, ownerId));
 
         when(
-                installmentRepository
-                        .findByWorkIdOrderByNumberAscCreatedAtAsc(
-                                workId
-                        )
-        ).thenReturn(
-                List.of(
-                        firstInstallment,
-                        secondInstallment
+                installmentRepository.findByWorkIdOrderByNumberAscCreatedAtAsc(
+                        workId
                 )
+        ).thenReturn(
+                List.of(firstInstallment, secondInstallment)
         );
 
         List<CreatorInstallmentSummary> installments =
@@ -1737,53 +1296,30 @@ class PublicationServiceTests {
                         workId
                 );
 
-        assertThat(installments)
-                .hasSize(2);
+        assertThat(installments).hasSize(2);
 
         assertThat(installments.get(0).id())
-                .isEqualTo(
-                        firstInstallment.getId()
-                );
-
+                .isEqualTo(firstInstallment.getId());
         assertThat(installments.get(0).type())
-                .isEqualTo(
-                        InstallmentType.CHAPTER
-                );
-
-        assertThat(installments.get(0).number())
-                .isEqualTo(1);
-
+                .isEqualTo(InstallmentType.CHAPTER);
+        assertThat(installments.get(0).number()).isEqualTo(1);
         assertThat(installments.get(0).title())
                 .isEqualTo("Chapter One");
-
         assertThat(installments.get(0).status())
-                .isEqualTo(
-                        PublicationStatus.PUBLISHED
-                );
+                .isEqualTo(PublicationStatus.PUBLISHED);
 
         assertThat(installments.get(1).id())
-                .isEqualTo(
-                        secondInstallment.getId()
-                );
-
-        assertThat(installments.get(1).number())
-                .isEqualTo(2);
-
+                .isEqualTo(secondInstallment.getId());
+        assertThat(installments.get(1).number()).isEqualTo(2);
         assertThat(installments.get(1).title())
                 .isEqualTo("Chapter Two");
-
         assertThat(installments.get(1).status())
-                .isEqualTo(
-                        PublicationStatus.DRAFT
-                );
+                .isEqualTo(PublicationStatus.DRAFT);
 
-        verify(catalogService)
-                .findWork(workId);
+        verify(catalogService).findWork(workId);
 
         verify(installmentRepository)
-                .findByWorkIdOrderByNumberAscCreatedAtAsc(
-                        workId
-                );
+                .findByWorkIdOrderByNumberAscCreatedAtAsc(workId);
     }
 
     @Test
@@ -1793,31 +1329,19 @@ class PublicationServiceTests {
         UUID workId = UUID.randomUUID();
 
         when(catalogService.findWork(workId))
-                .thenReturn(
-                        new WorkReference(
-                                workId,
-                                ownerId
-                        )
-                );
+                .thenReturn(new WorkReference(workId, ownerId));
 
         assertThatThrownBy(() ->
                 publicationService.findCreatorInstallments(
                         anotherUserId,
                         workId
                 )
-        ).isInstanceOf(
-                WorkAccessDeniedException.class
-        );
+        ).isInstanceOf(WorkAccessDeniedException.class);
 
-        verify(catalogService)
-                .findWork(workId);
+        verify(catalogService).findWork(workId);
 
-        verify(
-                installmentRepository,
-                never()
-        ).findByWorkIdOrderByNumberAscCreatedAtAsc(
-                workId
-        );
+        verify(installmentRepository, never())
+                .findByWorkIdOrderByNumberAscCreatedAtAsc(workId);
     }
 
     @Test
@@ -1849,67 +1373,31 @@ class PublicationServiceTests {
                         "image/webp"
                 );
 
-        when(
-                installmentRepository.findById(
-                        installment.getId()
-                )
-        ).thenReturn(
-                Optional.of(installment)
-        );
+        when(installmentRepository.findById(installment.getId()))
+                .thenReturn(Optional.of(installment));
 
         when(catalogService.findWork(workId))
-                .thenReturn(
-                        new WorkReference(
-                                workId,
-                                ownerId
-                        )
-                );
+                .thenReturn(new WorkReference(workId, ownerId));
 
         when(
-                pageRepository
-                        .findByInstallmentIdOrderByNumberAsc(
-                                installment.getId()
-                        )
-        ).thenReturn(
-                List.of(
-                        firstPage,
-                        secondPage
+                pageRepository.findByInstallmentIdOrderByNumberAsc(
+                        installment.getId()
                 )
-        );
+        ).thenReturn(List.of(firstPage, secondPage));
 
         CreatorInstallmentView result =
-                publicationService
-                        .findCreatorInstallment(
-                                ownerId,
-                                installment.getId()
-                        );
-
-        assertThat(result.id())
-                .isEqualTo(
+                publicationService.findCreatorInstallment(
+                        ownerId,
                         installment.getId()
                 );
 
-        assertThat(result.workId())
-                .isEqualTo(workId);
-
-        assertThat(result.type())
-                .isEqualTo(
-                        InstallmentType.CHAPTER
-                );
-
-        assertThat(result.number())
-                .isEqualTo(1);
-
-        assertThat(result.title())
-                .isEqualTo("Chapter One");
-
-        assertThat(result.status())
-                .isEqualTo(
-                        PublicationStatus.DRAFT
-                );
-
-        assertThat(result.pages())
-                .hasSize(2);
+        assertThat(result.id()).isEqualTo(installment.getId());
+        assertThat(result.workId()).isEqualTo(workId);
+        assertThat(result.type()).isEqualTo(InstallmentType.CHAPTER);
+        assertThat(result.number()).isEqualTo(1);
+        assertThat(result.title()).isEqualTo("Chapter One");
+        assertThat(result.status()).isEqualTo(PublicationStatus.DRAFT);
+        assertThat(result.pages()).hasSize(2);
 
         assertThat(result.pages())
                 .extracting(PageView::number)
@@ -1917,23 +1405,15 @@ class PublicationServiceTests {
 
         assertThat(result.pages())
                 .extracting(PageView::contentType)
-                .containsExactly(
-                        "image/jpeg",
-                        "image/webp"
-                );
+                .containsExactly("image/jpeg", "image/webp");
 
         assertThat(result.pages().get(0).id())
-                .isEqualTo(
-                        firstPage.getId()
-                );
+                .isEqualTo(firstPage.getId());
 
         assertThat(result.pages().get(1).id())
-                .isEqualTo(
-                        secondPage.getId()
-                );
+                .isEqualTo(secondPage.getId());
 
-        verify(catalogService)
-                .findWork(workId);
+        verify(catalogService).findWork(workId);
 
         verify(pageRepository)
                 .findByInstallmentIdOrderByNumberAsc(
@@ -1955,41 +1435,25 @@ class PublicationServiceTests {
                         "Private Draft"
                 );
 
-        when(
-                installmentRepository.findById(
-                        installment.getId()
-                )
-        ).thenReturn(
-                Optional.of(installment)
-        );
+        when(installmentRepository.findById(installment.getId()))
+                .thenReturn(Optional.of(installment));
 
         when(catalogService.findWork(workId))
-                .thenReturn(
-                        new WorkReference(
-                                workId,
-                                ownerId
-                        )
-                );
+                .thenReturn(new WorkReference(workId, ownerId));
 
         assertThatThrownBy(() ->
-                publicationService
-                        .findCreatorInstallment(
-                                anotherUserId,
-                                installment.getId()
-                        )
-        ).isInstanceOf(
-                WorkAccessDeniedException.class
-        );
+                publicationService.findCreatorInstallment(
+                        anotherUserId,
+                        installment.getId()
+                )
+        ).isInstanceOf(WorkAccessDeniedException.class);
 
-        verify(catalogService)
-                .findWork(workId);
+        verify(catalogService).findWork(workId);
 
-        verify(
-                pageRepository,
-                never()
-        ).findByInstallmentIdOrderByNumberAsc(
-                installment.getId()
-        );
+        verify(pageRepository, never())
+                .findByInstallmentIdOrderByNumberAsc(
+                        installment.getId()
+                );
     }
 
     @Test
@@ -2013,64 +1477,34 @@ class PublicationServiceTests {
                         "image/jpeg"
                 );
 
-        byte[] content =
-                "page-content".getBytes();
+        byte[] content = "page-content".getBytes();
 
-        when(
-                pageRepository.findById(
-                        page.getId()
-                )
-        ).thenReturn(
-                Optional.of(page)
-        );
+        when(pageRepository.findById(page.getId()))
+                .thenReturn(Optional.of(page));
 
-        when(
-                installmentRepository.findById(
-                        installment.getId()
-                )
-        ).thenReturn(
-                Optional.of(installment)
-        );
+        when(installmentRepository.findById(installment.getId()))
+                .thenReturn(Optional.of(installment));
 
         when(catalogService.findWork(workId))
-                .thenReturn(
-                        new WorkReference(
-                                workId,
-                                ownerId
-                        )
-                );
+                .thenReturn(new WorkReference(workId, ownerId));
 
-        when(
-                binaryStorage.read(
-                        page.getStorageKey()
-                )
-        ).thenReturn(content);
+        when(binaryStorage.read(page.getStorageKey()))
+                .thenReturn(content);
 
         CreatorPageContent result =
-                publicationService
-                        .findCreatorPageContent(
-                                ownerId,
-                                page.getId()
-                        );
+                publicationService.findCreatorPageContent(
+                        ownerId,
+                        page.getId()
+                );
 
         assertThat(installment.getStatus())
-                .isEqualTo(
-                        PublicationStatus.DRAFT
-                );
+                .isEqualTo(PublicationStatus.DRAFT);
 
-        assertThat(result.contentType())
-                .isEqualTo("image/jpeg");
+        assertThat(result.contentType()).isEqualTo("image/jpeg");
+        assertThat(result.content()).isEqualTo(content);
 
-        assertThat(result.content())
-                .isEqualTo(content);
-
-        verify(catalogService)
-                .findWork(workId);
-
-        verify(binaryStorage)
-                .read(
-                        page.getStorageKey()
-                );
+        verify(catalogService).findWork(workId);
+        verify(binaryStorage).read(page.getStorageKey());
     }
 
     @Test
@@ -2095,49 +1529,26 @@ class PublicationServiceTests {
                         "image/jpeg"
                 );
 
-        when(
-                pageRepository.findById(
-                        page.getId()
-                )
-        ).thenReturn(
-                Optional.of(page)
-        );
+        when(pageRepository.findById(page.getId()))
+                .thenReturn(Optional.of(page));
 
-        when(
-                installmentRepository.findById(
-                        installment.getId()
-                )
-        ).thenReturn(
-                Optional.of(installment)
-        );
+        when(installmentRepository.findById(installment.getId()))
+                .thenReturn(Optional.of(installment));
 
         when(catalogService.findWork(workId))
-                .thenReturn(
-                        new WorkReference(
-                                workId,
-                                ownerId
-                        )
-                );
+                .thenReturn(new WorkReference(workId, ownerId));
 
         assertThatThrownBy(() ->
-                publicationService
-                        .findCreatorPageContent(
-                                anotherUserId,
-                                page.getId()
-                        )
-        ).isInstanceOf(
-                WorkAccessDeniedException.class
-        );
+                publicationService.findCreatorPageContent(
+                        anotherUserId,
+                        page.getId()
+                )
+        ).isInstanceOf(WorkAccessDeniedException.class);
 
-        verify(catalogService)
-                .findWork(workId);
+        verify(catalogService).findWork(workId);
 
-        verify(
-                binaryStorage,
-                never()
-        ).read(
-                any(String.class)
-        );
+        verify(binaryStorage, never())
+                .read(any(String.class));
     }
 
     @Test
@@ -2162,28 +1573,16 @@ class PublicationServiceTests {
                 );
 
         when(
-                installmentRepository.findById(
+                installmentRepository.findByIdForUpdate(
                         installment.getId()
                 )
-        ).thenReturn(
-                Optional.of(installment)
-        );
+        ).thenReturn(Optional.of(installment));
 
         when(catalogService.findWork(workId))
-                .thenReturn(
-                        new WorkReference(
-                                workId,
-                                ownerId
-                        )
-                );
+                .thenReturn(new WorkReference(workId, ownerId));
 
-        when(
-                pageRepository.findById(
-                        page.getId()
-                )
-        ).thenReturn(
-                Optional.of(page)
-        );
+        when(pageRepository.findById(page.getId()))
+                .thenReturn(Optional.of(page));
 
         publicationService.deletePage(
                 ownerId,
@@ -2191,22 +1590,19 @@ class PublicationServiceTests {
                 page.getId()
         );
 
+        verify(installmentRepository)
+                .findByIdForUpdate(installment.getId());
+
+        verify(installmentRepository, never())
+                .findById(installment.getId());
+
         InOrder deletionOrder =
-                inOrder(
-                        pageRepository,
-                        binaryStorage
-                );
+                inOrder(pageRepository, binaryStorage);
 
-        deletionOrder.verify(pageRepository)
-                .delete(page);
-
-        deletionOrder.verify(pageRepository)
-                .flush();
-
+        deletionOrder.verify(pageRepository).delete(page);
+        deletionOrder.verify(pageRepository).flush();
         deletionOrder.verify(binaryStorage)
-                .delete(
-                        page.getStorageKey()
-                );
+                .delete(page.getStorageKey());
     }
 
     @Test
@@ -2224,20 +1620,13 @@ class PublicationServiceTests {
                 );
 
         when(
-                installmentRepository.findById(
+                installmentRepository.findByIdForUpdate(
                         installment.getId()
                 )
-        ).thenReturn(
-                Optional.of(installment)
-        );
+        ).thenReturn(Optional.of(installment));
 
         when(catalogService.findWork(workId))
-                .thenReturn(
-                        new WorkReference(
-                                workId,
-                                ownerId
-                        )
-                );
+                .thenReturn(new WorkReference(workId, ownerId));
 
         assertThatThrownBy(() ->
                 publicationService.deletePage(
@@ -2245,35 +1634,18 @@ class PublicationServiceTests {
                         installment.getId(),
                         UUID.randomUUID()
                 )
-        ).isInstanceOf(
-                WorkAccessDeniedException.class
-        );
+        ).isInstanceOf(WorkAccessDeniedException.class);
 
-        verify(
-                pageRepository,
-                never()
-        ).findById(
-                any(UUID.class)
-        );
+        verify(pageRepository, never())
+                .findById(any(UUID.class));
 
-        verify(
-                pageRepository,
-                never()
-        ).delete(
-                any(Page.class)
-        );
+        verify(pageRepository, never())
+                .delete(any(Page.class));
 
-        verify(
-                pageRepository,
-                never()
-        ).flush();
+        verify(pageRepository, never()).flush();
 
-        verify(
-                binaryStorage,
-                never()
-        ).delete(
-                any(String.class)
-        );
+        verify(binaryStorage, never())
+                .delete(any(String.class));
     }
 
     @Test
@@ -2292,12 +1664,10 @@ class PublicationServiceTests {
         installment.publish();
 
         when(
-                installmentRepository.findById(
+                installmentRepository.findByIdForUpdate(
                         installment.getId()
                 )
-        ).thenReturn(
-                Optional.of(installment)
-        );
+        ).thenReturn(Optional.of(installment));
 
         assertThatThrownBy(() ->
                 publicationService.deletePage(
@@ -2309,33 +1679,17 @@ class PublicationServiceTests {
                 PublishedInstallmentModificationException.class
         );
 
-        verify(
-                catalogService,
-                never()
-        ).findWork(
-                any(UUID.class)
-        );
+        verify(catalogService, never())
+                .findWork(any(UUID.class));
 
-        verify(
-                pageRepository,
-                never()
-        ).findById(
-                any(UUID.class)
-        );
+        verify(pageRepository, never())
+                .findById(any(UUID.class));
 
-        verify(
-                pageRepository,
-                never()
-        ).delete(
-                any(Page.class)
-        );
+        verify(pageRepository, never())
+                .delete(any(Page.class));
 
-        verify(
-                binaryStorage,
-                never()
-        ).delete(
-                any(String.class)
-        );
+        verify(binaryStorage, never())
+                .delete(any(String.class));
     }
 
     @Test
@@ -2368,28 +1722,16 @@ class PublicationServiceTests {
                 );
 
         when(
-                installmentRepository.findById(
+                installmentRepository.findByIdForUpdate(
                         installment.getId()
                 )
-        ).thenReturn(
-                Optional.of(installment)
-        );
+        ).thenReturn(Optional.of(installment));
 
         when(catalogService.findWork(workId))
-                .thenReturn(
-                        new WorkReference(
-                                workId,
-                                ownerId
-                        )
-                );
+                .thenReturn(new WorkReference(workId, ownerId));
 
-        when(
-                pageRepository.findById(
-                        page.getId()
-                )
-        ).thenReturn(
-                Optional.of(page)
-        );
+        when(pageRepository.findById(page.getId()))
+                .thenReturn(Optional.of(page));
 
         assertThatThrownBy(() ->
                 publicationService.deletePage(
@@ -2397,27 +1739,14 @@ class PublicationServiceTests {
                         installment.getId(),
                         page.getId()
                 )
-        ).isInstanceOf(
-                PageNotFoundException.class
-        );
+        ).isInstanceOf(PageNotFoundException.class);
 
-        verify(
-                pageRepository,
-                never()
-        ).delete(
-                any(Page.class)
-        );
+        verify(pageRepository, never())
+                .delete(any(Page.class));
 
-        verify(
-                pageRepository,
-                never()
-        ).flush();
+        verify(pageRepository, never()).flush();
 
-        verify(
-                binaryStorage,
-                never()
-        ).delete(
-                any(String.class)
-        );
+        verify(binaryStorage, never())
+                .delete(any(String.class));
     }
 }

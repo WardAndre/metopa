@@ -59,6 +59,16 @@ public class Page {
         return number;
     }
 
+    public void changeNumber(int number) {
+        if (number <= 0) {
+            throw new IllegalArgumentException(
+                    "Page number must be positive."
+            );
+        }
+
+        this.number = number;
+    }
+
     public String getStorageKey() {
         return storageKey;
     }
