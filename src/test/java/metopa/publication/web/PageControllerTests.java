@@ -4,6 +4,7 @@ import metopa.identity.IdentityService;
 import metopa.identity.UserReference;
 import metopa.publication.CreatePageCommand;
 import metopa.publication.PublicationService;
+import metopa.publication.ReorderPagesCommand;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,8 +22,10 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -153,5 +156,93 @@ class PageControllerTests {
                         installmentId,
                         pageId
                 );
+    }
+
+    @Test
+    void shouldReorderPagesForAuthenticatedUser()
+            throws Exception {
+
+        UUID userId = UUID.randomUUID();
+        UUID installmentId = UUID.randomUUID();
+        UUID firstPageId = UUID.randomUUID();
+        UUID secondPageId = UUID.randomUUID();
+
+        when(identityService.findByUsername("andre"))
+                .thenReturn(
+                        new UserReference(
+                                userId,
+                                "andre"
+                        )
+                );
+
+        String requestBody = """
+            {
+              "pageIds": [
+                "%s",
+                "%s"
+              ]
+            }
+            """.formatted(
+                secondPageId,
+                firstPageId
+        );
+
+        mockMvc.perform(
+                        put(
+                                "/api/installments/{installmentId}/pages/order",
+                                installmentId
+                        )
+                                .principal(() -> "andre")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(requestBody)
+                )
+                .andExpect(status().isNoContent());
+
+        verify(identityService)
+                .findByUsername("andre");
+
+        ArgumentCaptor<ReorderPagesCommand> commandCaptor =
+                ArgumentCaptor.forClass(
+                        ReorderPagesCommand.class
+                );
+
+        verify(publicationService)
+                .reorderPages(
+                        eq(userId),
+                        eq(installmentId),
+                        commandCaptor.capture()
+                );
+
+        assertThat(commandCaptor.getValue().pageIds())
+                .containsExactly(
+                        secondPageId,
+                        firstPageId
+                );
+    }
+
+    @Test
+    void shouldRejectEmptyPageOrderRequest()
+            throws Exception {
+
+        UUID installmentId = UUID.randomUUID();
+
+        mockMvc.perform(
+                        put(
+                                "/api/installments/{installmentId}/pages/order",
+                                installmentId
+                        )
+                                .principal(() -> "andre")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        """
+                                        {
+                                          "pageIds": []
+                                        }
+                                        """
+                                )
+                )
+                .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(publicationService);
     }
 }

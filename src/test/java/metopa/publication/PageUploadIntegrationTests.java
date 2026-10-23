@@ -9,6 +9,7 @@ import metopa.identity.CreateUserCommand;
 import metopa.identity.EmailAlreadyExistsException;
 import metopa.identity.IdentityService;
 import metopa.identity.UsernameAlreadyExistsException;
+import metopa.publication.internal.InstallmentRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -20,18 +21,29 @@ import org.springframework.mock.web.MockHttpSession;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.UUID;
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestBuilders.formLogin;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.response.SecurityMockMvcResultMatchers.authenticated;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -66,6 +78,12 @@ class PageUploadIntegrationTests {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private InstallmentRepository installmentRepository;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
     private UUID userId;
     private UUID installmentId;
@@ -331,6 +349,186 @@ class PageUploadIntegrationTests {
         ).isEqualTo(content);
     }
 
+    @Test
+    void shouldPersistReorderedPagesWithoutUniqueConstraintViolation() {
+        UUID firstPageId =
+                publicationService.createPage(
+                        userId,
+                        new CreatePageCommand(
+                                installmentId,
+                                1,
+                                "image/jpeg",
+                                "first-page".getBytes()
+                        )
+                );
+
+        UUID secondPageId =
+                publicationService.createPage(
+                        userId,
+                        new CreatePageCommand(
+                                installmentId,
+                                2,
+                                "image/jpeg",
+                                "second-page".getBytes()
+                        )
+                );
+
+        UUID thirdPageId =
+                publicationService.createPage(
+                        userId,
+                        new CreatePageCommand(
+                                installmentId,
+                                3,
+                                "image/jpeg",
+                                "third-page".getBytes()
+                        )
+                );
+
+        publicationService.reorderPages(
+                userId,
+                installmentId,
+                new ReorderPagesCommand(
+                        List.of(
+                                thirdPageId,
+                                firstPageId,
+                                secondPageId
+                        )
+                )
+        );
+
+        assertThat(pageNumber(thirdPageId))
+                .isEqualTo(1);
+
+        assertThat(pageNumber(firstPageId))
+                .isEqualTo(2);
+
+        assertThat(pageNumber(secondPageId))
+                .isEqualTo(3);
+    }
+
+    @Test
+    void shouldReorderPagesWithNumberingGapsAfterDeletion() {
+        UUID firstPageId =
+                publicationService.createPage(
+                        userId,
+                        new CreatePageCommand(
+                                installmentId,
+                                1,
+                                "image/jpeg",
+                                "first-page".getBytes()
+                        )
+                );
+
+        UUID secondPageId =
+                publicationService.createPage(
+                        userId,
+                        new CreatePageCommand(
+                                installmentId,
+                                2,
+                                "image/jpeg",
+                                "second-page".getBytes()
+                        )
+                );
+
+        UUID thirdPageId =
+                publicationService.createPage(
+                        userId,
+                        new CreatePageCommand(
+                                installmentId,
+                                3,
+                                "image/jpeg",
+                                "third-page".getBytes()
+                        )
+                );
+
+        publicationService.deletePage(
+                userId,
+                installmentId,
+                secondPageId
+        );
+
+        assertThat(pageNumber(firstPageId))
+                .isEqualTo(1);
+
+        assertThat(pageNumber(thirdPageId))
+                .isEqualTo(3);
+
+        publicationService.reorderPages(
+                userId,
+                installmentId,
+                new ReorderPagesCommand(
+                        List.of(
+                                thirdPageId,
+                                firstPageId
+                        )
+                )
+        );
+
+        assertThat(pageNumber(thirdPageId))
+                .isEqualTo(1);
+
+        assertThat(pageNumber(firstPageId))
+                .isEqualTo(2);
+    }
+
+    @Test
+    void shouldPreservePersistedPageNumbersWhenOrderIsInvalid() {
+        UUID firstPageId =
+                publicationService.createPage(
+                        userId,
+                        new CreatePageCommand(
+                                installmentId,
+                                1,
+                                "image/jpeg",
+                                "first-page".getBytes()
+                        )
+                );
+
+        UUID secondPageId =
+                publicationService.createPage(
+                        userId,
+                        new CreatePageCommand(
+                                installmentId,
+                                2,
+                                "image/jpeg",
+                                "second-page".getBytes()
+                        )
+                );
+
+        assertThatThrownBy(() ->
+                publicationService.reorderPages(
+                        userId,
+                        installmentId,
+                        new ReorderPagesCommand(
+                                List.of(
+                                        firstPageId,
+                                        firstPageId
+                                )
+                        )
+                )
+        ).isInstanceOf(
+                InvalidPageOrderException.class
+        );
+
+        assertThat(pageNumber(firstPageId))
+                .isEqualTo(1);
+
+        assertThat(pageNumber(secondPageId))
+                .isEqualTo(2);
+    }
+
+    private Integer pageNumber(UUID pageId) {
+        return jdbcTemplate.queryForObject(
+                """
+                SELECT page_number
+                FROM installment_page
+                WHERE id = ?
+                """,
+                Integer.class,
+                pageId
+        );
+    }
+
     private MockHttpSession login()
             throws Exception {
 
@@ -394,6 +592,403 @@ class PageUploadIntegrationTests {
                             );
                         }
                     });
+        }
+    }
+
+    @Test
+    void shouldReorderPagesThroughAuthenticatedHttpRequest()
+            throws Exception {
+
+        UUID firstPageId =
+                publicationService.createPage(
+                        userId,
+                        new CreatePageCommand(
+                                installmentId,
+                                1,
+                                "image/jpeg",
+                                "first-page".getBytes()
+                        )
+                );
+
+        UUID secondPageId =
+                publicationService.createPage(
+                        userId,
+                        new CreatePageCommand(
+                                installmentId,
+                                2,
+                                "image/jpeg",
+                                "second-page".getBytes()
+                        )
+                );
+
+        UUID thirdPageId =
+                publicationService.createPage(
+                        userId,
+                        new CreatePageCommand(
+                                installmentId,
+                                3,
+                                "image/jpeg",
+                                "third-page".getBytes()
+                        )
+                );
+
+        MockHttpSession session = login();
+
+        String requestBody = """
+            {
+              "pageIds": [
+                "%s",
+                "%s",
+                "%s"
+              ]
+            }
+            """.formatted(
+                thirdPageId,
+                firstPageId,
+                secondPageId
+        );
+
+        mockMvc.perform(
+                        put(
+                                "/api/installments/{installmentId}/pages/order",
+                                installmentId
+                        )
+                                .session(session)
+                                .with(csrf())
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(requestBody)
+                )
+                .andExpect(status().isNoContent());
+
+        assertThat(pageNumber(thirdPageId))
+                .isEqualTo(1);
+
+        assertThat(pageNumber(firstPageId))
+                .isEqualTo(2);
+
+        assertThat(pageNumber(secondPageId))
+                .isEqualTo(3);
+    }
+
+    @Test
+    void shouldRejectPageReorderingWithoutCsrf()
+            throws Exception {
+
+        UUID firstPageId =
+                publicationService.createPage(
+                        userId,
+                        new CreatePageCommand(
+                                installmentId,
+                                1,
+                                "image/jpeg",
+                                "first-page".getBytes()
+                        )
+                );
+
+        UUID secondPageId =
+                publicationService.createPage(
+                        userId,
+                        new CreatePageCommand(
+                                installmentId,
+                                2,
+                                "image/jpeg",
+                                "second-page".getBytes()
+                        )
+                );
+
+        MockHttpSession session = login();
+
+        String requestBody = """
+            {
+              "pageIds": [
+                "%s",
+                "%s"
+              ]
+            }
+            """.formatted(
+                secondPageId,
+                firstPageId
+        );
+
+        mockMvc.perform(
+                        put(
+                                "/api/installments/{installmentId}/pages/order",
+                                installmentId
+                        )
+                                .session(session)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(requestBody)
+                )
+                .andExpect(status().isForbidden());
+
+        assertThat(pageNumber(firstPageId))
+                .isEqualTo(1);
+
+        assertThat(pageNumber(secondPageId))
+                .isEqualTo(2);
+    }
+
+    @Test
+    void shouldRejectInvalidPageOrderThroughHttp()
+            throws Exception {
+
+        UUID firstPageId =
+                publicationService.createPage(
+                        userId,
+                        new CreatePageCommand(
+                                installmentId,
+                                1,
+                                "image/jpeg",
+                                "first-page".getBytes()
+                        )
+                );
+
+        UUID secondPageId =
+                publicationService.createPage(
+                        userId,
+                        new CreatePageCommand(
+                                installmentId,
+                                2,
+                                "image/jpeg",
+                                "second-page".getBytes()
+                        )
+                );
+
+        MockHttpSession session = login();
+
+        String requestBody = """
+            {
+              "pageIds": [
+                "%s",
+                "%s"
+              ]
+            }
+            """.formatted(
+                firstPageId,
+                firstPageId
+        );
+
+        mockMvc.perform(
+                        put(
+                                "/api/installments/{installmentId}/pages/order",
+                                installmentId
+                        )
+                                .session(session)
+                                .with(csrf())
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(requestBody)
+                )
+                .andExpect(status().isBadRequest());
+
+        assertThat(pageNumber(firstPageId))
+                .isEqualTo(1);
+
+        assertThat(pageNumber(secondPageId))
+                .isEqualTo(2);
+    }
+
+    @Test
+    void shouldRejectReorderingPublishedInstallmentThroughHttp()
+            throws Exception {
+
+        UUID firstPageId =
+                publicationService.createPage(
+                        userId,
+                        new CreatePageCommand(
+                                installmentId,
+                                1,
+                                "image/jpeg",
+                                "first-page".getBytes()
+                        )
+                );
+
+        UUID secondPageId =
+                publicationService.createPage(
+                        userId,
+                        new CreatePageCommand(
+                                installmentId,
+                                2,
+                                "image/jpeg",
+                                "second-page".getBytes()
+                        )
+                );
+
+        publicationService.publishInstallment(
+                userId,
+                installmentId
+        );
+
+        MockHttpSession session = login();
+
+        String requestBody = """
+            {
+              "pageIds": [
+                "%s",
+                "%s"
+              ]
+            }
+            """.formatted(
+                secondPageId,
+                firstPageId
+        );
+
+        mockMvc.perform(
+                        put(
+                                "/api/installments/{installmentId}/pages/order",
+                                installmentId
+                        )
+                                .session(session)
+                                .with(csrf())
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(requestBody)
+                )
+                .andExpect(status().isConflict());
+
+        assertThat(pageNumber(firstPageId))
+                .isEqualTo(1);
+
+        assertThat(pageNumber(secondPageId))
+                .isEqualTo(2);
+    }
+
+    @Test
+    void shouldWaitForPageReorderingBeforePublishingInstallment()
+            throws Exception {
+
+        UUID firstPageId =
+                publicationService.createPage(
+                        userId,
+                        new CreatePageCommand(
+                                installmentId,
+                                1,
+                                "image/jpeg",
+                                "first-page".getBytes()
+                        )
+                );
+
+        UUID secondPageId =
+                publicationService.createPage(
+                        userId,
+                        new CreatePageCommand(
+                                installmentId,
+                                2,
+                                "image/jpeg",
+                                "second-page".getBytes()
+                        )
+                );
+
+        TransactionTemplate transactionTemplate =
+                new TransactionTemplate(transactionManager);
+
+        CountDownLatch reorderingCompleted =
+                new CountDownLatch(1);
+
+        CountDownLatch allowReorderingCommit =
+                new CountDownLatch(1);
+
+        CountDownLatch publishingStarted =
+                new CountDownLatch(1);
+
+        ExecutorService executor =
+                Executors.newFixedThreadPool(2);
+
+        try {
+            Future<?> reordering = executor.submit(() ->
+                    transactionTemplate.executeWithoutResult(
+                            status -> {
+                                publicationService.reorderPages(
+                                        userId,
+                                        installmentId,
+                                        new ReorderPagesCommand(
+                                                List.of(
+                                                        secondPageId,
+                                                        firstPageId
+                                                )
+                                        )
+                                );
+
+                                reorderingCompleted.countDown();
+
+                                try {
+                                    if (!allowReorderingCommit.await(
+                                            10,
+                                            TimeUnit.SECONDS
+                                    )) {
+                                        throw new IllegalStateException(
+                                                "Timed out waiting to commit reordering."
+                                        );
+                                    }
+                                } catch (InterruptedException exception) {
+                                    Thread.currentThread().interrupt();
+
+                                    throw new IllegalStateException(
+                                            "Reordering interrupted.",
+                                            exception
+                                    );
+                                }
+                            }
+                    )
+            );
+
+            assertThat(
+                    reorderingCompleted.await(
+                            10,
+                            TimeUnit.SECONDS
+                    )
+            ).isTrue();
+
+            Future<?> publishing = executor.submit(() -> {
+                publishingStarted.countDown();
+
+                publicationService.publishInstallment(
+                        userId,
+                        installmentId
+                );
+            });
+
+            assertThat(
+                    publishingStarted.await(
+                            10,
+                            TimeUnit.SECONDS
+                    )
+            ).isTrue();
+
+            assertThatThrownBy(() ->
+                    publishing.get(
+                            500,
+                            TimeUnit.MILLISECONDS
+                    )
+            ).isInstanceOf(TimeoutException.class);
+
+            allowReorderingCommit.countDown();
+
+            reordering.get(10, TimeUnit.SECONDS);
+            publishing.get(10, TimeUnit.SECONDS);
+
+            assertThat(pageNumber(secondPageId))
+                    .isEqualTo(1);
+
+            assertThat(pageNumber(firstPageId))
+                    .isEqualTo(2);
+
+            assertThat(
+                    installmentRepository
+                            .findById(installmentId)
+                            .orElseThrow()
+                            .getStatus()
+            ).isEqualTo(PublicationStatus.PUBLISHED);
+
+        } finally {
+            allowReorderingCommit.countDown();
+
+            executor.shutdownNow();
+
+            assertThat(
+                    executor.awaitTermination(
+                            10,
+                            TimeUnit.SECONDS
+                    )
+            ).isTrue();
         }
     }
 }

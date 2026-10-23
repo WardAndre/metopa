@@ -13,6 +13,7 @@ import metopa.publication.PublishedPageNotFoundException;
 import metopa.publication.PublishedWorkNotFoundException;
 import metopa.publication.PublishedWorkCoverNotFoundException;
 import metopa.publication.PageNotFoundException;
+import metopa.publication.InvalidPageOrderException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -263,6 +264,23 @@ class PublicationExceptionHandler {
 
         problem.setDetail(
                 "The requested work cover is not available."
+        );
+
+        return problem;
+    }
+
+    @ExceptionHandler(InvalidPageOrderException.class)
+    ProblemDetail handleInvalidPageOrder(
+            InvalidPageOrderException exception
+    ) {
+        ProblemDetail problem =
+                ProblemDetail.forStatus(
+                        HttpStatus.BAD_REQUEST
+                );
+
+        problem.setTitle("Invalid page order");
+        problem.setDetail(
+                "The requested page order must contain every page exactly once."
         );
 
         return problem;

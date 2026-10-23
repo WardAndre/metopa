@@ -10,7 +10,7 @@ Projeto em desenvolvimento — MVP.
 
 Nesta primeira fase, toda a infraestrutura é executada localmente, sem dependência de serviços cloud pagos.
 
-A suíte automatizada possui atualmente **204 testes**, cobrindo regras de domínio, persistência, segurança, APIs HTTP, armazenamento binário e fluxos de integração.
+A suíte automatizada possui atualmente **224 testes**, cobrindo regras de domínio, persistência, segurança, APIs HTTP, armazenamento binário, fluxos de integração e concorrência com transações reais no PostgreSQL.
 
 ## Tecnologias
 
@@ -164,12 +164,18 @@ Atualmente suporta:
 - armazenamento local dos arquivos através do módulo `media`;
 - armazenamento de metadados das páginas no PostgreSQL;
 - prevenção de números de página duplicados;
+- reordenação manual de todas as páginas de installments em estado `DRAFT`;
+- validação de que a ordem enviada contém todas as páginas do installment exatamente uma vez, sem IDs duplicados, ausentes ou externos;
+- renumeração sequencial das páginas a partir de 1, inclusive após exclusões que deixaram lacunas;
+- renumeração em duas fases, com `flush()` intermediário, para respeitar a restrição de unicidade do PostgreSQL;
+- preservação do conteúdo binário e dos arquivos físicos durante a reordenação;
 - exclusão de páginas pertencentes a installments em estado `DRAFT`;
 - validação de propriedade da obra antes da exclusão de páginas;
 - validação de que a página pertence ao installment informado;
 - remoção do registro da página no PostgreSQL antes da exclusão do conteúdo binário;
 - remoção do arquivo físico associado à página através do módulo `media`;
-- bloqueio da exclusão de páginas pertencentes a installments publicados;
+- bloqueio da exclusão e da reordenação de páginas pertencentes a installments publicados;
+- coordenação das escritas sobre um mesmo installment por bloqueio pessimista (`PESSIMISTIC_WRITE`) em criação, exclusão e reordenação de páginas, atualização de metadados e publicação;
 - publicação de installments;
 - publicação permitida somente quando existe pelo menos uma página;
 - bloqueio de alterações em installments já publicados;
@@ -274,6 +280,10 @@ Algumas decisões adotadas no MVP:
 - o conteúdo binário de páginas em `DRAFT` somente pode ser lido pelo proprietário da obra através da visão administrativa;
 - páginas somente podem ser removidas enquanto o installment permanece em estado `DRAFT`;
 - a exclusão de uma página valida installment, estado, propriedade da obra e associação da página antes de qualquer operação destrutiva;
+- a reordenação exige a lista completa e sem repetições dos IDs das páginas do installment;
+- a renumeração das páginas ocorre em duas fases dentro da mesma transação para evitar conflitos na restrição única de número por installment;
+- operações de escrita no mesmo installment adquirem um bloqueio pessimista na linha do installment, mantido até o término da transação;
+- o bloqueio coordena operações sobre o mesmo installment, mas não substitui restrições únicas para conflitos envolvendo installments diferentes;
 - installments publicados permanecem imutáveis no MVP;
 - autenticação baseada em sessão HTTP no MVP web;
 - proteção CSRF mantida habilitada;
@@ -371,7 +381,7 @@ Para limpar o build, compilar o projeto e executar todos os testes:
 Estado atual da suíte:
 
 ```text
-Tests run: 204
+Tests run: 224
 Failures: 0
 Errors: 0
 Skipped: 0
@@ -465,6 +475,18 @@ Os testes cobrem, entre outros cenários:
 - integração completa da exclusão de página com sessão real, CSRF, PostgreSQL e filesystem local;
 - remoção do registro da página e do arquivo físico após exclusão válida;
 - preservação do registro e do arquivo físico quando a exclusão de página publicada é rejeitada;
+- validação de `ReorderPagesCommand` para lista de IDs não vazia e sem elementos nulos;
+- reordenação válida e atualização da numeração das páginas;
+- rejeição de ordens incompletas, IDs duplicados e páginas de outro installment;
+- rejeição de reordenação por usuário que não seja proprietário ou quando o installment está publicado;
+- persistência da nova ordem no PostgreSQL, sem violar a restrição de unicidade dos números;
+- reordenação com lacunas de numeração após exclusão de páginas;
+- preservação da numeração persistida após tentativa de reordenação inválida;
+- contrato HTTP da reordenação, incluindo `204 No Content` e `400 Bad Request`;
+- reordenação via sessão autenticada e CSRF, com verificação direta da ordem no PostgreSQL;
+- rejeição de reordenação sem CSRF, com preservação da ordem anterior;
+- rejeição de reordenação inválida (`400`) ou de installment publicado (`409`) através da API HTTP;
+- contenção real entre reordenação e publicação em transações independentes no PostgreSQL, com preservação da ordem e do status final;
 - prevenção de installments e páginas duplicados;
 - impedimento de publicação sem páginas;
 - impedimento de alteração de installments publicados;
@@ -1246,7 +1268,66 @@ Possíveis respostas:
 
 Installments em estado `PUBLISHED` permanecem imutáveis. Quando a exclusão é rejeitada por esse motivo, tanto o registro da página quanto seu arquivo físico permanecem preservados.
 
-A exclusão não renumera automaticamente as páginas restantes. Reordenação de páginas é uma funcionalidade separada e ainda não faz parte deste contrato.
+A exclusão não renumera automaticamente as páginas restantes. Para redefinir a ordem e eliminar eventuais lacunas, utilize o endpoint de reordenação descrito abaixo.
+
+### Reordenar páginas de installment em draft
+
+```http
+PUT /api/installments/{installmentId}/pages/order
+```
+
+Requer sessão autenticada, token CSRF válido e propriedade da obra à qual o installment pertence.
+
+A reordenação é permitida somente enquanto o installment estiver em estado `DRAFT`.
+
+A requisição utiliza `Content-Type: application/json` e informa os IDs de **todas** as páginas existentes no installment, na nova ordem de leitura desejada.
+
+Exemplo:
+
+```json
+{
+  "pageIds": [
+    "11111111-1111-1111-1111-111111111111",
+    "22222222-2222-2222-2222-222222222222",
+    "33333333-3333-3333-3333-333333333333"
+  ]
+}
+```
+
+Os UUIDs acima são ilustrativos. Na operação real, devem corresponder aos identificadores das páginas existentes no installment.
+
+Regras da operação:
+
+- `pageIds` é obrigatório e não pode ser uma lista vazia;
+- todos os elementos devem ser UUIDs válidos e não nulos;
+- cada página do installment deve aparecer exatamente uma vez;
+- IDs repetidos, ausentes ou pertencentes a outro installment são rejeitados;
+- a sequência enviada define a ordem final de leitura;
+- os números das páginas são atribuídos sequencialmente a partir de `1`, inclusive quando há lacunas anteriores;
+- a operação altera apenas os números das páginas; conteúdo binário, `Content-Type` e arquivos físicos permanecem inalterados;
+- installments em estado `PUBLISHED` não podem ter suas páginas reordenadas.
+
+A renumeração é realizada em duas fases, com sincronização intermediária no PostgreSQL, para preservar a restrição de unicidade por installment e número de página.
+
+Resposta de sucesso:
+
+```http
+204 No Content
+```
+
+Possíveis respostas:
+
+```text
+400 → JSON inválido, lista vazia ou ordem inválida (IDs duplicados, ausentes ou de outro installment)
+401 → usuário não autenticado
+403 → token CSRF ausente ou inválido, ou usuário não é proprietário da obra
+404 → installment não encontrado
+409 → installment já publicado e não pode ser modificado
+```
+
+A criação, exclusão e reordenação de páginas, assim como a publicação e atualização de metadados, utilizam bloqueio pessimista na linha do installment. Assim, operações que modificam o mesmo installment são coordenadas dentro de transações do PostgreSQL.
+
+A estratégia de concorrência foi validada em teste de integração com duas transações independentes: uma reordenação mantém o bloqueio enquanto uma tentativa de publicação aguarda a liberação; ao final, a nova ordem e o status `PUBLISHED` são confirmados no banco.
 
 ### Ler conteúdo de página para o criador
 
@@ -1693,7 +1774,7 @@ A migration `V9__create_work_genre.sql` introduz a tabela `work_genre`, utilizad
 
 A relação utiliza o identificador da obra e o valor do gênero, mantendo a associação dentro do módulo `catalog`.
 
-A exclusão de páginas não exige alteração no schema existente. A tabela `installment_page` já possui os dados e relacionamentos necessários para que seus registros sejam removidos.
+A exclusão e a reordenação de páginas não exigem alterações no schema existente. A tabela `installment_page` já possui os dados e relacionamentos necessários, inclusive a restrição de unicidade de `(installment_id, page_number)` utilizada na validação da renumeração.
 
 Migrations já executadas não devem ser alteradas. Novas mudanças no banco devem ser implementadas através de uma nova migration versionada.
 
@@ -1735,6 +1816,7 @@ GET    /api/me/pages/{pageId}/content
 
 PUT    /api/installments/{installmentId}
 POST   /api/installments/{installmentId}/pages
+PUT    /api/installments/{installmentId}/pages/order
 DELETE /api/installments/{installmentId}/pages/{pageId}
 POST   /api/installments/{installmentId}/publish
 
@@ -1748,7 +1830,9 @@ PUT    /api/reading/progress/pages/{pageId}
 
 Operações que alteram estado permanecem protegidas por CSRF.
 
-A exclusão de páginas exige sessão autenticada, token CSRF válido, propriedade da obra e installment em estado `DRAFT`.
+A exclusão e a reordenação de páginas exigem sessão autenticada, token CSRF válido, propriedade da obra e installment em estado `DRAFT`.
+
+As operações de criação, exclusão e reordenação de páginas, publicação e atualização de metadados utilizam bloqueio pessimista para coordenar escritas no mesmo installment.
 
 Installments em estado `PUBLISHED` permanecem imutáveis.
 
@@ -1781,6 +1865,7 @@ feature/creator-page-content
 feature/creator-work-detail
 feature/creator-cover-content
 feature/page-management
+feature/page-reordering
 ```
 
 O fluxo utilizado é:
