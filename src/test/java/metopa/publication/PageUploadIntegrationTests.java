@@ -35,6 +35,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.ExecutionException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -44,6 +45,7 @@ import static org.springframework.security.test.web.servlet.response.SecurityMoc
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -990,5 +992,607 @@ class PageUploadIntegrationTests {
                     )
             ).isTrue();
         }
+    }
+
+    @Test
+    void shouldDeleteDraftInstallmentWithPagesAndPhysicalFiles() {
+        UUID firstPageId =
+                publicationService.createPage(
+                        userId,
+                        new CreatePageCommand(
+                                installmentId,
+                                1,
+                                "image/jpeg",
+                                "first-page".getBytes()
+                        )
+                );
+
+        UUID secondPageId =
+                publicationService.createPage(
+                        userId,
+                        new CreatePageCommand(
+                                installmentId,
+                                2,
+                                "image/jpeg",
+                                "second-page".getBytes()
+                        )
+                );
+
+        String firstStorageKey =
+                jdbcTemplate.queryForObject(
+                        """
+                        SELECT storage_key
+                        FROM installment_page
+                        WHERE id = ?
+                        """,
+                        String.class,
+                        firstPageId
+                );
+
+        String secondStorageKey =
+                jdbcTemplate.queryForObject(
+                        """
+                        SELECT storage_key
+                        FROM installment_page
+                        WHERE id = ?
+                        """,
+                        String.class,
+                        secondPageId
+                );
+
+        Path firstFile = STORAGE_ROOT.resolve(firstStorageKey);
+        Path secondFile = STORAGE_ROOT.resolve(secondStorageKey);
+
+        assertThat(Files.exists(firstFile)).isTrue();
+        assertThat(Files.exists(secondFile)).isTrue();
+
+        publicationService.deleteInstallment(
+                userId,
+                installmentId
+        );
+
+        Long installmentCount =
+                jdbcTemplate.queryForObject(
+                        """
+                        SELECT COUNT(*)
+                        FROM installment
+                        WHERE id = ?
+                        """,
+                        Long.class,
+                        installmentId
+                );
+
+        Long pageCount =
+                jdbcTemplate.queryForObject(
+                        """
+                        SELECT COUNT(*)
+                        FROM installment_page
+                        WHERE installment_id = ?
+                        """,
+                        Long.class,
+                        installmentId
+                );
+
+        assertThat(installmentCount).isZero();
+        assertThat(pageCount).isZero();
+
+        assertThat(Files.exists(firstFile)).isFalse();
+        assertThat(Files.exists(secondFile)).isFalse();
+    }
+
+    @Test
+    void shouldPreservePublishedInstallmentAndItsFilesWhenDeletionIsRejected() {
+        UUID pageId =
+                publicationService.createPage(
+                        userId,
+                        new CreatePageCommand(
+                                installmentId,
+                                1,
+                                "image/jpeg",
+                                "published-page".getBytes()
+                        )
+                );
+
+        String storageKey =
+                jdbcTemplate.queryForObject(
+                        """
+                        SELECT storage_key
+                        FROM installment_page
+                        WHERE id = ?
+                        """,
+                        String.class,
+                        pageId
+                );
+
+        Path physicalFile = STORAGE_ROOT.resolve(storageKey);
+
+        publicationService.publishInstallment(
+                userId,
+                installmentId
+        );
+
+        assertThatThrownBy(() ->
+                publicationService.deleteInstallment(
+                        userId,
+                        installmentId
+                )
+        ).isInstanceOf(
+                PublishedInstallmentModificationException.class
+        );
+
+        Long installmentCount =
+                jdbcTemplate.queryForObject(
+                        """
+                        SELECT COUNT(*)
+                        FROM installment
+                        WHERE id = ?
+                        """,
+                        Long.class,
+                        installmentId
+                );
+
+        assertThat(installmentCount).isEqualTo(1L);
+
+        assertThat(pageNumber(pageId)).isEqualTo(1);
+
+        assertThat(Files.exists(physicalFile)).isTrue();
+    }
+
+    @Test
+    void shouldDeleteDraftInstallmentThroughHttp() throws Exception {
+        mockMvc.perform(
+                        delete("/api/installments/{installmentId}", installmentId)
+                                .session(login())
+                                .with(csrf())
+                )
+                .andExpect(status().isNoContent());
+
+        Long remainingInstallments = jdbcTemplate.queryForObject(
+                """
+                SELECT COUNT(*)
+                FROM installment
+                WHERE id = ?
+                """,
+                Long.class,
+                installmentId
+        );
+
+        assertThat(remainingInstallments).isZero();
+    }
+
+    @Test
+    void shouldRejectPublishedInstallmentDeletionThroughHttp()
+            throws Exception {
+
+        UUID pageId = publicationService.createPage(
+                userId,
+                new CreatePageCommand(
+                        installmentId,
+                        1,
+                        "image/jpeg",
+                        "published-page".getBytes()
+                )
+        );
+
+        publicationService.publishInstallment(
+                userId,
+                installmentId
+        );
+
+        mockMvc.perform(
+                        delete("/api/installments/{installmentId}", installmentId)
+                                .session(login())
+                                .with(csrf())
+                )
+                .andExpect(status().isConflict());
+
+        Long remainingInstallments = jdbcTemplate.queryForObject(
+                """
+                SELECT COUNT(*)
+                FROM installment
+                WHERE id = ?
+                """,
+                Long.class,
+                installmentId
+        );
+
+        assertThat(remainingInstallments).isEqualTo(1L);
+        assertThat(pageNumber(pageId)).isEqualTo(1);
+    }
+
+    @Test
+    void shouldRequireAuthenticationToDeleteInstallment()
+            throws Exception {
+
+        mockMvc.perform(
+                        delete("/api/installments/{installmentId}", installmentId)
+                                .with(csrf())
+                )
+                .andExpect(status().isUnauthorized());
+
+        Long remainingInstallments =
+                jdbcTemplate.queryForObject(
+                        """
+                        SELECT COUNT(*)
+                        FROM installment
+                        WHERE id = ?
+                        """,
+                        Long.class,
+                        installmentId
+                );
+
+        assertThat(remainingInstallments).isEqualTo(1L);
+    }
+
+    @Test
+    void shouldRequireCsrfToDeleteInstallment()
+            throws Exception {
+
+        mockMvc.perform(
+                        delete("/api/installments/{installmentId}", installmentId)
+                                .session(login())
+                )
+                .andExpect(status().isForbidden());
+
+        Long remainingInstallments =
+                jdbcTemplate.queryForObject(
+                        """
+                        SELECT COUNT(*)
+                        FROM installment
+                        WHERE id = ?
+                        """,
+                        Long.class,
+                        installmentId
+                );
+
+        assertThat(remainingInstallments).isEqualTo(1L);
+    }
+
+    @Test
+    void shouldReturnNotFoundWhenDeletingUnknownInstallment()
+            throws Exception {
+
+        UUID unknownInstallmentId = UUID.randomUUID();
+
+        mockMvc.perform(
+                        delete(
+                                "/api/installments/{installmentId}",
+                                unknownInstallmentId
+                        )
+                                .session(login())
+                                .with(csrf())
+                )
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void shouldRejectPublishedInstallmentDeletionByNonOwnerThroughHttp()
+            throws Exception {
+
+        UUID pageId = publicationService.createPage(
+                userId,
+                new CreatePageCommand(
+                        installmentId,
+                        1,
+                        "image/jpeg",
+                        "published-page".getBytes()
+                )
+        );
+
+        publicationService.publishInstallment(
+                userId,
+                installmentId
+        );
+
+        // Create a second user who does not own the installment.
+        String otherUsername = "other" +
+                UUID.randomUUID().toString().substring(0, 8);
+
+        String password = "StrongPassword123!";
+
+        mockMvc.perform(
+                        post("/api/users")
+                                .with(csrf())
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("""
+                            {
+                              "username": "%s",
+                              "email": "%s@example.com",
+                              "displayName": "Other User",
+                              "password": "%s"
+                            }
+                            """.formatted(
+                                        otherUsername,
+                                        otherUsername,
+                                        password
+                                ))
+                )
+                .andExpect(status().isCreated());
+
+        // Authenticate as the second user.
+        MockHttpSession otherSession = (MockHttpSession) mockMvc.perform(
+                        formLogin("/api/auth/login")
+                                .user(otherUsername)
+                                .password(password)
+                )
+                .andExpect(authenticated().withUsername(otherUsername))
+                .andReturn()
+                .getRequest()
+                .getSession(false);
+
+        // The user must not learn the publication status.
+        mockMvc.perform(
+                        delete(
+                                "/api/installments/{installmentId}",
+                                installmentId
+                        )
+                                .session(otherSession)
+                                .with(csrf())
+                )
+                .andExpect(status().isForbidden());
+
+        // The installment and its page must remain unchanged.
+        Long remainingInstallments = jdbcTemplate.queryForObject(
+                """
+                SELECT COUNT(*)
+                FROM installment
+                WHERE id = ?
+                """,
+                Long.class,
+                installmentId
+        );
+
+        assertThat(remainingInstallments).isEqualTo(1L);
+        assertThat(pageNumber(pageId)).isEqualTo(1);
+    }
+
+    @Test
+    void shouldRejectConcurrentDeletionAfterPublication()
+            throws Exception {
+
+        UUID pageId = publicationService.createPage(
+                userId,
+                new CreatePageCommand(
+                        installmentId,
+                        1,
+                        "image/jpeg",
+                        "concurrent-page".getBytes()
+                )
+        );
+
+        String storageKey = jdbcTemplate.queryForObject(
+                """
+                SELECT storage_key
+                FROM installment_page
+                WHERE id = ?
+                """,
+                String.class,
+                pageId
+        );
+
+        Path physicalFile = STORAGE_ROOT.resolve(storageKey);
+
+        assertThat(Files.exists(physicalFile)).isTrue();
+
+        TransactionTemplate transactionTemplate =
+                new TransactionTemplate(transactionManager);
+
+        CountDownLatch publicationPerformed =
+                new CountDownLatch(1);
+
+        CountDownLatch allowPublicationCommit =
+                new CountDownLatch(1);
+
+        CountDownLatch deletionAttemptStarted =
+                new CountDownLatch(1);
+
+        ExecutorService executor =
+                Executors.newFixedThreadPool(2);
+
+        try {
+            Future<?> publicationFuture = executor.submit(() ->
+                    transactionTemplate.executeWithoutResult(status -> {
+                        publicationService.publishInstallment(
+                                userId,
+                                installmentId
+                        );
+
+                        publicationPerformed.countDown();
+
+                        try {
+                            if (!allowPublicationCommit.await(
+                                    15,
+                                    TimeUnit.SECONDS
+                            )) {
+                                throw new AssertionError(
+                                        "Timed out waiting to commit publication"
+                                );
+                            }
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            throw new IllegalStateException(e);
+                        }
+                    })
+            );
+
+            assertThat(
+                    publicationPerformed.await(
+                            15,
+                            TimeUnit.SECONDS
+                    )
+            ).isTrue();
+
+            Future<?> deletionFuture = executor.submit(() ->
+                    transactionTemplate.executeWithoutResult(status -> {
+                        deletionAttemptStarted.countDown();
+
+                        publicationService.deleteInstallment(
+                                userId,
+                                installmentId
+                        );
+                    })
+            );
+
+            assertThat(
+                    deletionAttemptStarted.await(
+                            15,
+                            TimeUnit.SECONDS
+                    )
+            ).isTrue();
+
+            // Deletion should remain blocked while publication
+            // holds the installment row lock.
+            assertThatThrownBy(() ->
+                    deletionFuture.get(
+                            500,
+                            TimeUnit.MILLISECONDS
+                    )
+            ).isInstanceOf(TimeoutException.class);
+
+            // Allow the publication transaction to commit.
+            allowPublicationCommit.countDown();
+
+            publicationFuture.get(15, TimeUnit.SECONDS);
+
+            // Deletion should observe the committed PUBLISHED state.
+            assertThatThrownBy(() ->
+                    deletionFuture.get(
+                            15,
+                            TimeUnit.SECONDS
+                    )
+            )
+                    .isInstanceOf(ExecutionException.class)
+                    .hasCauseInstanceOf(
+                            PublishedInstallmentModificationException.class
+                    );
+
+            String persistedStatus = jdbcTemplate.queryForObject(
+                    """
+                    SELECT status
+                    FROM installment
+                    WHERE id = ?
+                    """,
+                    String.class,
+                    installmentId
+            );
+
+            assertThat(persistedStatus).isEqualTo("PUBLISHED");
+            assertThat(pageNumber(pageId)).isEqualTo(1);
+            assertThat(Files.exists(physicalFile)).isTrue();
+
+        } finally {
+            allowPublicationCommit.countDown();
+
+            executor.shutdownNow();
+            executor.awaitTermination(
+                    15,
+                    TimeUnit.SECONDS
+            );
+        }
+    }
+
+    @Test
+    void shouldPreservePageFilesWhenInstallmentDeletionRollsBack() {
+        UUID pageId = publicationService.createPage(
+                userId,
+                new CreatePageCommand(
+                        installmentId,
+                        1,
+                        "image/jpeg",
+                        "rollback-page".getBytes()
+                )
+        );
+
+        String storageKey = jdbcTemplate.queryForObject(
+                """
+                SELECT storage_key
+                FROM installment_page
+                WHERE id = ?
+                """,
+                String.class,
+                pageId
+        );
+
+        Path physicalFile = STORAGE_ROOT.resolve(storageKey);
+
+        assertThat(Files.exists(physicalFile)).isTrue();
+
+        TransactionTemplate transactionTemplate =
+                new TransactionTemplate(transactionManager);
+
+        transactionTemplate.executeWithoutResult(status -> {
+            publicationService.deleteInstallment(
+                    userId,
+                    installmentId
+            );
+
+            // Simulate a failure in the surrounding transaction.
+            status.setRollbackOnly();
+        });
+
+        Long remainingInstallments = jdbcTemplate.queryForObject(
+                """
+                SELECT COUNT(*)
+                FROM installment
+                WHERE id = ?
+                """,
+                Long.class,
+                installmentId
+        );
+
+        // The database transaction was rolled back.
+        assertThat(remainingInstallments).isEqualTo(1L);
+        assertThat(pageNumber(pageId)).isEqualTo(1);
+
+        // The physical file must also remain available.
+        assertThat(Files.exists(physicalFile)).isTrue();
+    }
+
+    @Test
+    void shouldPreservePageFileWhenPageDeletionRollsBack() {
+        UUID pageId = publicationService.createPage(
+                userId,
+                new CreatePageCommand(
+                        installmentId,
+                        1,
+                        "image/jpeg",
+                        "rollback-page".getBytes()
+                )
+        );
+
+        String storageKey = jdbcTemplate.queryForObject(
+                """
+                SELECT storage_key
+                FROM installment_page
+                WHERE id = ?
+                """,
+                String.class,
+                pageId
+        );
+
+        Path physicalFile = STORAGE_ROOT.resolve(storageKey);
+
+        assertThat(Files.exists(physicalFile)).isTrue();
+        assertThat(pageNumber(pageId)).isEqualTo(1);
+
+        TransactionTemplate transactionTemplate =
+                new TransactionTemplate(transactionManager);
+
+        transactionTemplate.executeWithoutResult(status -> {
+            publicationService.deletePage(
+                    userId,
+                    installmentId,
+                    pageId
+            );
+
+            // Simulate a rollback of the surrounding transaction.
+            status.setRollbackOnly();
+        });
+
+        // The page record must be restored by PostgreSQL.
+        assertThat(pageNumber(pageId)).isEqualTo(1);
+
+        // The physical file must remain available.
+        assertThat(Files.exists(physicalFile)).isTrue();
     }
 }

@@ -2,25 +2,27 @@ package metopa.publication;
 
 import jakarta.validation.Valid;
 import metopa.catalog.CatalogService;
-import metopa.catalog.WorkReference;
-import metopa.catalog.WorkDetails;
 import metopa.catalog.Genre;
+import metopa.catalog.WorkCoverContent;
+import metopa.catalog.WorkCoverNotFoundException;
+import metopa.catalog.WorkDetails;
+import metopa.catalog.WorkReference;
 import metopa.media.BinaryStorage;
 import metopa.publication.internal.Installment;
 import metopa.publication.internal.InstallmentRepository;
 import metopa.publication.internal.Page;
 import metopa.publication.internal.PageRepository;
-import metopa.catalog.WorkCoverContent;
-import metopa.catalog.WorkCoverNotFoundException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.validation.annotation.Validated;
 
-import java.util.List;
-import java.util.UUID;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 @Service
 @Validated
@@ -178,7 +180,7 @@ public class PublicationService {
         pageRepository.delete(page);
         pageRepository.flush();
 
-        binaryStorage.delete(storageKey);
+        deleteFilesAfterCommit(List.of(storageKey));
     }
 
     @Transactional
@@ -719,5 +721,67 @@ public class PublicationService {
 
             page.changeNumber(i + 1);
         }
+    }
+
+    @Transactional
+    public void deleteInstallment(
+            UUID userId,
+            UUID installmentId
+    ) {
+        Installment installment =
+                installmentRepository
+                        .findByIdForUpdate(installmentId)
+                        .orElseThrow(() ->
+                                new InstallmentNotFoundException(
+                                        installmentId
+                                )
+                        );
+
+        WorkReference work =
+                catalogService.findWork(
+                        installment.getWorkId()
+                );
+
+        if (!work.ownerId().equals(userId)) {
+            throw new WorkAccessDeniedException();
+        }
+
+        if (installment.getStatus()
+                == PublicationStatus.PUBLISHED) {
+            throw new PublishedInstallmentModificationException();
+        }
+
+        List<String> storageKeys =
+                pageRepository
+                        .findByInstallmentIdOrderByNumberAsc(
+                                installmentId
+                        )
+                        .stream()
+                        .map(Page::getStorageKey)
+                        .toList();
+
+        installmentRepository.delete(installment);
+        installmentRepository.flush();
+
+        deleteFilesAfterCommit(storageKeys);
+    }
+
+    private void deleteFilesAfterCommit(List<String> storageKeys) {
+        if (storageKeys.isEmpty()) {
+            return;
+        }
+
+        List<String> keysToDelete = List.copyOf(storageKeys);
+
+        TransactionSynchronizationManager.registerSynchronization(
+                new TransactionSynchronization() {
+                    @Override
+                    public void afterCommit() {
+                        for (String storageKey : keysToDelete) {
+                            binaryStorage.delete(storageKey);
+                        }
+                    }
+                }
+        );
     }
 }

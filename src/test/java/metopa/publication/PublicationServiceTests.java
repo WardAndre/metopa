@@ -20,6 +20,8 @@ import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.List;
 import java.util.Optional;
@@ -1584,11 +1586,32 @@ class PublicationServiceTests {
         when(pageRepository.findById(page.getId()))
                 .thenReturn(Optional.of(page));
 
-        publicationService.deletePage(
-                ownerId,
-                installment.getId(),
-                page.getId()
-        );
+        TransactionSynchronizationManager.initSynchronization();
+
+        try {
+            publicationService.deletePage(
+                    ownerId,
+                    installment.getId(),
+                    page.getId()
+            );
+
+            // Physical deletion must not occur before commit.
+            verify(binaryStorage, never())
+                    .delete(page.getStorageKey());
+
+            List<TransactionSynchronization> synchronizations =
+                    TransactionSynchronizationManager.getSynchronizations();
+
+            assertThat(synchronizations).hasSize(1);
+
+            // Simulate a successful transaction commit.
+            synchronizations.forEach(
+                    TransactionSynchronization::afterCommit
+            );
+
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
 
         verify(installmentRepository)
                 .findByIdForUpdate(installment.getId());
