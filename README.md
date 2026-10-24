@@ -1,3 +1,4 @@
+
 # Metopa
 
 Metopa é uma plataforma para publicação, descoberta e leitura de quadrinhos, mangás, graphic novels, webtoons e outros formatos de narrativa visual.
@@ -10,7 +11,7 @@ Projeto em desenvolvimento — MVP.
 
 Nesta primeira fase, toda a infraestrutura é executada localmente, sem dependência de serviços cloud pagos.
 
-A suíte automatizada possui atualmente **224 testes**, cobrindo regras de domínio, persistência, segurança, APIs HTTP, armazenamento binário, fluxos de integração e concorrência com transações reais no PostgreSQL.
+A suíte automatizada possui atualmente **241 testes**, cobrindo regras de domínio, persistência, segurança, APIs HTTP, armazenamento binário, exclusões transacionais, rollback e concorrência com transações reais no PostgreSQL.
 
 ## Tecnologias
 
@@ -140,6 +141,10 @@ Atualmente suporta:
 - diferentes tipos de installment: chapter, issue, episode e strip;
 - título opcional para installments;
 - installments criados inicialmente como draft;
+- exclusão de installments em estado `DRAFT`, inclusive quando não possuem páginas;
+- exclusão dos registros das páginas associadas ao installment através do relacionamento com `ON DELETE CASCADE` no PostgreSQL;
+- coleta das referências dos arquivos antes da exclusão do installment e remoção dos arquivos somente após commit bem-sucedido;
+- rejeição da exclusão de installments publicados e validação de propriedade antes da verificação do estado de publicação nessa operação;
 - atualização de tipo, número e título de installments em estado `DRAFT`;
 - normalização do título durante a atualização;
 - validação de propriedade da obra antes de alterações;
@@ -172,10 +177,11 @@ Atualmente suporta:
 - exclusão de páginas pertencentes a installments em estado `DRAFT`;
 - validação de propriedade da obra antes da exclusão de páginas;
 - validação de que a página pertence ao installment informado;
-- remoção do registro da página no PostgreSQL antes da exclusão do conteúdo binário;
-- remoção do arquivo físico associado à página através do módulo `media`;
+- remoção do registro da página no PostgreSQL e limpeza do arquivo físico associado somente após commit bem-sucedido, através do módulo `media`;
+- preservação dos arquivos físicos de páginas e installments quando a transação de exclusão é revertida;
+- compartilhamento da estratégia de exclusão pós-commit entre `deletePage()` e `deleteInstallment()`;
 - bloqueio da exclusão e da reordenação de páginas pertencentes a installments publicados;
-- coordenação das escritas sobre um mesmo installment por bloqueio pessimista (`PESSIMISTIC_WRITE`) em criação, exclusão e reordenação de páginas, atualização de metadados e publicação;
+- coordenação das escritas sobre um mesmo installment por bloqueio pessimista (`PESSIMISTIC_WRITE`) em criação, exclusão e reordenação de páginas, exclusão do installment, atualização de metadados e publicação;
 - publicação de installments;
 - publicação permitida somente quando existe pelo menos uma página;
 - bloqueio de alterações em installments já publicados;
@@ -260,8 +266,13 @@ Algumas decisões adotadas no MVP:
 - armazenamento, leitura e exclusão de conteúdo binário acessados através da abstração compartilhada `BinaryStorage`;
 - `storageKey` tratado como detalhe interno de infraestrutura;
 - operações destrutivas de conteúdo binário permanecem encapsuladas no módulo `media`;
-- na exclusão de páginas, a remoção do registro é enviada ao PostgreSQL antes da exclusão física do arquivo;
+- na exclusão de páginas ou de installments, os registros são removidos dentro da transação PostgreSQL e os arquivos físicos são excluídos somente após seu commit;
+- `PublicationService` centraliza a limpeza de arquivos após commit em `deleteFilesAfterCommit()`, utilizando `TransactionSynchronizationManager` e `TransactionSynchronization.afterCommit()`;
+- uma transação revertida preserva os arquivos físicos associados aos registros restaurados pelo PostgreSQL;
+- a exclusão de installments utiliza o `ON DELETE CASCADE` existente para remover suas páginas no PostgreSQL, sem exigir nova migration;
 - PostgreSQL e filesystem não compartilham uma transação distribuída no MVP;
+- falhas após o commit, antes ou durante a limpeza física, podem deixar arquivos órfãos; o callback pós-commit não garante execução durável ou limpeza integral em caso de falha;
+- uploads de arquivos, por ocorrerem antes do commit do registro correspondente, também podem deixar arquivos órfãos em caso de rollback; a reconciliação desses casos permanece uma evolução futura;
 - gêneros tratados como vocabulário pertencente ao módulo `catalog`;
 - múltiplos gêneros representados como `Set<Genre>`, sem entidade de domínio dedicada;
 - alterações dos metadados da obra concentradas em uma operação de domínio;
@@ -278,11 +289,12 @@ Algumas decisões adotadas no MVP:
 - a visão administrativa permite consultar drafts e suas páginas sem expô-los através dos endpoints públicos;
 - separação entre a leitura pública do conteúdo de uma página e sua visualização administrativa pelo criador;
 - o conteúdo binário de páginas em `DRAFT` somente pode ser lido pelo proprietário da obra através da visão administrativa;
-- páginas somente podem ser removidas enquanto o installment permanece em estado `DRAFT`;
+- páginas e installments somente podem ser removidos enquanto o installment permanece em estado `DRAFT`;
+- na exclusão de installments, a propriedade da obra é verificada antes do estado de publicação, evitando revelar `PUBLISHED` a usuários não autorizados;
 - a exclusão de uma página valida installment, estado, propriedade da obra e associação da página antes de qualquer operação destrutiva;
 - a reordenação exige a lista completa e sem repetições dos IDs das páginas do installment;
 - a renumeração das páginas ocorre em duas fases dentro da mesma transação para evitar conflitos na restrição única de número por installment;
-- operações de escrita no mesmo installment adquirem um bloqueio pessimista na linha do installment, mantido até o término da transação;
+- operações de escrita no mesmo installment, incluindo sua exclusão, adquirem um bloqueio pessimista na linha do installment, mantido até o término da transação;
 - o bloqueio coordena operações sobre o mesmo installment, mas não substitui restrições únicas para conflitos envolvendo installments diferentes;
 - installments publicados permanecem imutáveis no MVP;
 - autenticação baseada em sessão HTTP no MVP web;
@@ -381,7 +393,7 @@ Para limpar o build, compilar o projeto e executar todos os testes:
 Estado atual da suíte:
 
 ```text
-Tests run: 224
+Tests run: 241
 Failures: 0
 Errors: 0
 Skipped: 0
@@ -473,8 +485,17 @@ Os testes cobrem, entre outros cenários:
 - rejeição de exclusão de página de installment `PUBLISHED`;
 - ordem entre remoção persistida e exclusão física do arquivo;
 - integração completa da exclusão de página com sessão real, CSRF, PostgreSQL e filesystem local;
-- remoção do registro da página e do arquivo físico após exclusão válida;
+- remoção do registro da página e do arquivo físico após exclusão válida e commit;
 - preservação do registro e do arquivo físico quando a exclusão de página publicada é rejeitada;
+- preservação do arquivo físico quando a exclusão individual de página sofre rollback no PostgreSQL;
+- exclusão de installments `DRAFT` com e sem páginas, incluindo validação de proprietário e rejeição de installments inexistentes ou publicados;
+- exclusão em cascata dos registros das páginas no PostgreSQL e remoção dos respectivos arquivos físicos após exclusão válida de installment;
+- preservação de installments publicados, seus registros de páginas e arquivos físicos após tentativa de exclusão;
+- contrato HTTP de exclusão de installment, com `204`, `401`, `403`, `404` e `409`, incluindo sessão autenticada e proteção CSRF;
+- rejeição de exclusão de installment publicado por não proprietário com `403`, sem revelar o status de publicação;
+- contenção real entre publicação e exclusão de um mesmo installment em transações independentes no PostgreSQL;
+- preservação dos registros e arquivos físicos quando a exclusão de um installment sofre rollback;
+- execução da exclusão física após commit, com sincronização transacional testada também em testes unitários;
 - validação de `ReorderPagesCommand` para lista de IDs não vazia e sem elementos nulos;
 - reordenação válida e atualização da numeração das páginas;
 - rejeição de ordens incompletas, IDs duplicados e páginas de outro installment;
@@ -1197,6 +1218,41 @@ Possíveis respostas:
 
 Installments em estado `PUBLISHED` não podem ter seus metadados modificados.
 
+### Excluir installment em draft
+
+```http
+DELETE /api/installments/{installmentId}
+```
+
+Requer sessão autenticada, token CSRF válido e propriedade da obra associada ao installment. A identidade do usuário é obtida pela sessão, sem receber `userId` do cliente.
+
+A exclusão é permitida **somente para installments em estado `DRAFT`**, inclusive quando ainda não possuem páginas. Installments em estado `PUBLISHED` permanecem imutáveis.
+
+Quando o installment possui páginas:
+
+- o backend obtém um bloqueio pessimista na linha do installment e valida a propriedade da obra antes de verificar seu estado;
+- as referências `storageKey` das páginas são coletadas internamente;
+- o registro do installment é excluído no PostgreSQL, com remoção das páginas associadas por `ON DELETE CASCADE`;
+- após o **commit** da transação, os arquivos físicos das páginas são excluídos através de `BinaryStorage`;
+- se ocorrer **rollback**, os registros e seus arquivos físicos permanecem preservados.
+
+Resposta de sucesso:
+
+```http
+204 No Content
+```
+
+Possíveis respostas:
+
+```text
+401 → usuário não autenticado
+403 → token CSRF ausente ou inválido, ou usuário não é proprietário da obra
+404 → installment não encontrado
+409 → installment já publicado e não pode ser excluído
+```
+
+A operação não exige uma migration adicional e não retorna o `storageKey`. A exclusão física ocorre após o commit, mas ainda pode deixar arquivos órfãos caso a aplicação falhe após confirmar a transação e antes de concluir a limpeza. Essa limitação é descrita em **Decisões arquiteturais**.
+
 ### Adicionar página
 
 ```http
@@ -1247,8 +1303,8 @@ A página informada deve pertencer ao installment presente na URL.
 Quando a operação é válida:
 
 - o registro da página é removido do PostgreSQL;
-- a remoção persistida é enviada ao banco antes da exclusão do conteúdo físico;
-- o arquivo associado é removido através de `BinaryStorage`;
+- a alteração é enviada ao PostgreSQL por `flush()`, mas só é confirmada no commit;
+- após o commit, o arquivo associado é removido através de `BinaryStorage`; em caso de rollback, o arquivo é preservado;
 - o `storageKey` permanece um detalhe interno e não é exposto ao cliente.
 
 Resposta de sucesso:
@@ -1325,7 +1381,7 @@ Possíveis respostas:
 409 → installment já publicado e não pode ser modificado
 ```
 
-A criação, exclusão e reordenação de páginas, assim como a publicação e atualização de metadados, utilizam bloqueio pessimista na linha do installment. Assim, operações que modificam o mesmo installment são coordenadas dentro de transações do PostgreSQL.
+A criação, exclusão e reordenação de páginas, a exclusão do próprio installment, a publicação e a atualização de metadados utilizam bloqueio pessimista na linha do installment. Assim, operações que modificam o mesmo installment são coordenadas dentro de transações do PostgreSQL.
 
 A estratégia de concorrência foi validada em teste de integração com duas transações independentes: uma reordenação mantém o bloqueio enquanto uma tentativa de publicação aguarda a liberação; ao final, a nova ordem e o status `PUBLISHED` são confirmados no banco.
 
@@ -1774,7 +1830,7 @@ A migration `V9__create_work_genre.sql` introduz a tabela `work_genre`, utilizad
 
 A relação utiliza o identificador da obra e o valor do gênero, mantendo a associação dentro do módulo `catalog`.
 
-A exclusão e a reordenação de páginas não exigem alterações no schema existente. A tabela `installment_page` já possui os dados e relacionamentos necessários, inclusive a restrição de unicidade de `(installment_id, page_number)` utilizada na validação da renumeração.
+A exclusão de installments e a exclusão e reordenação de páginas não exigem alterações no schema existente. A associação com `ON DELETE CASCADE` remove os registros de páginas quando um installment é excluído. A tabela `installment_page` também possui a restrição de unicidade de `(installment_id, page_number)` utilizada na validação da renumeração.
 
 Migrations já executadas não devem ser alteradas. Novas mudanças no banco devem ser implementadas através de uma nova migration versionada.
 
@@ -1815,6 +1871,7 @@ GET    /api/me/installments/{installmentId}
 GET    /api/me/pages/{pageId}/content
 
 PUT    /api/installments/{installmentId}
+DELETE /api/installments/{installmentId}
 POST   /api/installments/{installmentId}/pages
 PUT    /api/installments/{installmentId}/pages/order
 DELETE /api/installments/{installmentId}/pages/{pageId}
@@ -1830,9 +1887,11 @@ PUT    /api/reading/progress/pages/{pageId}
 
 Operações que alteram estado permanecem protegidas por CSRF.
 
-A exclusão e a reordenação de páginas exigem sessão autenticada, token CSRF válido, propriedade da obra e installment em estado `DRAFT`.
+A exclusão de installments e a exclusão e reordenação de páginas exigem sessão autenticada, token CSRF válido, propriedade da obra e installment em estado `DRAFT`.
 
-As operações de criação, exclusão e reordenação de páginas, publicação e atualização de metadados utilizam bloqueio pessimista para coordenar escritas no mesmo installment.
+As operações de criação, exclusão e reordenação de páginas, exclusão de installments, publicação e atualização de metadados utilizam bloqueio pessimista para coordenar escritas no mesmo installment.
+
+Na exclusão de installments, a autorização do proprietário é verificada antes do estado de publicação: usuários não autorizados recebem `403`, sem distinção entre installments `DRAFT` e `PUBLISHED`.
 
 Installments em estado `PUBLISHED` permanecem imutáveis.
 
@@ -1866,6 +1925,7 @@ feature/creator-work-detail
 feature/creator-cover-content
 feature/page-management
 feature/page-reordering
+feature/installment-deletion
 ```
 
 O fluxo utilizado é:
