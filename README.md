@@ -3,40 +3,49 @@
 
 Metopa é uma plataforma para publicação, descoberta e leitura de quadrinhos, mangás, graphic novels, webtoons e outros formatos de narrativa visual.
 
-A proposta é permitir que criadores publiquem suas obras e que leitores possam descobrir, acompanhar e consumir esse conteúdo em uma experiência pensada especificamente para quadrinhos.
+O projeto busca oferecer um ambiente onde criadores possam publicar e gerenciar suas obras, enquanto leitores podem descobrir conteúdos, acompanhar suas leituras e organizar uma biblioteca pessoal.
 
 ## Status
 
-Projeto em desenvolvimento — MVP.
+**Em desenvolvimento — MVP**
 
-Nesta primeira fase, toda a infraestrutura é executada localmente, sem dependência de serviços cloud pagos.
+A primeira fase do Metopa utiliza infraestrutura local, sem dependência de serviços cloud pagos.
 
-A suíte automatizada possui atualmente **242 testes**, cobrindo regras de domínio, persistência, segurança, APIs HTTP, armazenamento binário, compensação de uploads, exclusões transacionais, rollback e concorrência com transações reais no PostgreSQL.
+O backend possui atualmente **242 testes automatizados aprovados**, cobrindo regras de domínio, persistência, segurança, APIs HTTP, armazenamento de arquivos, transações e concorrência.
 
 ## Tecnologias
+
+### Backend
 
 - Java 25
 - Spring Boot 4.1
 - Spring Modulith
 - Spring Web MVC
-- Spring Data JPA
-- Hibernate
+- Spring Data JPA / Hibernate
 - Spring Security
 - Bean Validation
+
+### Persistência e infraestrutura
+
 - PostgreSQL 18
 - Flyway
 - Docker Compose
-- Maven
+- Armazenamento de arquivos em filesystem local
+
+### Desenvolvimento e testes
+
+- Maven Wrapper
 - JUnit
 - Mockito
+- Testes unitários e de integração
 
 ## Arquitetura
 
-O Metopa é desenvolvido inicialmente como um **monólito modular** utilizando Spring Modulith.
+O Metopa utiliza uma arquitetura de **monólito modular**, implementada com Spring Modulith.
 
-A escolha permite manter uma única aplicação durante o MVP, mas com limites claros entre os diferentes domínios do sistema.
+Essa abordagem permite desenvolver o MVP como uma única aplicação, mantendo responsabilidades, dependências e limites explícitos entre os módulos.
 
-Os módulos definidos atualmente são:
+Os módulos atuais são:
 
 ```text
 metopa
@@ -49,354 +58,173 @@ metopa
 └── moderation
 ```
 
-O Spring Modulith é utilizado para verificar automaticamente as dependências e os limites entre os módulos.
+| Módulo | Responsabilidade |
+|--------|------------------|
+| `identity` | Contas de usuário, autenticação e sessões |
+| `catalog` | Obras, metadados, gêneros e capas |
+| `publication` | Installments, páginas, publicação e leitura de conteúdo |
+| `library` | Biblioteca pessoal dos leitores |
+| `reading` | Registro e consulta do progresso de leitura |
+| `media` | Abstração para armazenamento de arquivos binários |
+| `moderation` | Denúncias e ações de moderação (planejado) |
 
-Arquivos binários, como páginas e capas de obras, são armazenados fora do banco de dados. O PostgreSQL mantém apenas os metadados e as referências necessárias para localizar esses arquivos.
+O Spring Modulith é utilizado para verificar os limites e as dependências entre os módulos.
 
-O módulo `media` fornece uma abstração genérica de armazenamento binário através de `BinaryStorage`. No MVP, a implementação utiliza o filesystem local, permitindo que o mecanismo físico de armazenamento seja substituído futuramente sem acoplar os demais módulos à infraestrutura.
+Os dados estruturados são persistidos no PostgreSQL. Arquivos binários, como páginas e capas, são armazenados separadamente através da abstração `BinaryStorage`.
 
-O `storageKey` é um detalhe interno e não é exposto pela API pública.
+O identificador interno de armazenamento (`storageKey`) não é exposto pelos endpoints públicos.
 
-## Módulos
+Para informações detalhadas, consulte [Arquitetura](docs/ARCHITECTURE.md).
 
-### Identity
+## Funcionalidades implementadas
 
-Responsável por contas de usuário e autenticação.
+### Contas e autenticação
 
-Atualmente suporta:
+- Criação de contas com validação e normalização dos dados.
+- Armazenamento seguro de senhas com bcrypt.
+- Autenticação baseada em sessão HTTP.
+- Proteção CSRF para operações que alteram estado.
+- Login, logout e consulta do usuário autenticado.
 
-- criação de contas;
-- normalização de username e e-mail;
-- validação dos dados de entrada;
-- unicidade de username e e-mail;
-- UUID gerado no domínio;
-- armazenamento seguro de senha utilizando hash bcrypt;
-- autenticação baseada em sessão HTTP;
-- proteção CSRF;
-- login;
-- logout;
-- consulta do usuário autenticado;
-- respostas HTTP de autenticação utilizando Problem Details.
+### Catálogo de obras
 
-### Catalog
+- Criação e atualização de obras pelo proprietário.
+- Diferentes formatos de publicação.
+- Configuração da direção de leitura e modo de apresentação.
+- Associação de múltiplos gêneros.
+- Upload, substituição e leitura de capas.
+- Consulta e gerenciamento das obras do criador.
+- Descoberta pública de obras com conteúdo publicado.
+- Filtragem da descoberta pública por gênero.
 
-Responsável pelo catálogo e pelos metadados das obras.
+### Publicação de conteúdo
 
-Atualmente suporta:
+- Criação e gerenciamento de installments.
+- Tipos: `CHAPTER`, `ISSUE`, `EPISODE` e `STRIP`.
+- Estados `DRAFT` e `PUBLISHED`.
+- Atualização e exclusão de installments em `DRAFT`.
+- Upload e gerenciamento de páginas.
+- Reordenação de páginas em installments não publicados.
+- Exclusão de páginas em installments `DRAFT`.
+- Publicação de installments que possuam pelo menos uma página.
+- Leitura pública de installments publicados.
+- Acesso administrativo a drafts pelo proprietário.
+- Bloqueio de alterações em installments publicados.
 
-- criação de obras;
-- associação automática da obra ao usuário autenticado;
-- atualização dos metadados da obra pelo proprietário;
-- listagem das obras pertencentes ao usuário autenticado;
-- consulta administrativa dos detalhes de uma obra pelo proprietário;
-- consulta de obras independentemente de possuírem conteúdo publicado;
-- exposição dos metadados completos da obra na visão do criador;
-- inclusão de obras ainda não publicadas na visão de gerenciamento do criador;
-- isolamento das obras por proprietário;
-- ordenação das obras do criador pelas atualizadas mais recentemente;
-- diferentes tipos de obra, como comic, mangá, graphic novel, webtoon e tirinha;
-- direção de leitura configurável;
-- modo de apresentação configurável;
-- associação de zero ou mais gêneros a uma obra;
-- vocabulário de gêneros definido pelo domínio através de `Genre`;
-- persistência dos gêneros em coleção associada à obra;
-- substituição dos gêneros durante a atualização dos metadados;
-- normalização e validação dos dados da obra;
-- persistência das obras no PostgreSQL;
-- definição e substituição da capa por parte do proprietário da obra;
-- armazenamento apenas da referência e do `Content-Type` da capa no banco;
-- leitura interna da capa através do módulo `media`;
-- leitura administrativa do conteúdo binário da capa pelo proprietário;
-- acesso à capa da obra na visão do criador independentemente da existência de conteúdo publicado;
-- validação de propriedade antes da leitura do conteúdo binário da capa;
-- indicação de disponibilidade de capa sem expor o `storageKey`.
+### Biblioteca e leitura
 
-Os gêneros disponíveis atualmente são:
+- Adição e remoção de obras da biblioteca pessoal.
+- Prevenção de entradas duplicadas.
+- Listagem da biblioteca do usuário autenticado.
+- Registro e atualização do progresso de leitura.
+- Consulta da última posição registrada por obra.
+- Restrição do progresso a páginas publicadas.
 
-```text
-ACTION
-ADVENTURE
-COMEDY
-DRAMA
-FANTASY
-HORROR
-MYSTERY
-ROMANCE
-SCI_FI
-SLICE_OF_LIFE
-THRILLER
-```
+### Persistência e consistência
 
-Uma obra pode não possuir gêneros ou possuir vários gêneros.
-
-Como os gêneros são representados pelo domínio como um conjunto, sua ordem não faz parte do contrato da aplicação.
-
-### Publication
-
-Responsável pela criação, gerenciamento, publicação e leitura pública do conteúdo das obras.
-
-Atualmente suporta:
-
-- criação de installments associados a uma obra;
-- diferentes tipos de installment: chapter, issue, episode e strip;
-- título opcional para installments;
-- installments criados inicialmente como draft;
-- exclusão de installments em estado `DRAFT`, inclusive quando não possuem páginas;
-- exclusão dos registros das páginas associadas ao installment através do relacionamento com `ON DELETE CASCADE` no PostgreSQL;
-- coleta das referências dos arquivos antes da exclusão do installment e remoção dos arquivos somente após commit bem-sucedido;
-- rejeição da exclusão de installments publicados e validação de propriedade antes da verificação do estado de publicação nessa operação;
-- atualização de tipo, número e título de installments em estado `DRAFT`;
-- normalização do título durante a atualização;
-- validação de propriedade da obra antes de alterações;
-- prevenção de installments duplicados por tipo e número;
-- prevenção de combinações duplicadas de tipo e número durante a atualização;
-- listagem administrativa dos installments de uma obra pelo proprietário;
-- exposição conjunta de installments `DRAFT` e `PUBLISHED` na visão do criador;
-- exposição explícita do status do installment na visão administrativa;
-- isolamento da listagem administrativa por propriedade da obra;
-- ordenação dos installments por número e data de criação;
-- consulta administrativa dos detalhes de um installment pelo proprietário;
-- consulta administrativa de installments em estado `DRAFT` ou `PUBLISHED`;
-- consulta das páginas de installments ainda não publicados para gerenciamento;
-- validação de propriedade da obra antes da consulta das páginas;
-- leitura administrativa do conteúdo binário de páginas pelo proprietário;
-- acesso a páginas pertencentes a installments `DRAFT` ou `PUBLISHED` na visão do criador;
-- validação de propriedade da obra antes da leitura do conteúdo binário;
-- preservação do `Content-Type` ao retornar o conteúdo da página;
-- criação de páginas com número de leitura;
-- retorno das páginas ordenadas pelo número;
-- upload de páginas através de `multipart/form-data`;
-- armazenamento local dos arquivos através do módulo `media`;
-- compensação de uploads de páginas em caso de rollback transacional, removendo o arquivo físico recém-criado;
-- armazenamento de metadados das páginas no PostgreSQL;
-- prevenção de números de página duplicados;
-- reordenação manual de todas as páginas de installments em estado `DRAFT`;
-- validação de que a ordem enviada contém todas as páginas do installment exatamente uma vez, sem IDs duplicados, ausentes ou externos;
-- renumeração sequencial das páginas a partir de 1, inclusive após exclusões que deixaram lacunas;
-- renumeração em duas fases, com `flush()` intermediário, para respeitar a restrição de unicidade do PostgreSQL;
-- preservação do conteúdo binário e dos arquivos físicos durante a reordenação;
-- exclusão de páginas pertencentes a installments em estado `DRAFT`;
-- validação de propriedade da obra antes da exclusão de páginas;
-- validação de que a página pertence ao installment informado;
-- remoção do registro da página no PostgreSQL e limpeza do arquivo físico associado somente após commit bem-sucedido, através do módulo `media`;
-- preservação dos arquivos físicos de páginas e installments quando a transação de exclusão é revertida;
-- compartilhamento da estratégia de exclusão pós-commit entre `deletePage()` e `deleteInstallment()`;
-- bloqueio da exclusão e da reordenação de páginas pertencentes a installments publicados;
-- coordenação das escritas sobre um mesmo installment por bloqueio pessimista (`PESSIMISTIC_WRITE`) em criação, exclusão e reordenação de páginas, exclusão do installment, atualização de metadados e publicação;
-- publicação de installments;
-- publicação permitida somente quando existe pelo menos uma página;
-- bloqueio de alterações em installments já publicados;
-- leitura pública de installments publicados;
-- páginas retornadas em ordem de leitura;
-- leitura pública do conteúdo binário das páginas;
-- consulta pública de detalhes de obras que possuem conteúdo publicado;
-- descoberta pública de obras publicadas sem duplicação por installment;
-- filtragem opcional da descoberta pública por gênero;
-- propagação dos gêneros definidos no catálogo para as representações públicas;
-- exposição dos gêneros nos endpoints públicos de detalhe e descoberta;
-- exposição pública da capa somente quando a obra possui conteúdo publicado;
-- drafts não são expostos pelos endpoints públicos.
-
-### Library
-
-Responsável pela biblioteca pessoal dos usuários.
-
-Atualmente suporta:
-
-- adição de obras à biblioteca pessoal;
-- associação automática da entrada ao usuário autenticado;
-- somente obras com conteúdo publicado podem ser adicionadas;
-- prevenção de entradas duplicadas para a mesma obra e usuário;
-- listagem da biblioteca do usuário autenticado;
-- isolamento entre bibliotecas de usuários diferentes;
-- ordenação das entradas pelas adicionadas mais recentemente;
-- remoção de obras da própria biblioteca;
-- remoção idempotente: remover uma obra que já não está na biblioteca continua sendo uma operação válida;
-- obras sem conteúdo publicado não são expostas através das operações de biblioteca.
-
-### Reading
-
-Responsável pelo progresso de leitura dos usuários.
-
-Atualmente suporta:
-
-- registro da posição atual de leitura;
-- uma posição de leitura por usuário e obra;
-- atualização do mesmo progresso conforme o usuário avança;
-- consulta da última posição registrada;
-- identificação automática da obra e do installment através da página;
-- registro de progresso somente para páginas publicadas;
-- páginas inexistentes e páginas ainda não publicadas são tratadas igualmente como indisponíveis;
-- progresso de leitura independente da biblioteca pessoal.
-
-### Media
-
-Responsável pela abstração de armazenamento de conteúdo binário.
-
-Atualmente suporta:
-
-- armazenamento por namespace e identificador do recurso;
-- geração interna de `storageKey`;
-- leitura de conteúdo binário a partir da chave;
-- exclusão de conteúdo binário a partir da chave;
-- exclusão idempotente de arquivos físicos inexistentes;
-- proteção contra resolução de caminhos fora da raiz configurada em operações de leitura e exclusão;
-- implementação local baseada em filesystem;
-- uso compartilhado por páginas de installments e capas de obras.
-
-### Moderation
-
-Responsável por denúncias e ações de moderação.
-
-Planejado para etapas posteriores do MVP.
-
-## Decisões arquiteturais
-
-Algumas decisões adotadas no MVP:
-
-- monólito modular antes de microsserviços;
-- Spring Modulith para definição e validação das fronteiras entre módulos;
-- PostgreSQL como banco relacional;
-- Docker Compose para infraestrutura local;
-- Flyway como fonte de evolução do schema do banco;
-- UUID como identificador das entidades de domínio;
-- entidades JPA e repositories mantidos internos aos módulos;
-- API pública dos módulos separada de detalhes de persistência;
-- referências entre módulos feitas por identificadores e APIs públicas, evitando relacionamentos JPA entre módulos;
-- arquivos binários armazenados fora do PostgreSQL;
-- armazenamento, leitura e exclusão de conteúdo binário acessados através da abstração compartilhada `BinaryStorage`;
-- `storageKey` tratado como detalhe interno de infraestrutura;
-- operações destrutivas de conteúdo binário permanecem encapsuladas no módulo `media`;
-- na exclusão de páginas ou de installments, os registros são removidos dentro da transação PostgreSQL e os arquivos físicos são excluídos somente após seu commit;
-- `PublicationService` centraliza a limpeza de arquivos após commit em `deleteFilesAfterCommit()`, utilizando `TransactionSynchronizationManager` e `TransactionSynchronization.afterCommit()`;
-- uma transação revertida preserva os arquivos físicos associados aos registros restaurados pelo PostgreSQL;
-- a exclusão de installments utiliza o `ON DELETE CASCADE` existente para remover suas páginas no PostgreSQL, sem exigir nova migration;
-- PostgreSQL e filesystem não compartilham uma transação distribuída no MVP;
-- falhas após o commit, antes ou durante a limpeza física, podem deixar arquivos órfãos; o callback pós-commit não garante execução durável ou limpeza integral em caso de falha;
-- uploads de páginas registram uma compensação transacional imediatamente após o armazenamento físico, utilizando `TransactionSynchronization.afterCompletion()`;
-- quando a transação termina com `STATUS_ROLLED_BACK`, o arquivo recém-criado é excluído através de `BinaryStorage`;
-- quando a transação é confirmada, o arquivo permanece disponível, associado ao registro persistido no PostgreSQL;
-- a compensação de uploads não oferece garantia durável: encerramento abrupto da JVM, falhas durante a remoção física ou resultado transacional incerto ainda podem deixar arquivos órfãos;
-- a implementação atual da compensação foi aplicada ao upload de páginas; outros fluxos de armazenamento binário devem ser avaliados separadamente;
-- uma estratégia de reconciliação de arquivos órfãos permanece como possível evolução futura do MVP;
-- gêneros tratados como vocabulário pertencente ao módulo `catalog`;
-- múltiplos gêneros representados como `Set<Genre>`, sem entidade de domínio dedicada;
-- alterações dos metadados da obra concentradas em uma operação de domínio;
-- alterações dos metadados de installments concentradas em uma operação de domínio;
-- separação entre descoberta pública e gerenciamento das obras do criador;
-- a listagem das obras do criador pertence ao módulo `catalog` e não depende do estado de publicação;
-- separação entre a consulta pública de uma obra e sua visualização administrativa pelo criador;
-- a visão administrativa da obra independe da existência de conteúdo publicado e exige validação de propriedade;
-- separação entre a leitura pública da capa e sua visualização administrativa pelo criador;
-- a leitura administrativa da capa independe do estado de publicação da obra e exige validação de propriedade antes do acesso ao armazenamento binário;
-- separação entre leitura pública de installments e gerenciamento dos installments pelo criador;
-- a visão administrativa de installments pertence ao módulo `publication` e pode expor conteúdo ainda em `DRAFT`;
-- separação entre a leitura pública de um installment e sua visualização administrativa pelo criador;
-- a visão administrativa permite consultar drafts e suas páginas sem expô-los através dos endpoints públicos;
-- separação entre a leitura pública do conteúdo de uma página e sua visualização administrativa pelo criador;
-- o conteúdo binário de páginas em `DRAFT` somente pode ser lido pelo proprietário da obra através da visão administrativa;
-- páginas e installments somente podem ser removidos enquanto o installment permanece em estado `DRAFT`;
-- na exclusão de installments, a propriedade da obra é verificada antes do estado de publicação, evitando revelar `PUBLISHED` a usuários não autorizados;
-- a exclusão de uma página valida installment, estado, propriedade da obra e associação da página antes de qualquer operação destrutiva;
-- a reordenação exige a lista completa e sem repetições dos IDs das páginas do installment;
-- a renumeração das páginas ocorre em duas fases dentro da mesma transação para evitar conflitos na restrição única de número por installment;
-- operações de escrita no mesmo installment, incluindo sua exclusão, adquirem um bloqueio pessimista na linha do installment, mantido até o término da transação;
-- o bloqueio coordena operações sobre o mesmo installment, mas não substitui restrições únicas para conflitos envolvendo installments diferentes;
-- installments publicados permanecem imutáveis no MVP;
-- autenticação baseada em sessão HTTP no MVP web;
-- proteção CSRF mantida habilitada;
-- senhas nunca são armazenadas em texto puro;
-- serviços cloud e infraestrutura paga ficam fora da primeira fase do MVP;
-- novas tecnologias e abstrações são adicionadas somente quando surge uma necessidade concreta.
-
-## Estrutura do projeto
-
-```text
-metopa/
-├── src/
-│   ├── main/
-│   │   ├── java/
-│   │   │   └── metopa/
-│   │   │       ├── identity/
-│   │   │       ├── catalog/
-│   │   │       ├── publication/
-│   │   │       ├── library/
-│   │   │       ├── reading/
-│   │   │       ├── media/
-│   │   │       └── moderation/
-│   │   │
-│   │   └── resources/
-│   │       └── db/
-│   │           └── migration/
-│   │
-│   └── test/
-│       ├── java/
-│       └── resources/
-│
-├── compose.yaml
-├── pom.xml
-├── mvnw
-├── mvnw.cmd
-└── README.md
-```
+- Migrations versionadas com Flyway.
+- Restrições de integridade no PostgreSQL.
+- Bloqueio pessimista para coordenar operações concorrentes.
+- Exclusão física de arquivos somente após commit nas operações de remoção.
+- Compensação de uploads de páginas em caso de rollback.
+- Preservação de registros e arquivos em transações revertidas.
 
 ## Requisitos
 
 Para executar o projeto localmente:
 
-- Java 25
+- JDK 25
 - Docker
 - Docker Compose
 
-O projeto utiliza Maven Wrapper, portanto não é necessário instalar Maven globalmente.
+O Maven Wrapper está incluído no repositório, portanto não é necessário instalar o Maven globalmente.
 
-## Banco de dados
+## Executando localmente
 
-O PostgreSQL é executado localmente através do Docker Compose.
+### 1. Iniciar o PostgreSQL
 
-Para iniciar:
+Na raiz do projeto:
 
 ```bash
 docker compose up -d
 ```
 
-Para verificar os containers:
+Verifique se o container está em execução:
 
 ```bash
 docker compose ps
 ```
 
-Para parar:
-
-```bash
-docker compose down
-```
-
 Os dados do PostgreSQL são mantidos em um volume Docker.
 
-## Executando a aplicação
+### 2. Iniciar a aplicação
 
-Com o PostgreSQL disponível:
+Com o PostgreSQL disponível e a configuração local da aplicação ajustada:
 
 ```bash
 ./mvnw spring-boot:run
 ```
 
-A aplicação fica disponível por padrão em:
+Por padrão, a aplicação fica disponível em:
 
 ```text
 http://localhost:8080
 ```
 
+### 3. Encerrar a infraestrutura
+
+```bash
+docker compose down
+```
+
+Esse comando encerra os containers sem remover o volume persistente do PostgreSQL.
+
+## API HTTP
+
+O Metopa expõe uma API REST para gerenciamento de contas, obras, publicações, bibliotecas e progresso de leitura.
+
+Exemplos de endpoints públicos:
+
+```http
+POST /api/users
+GET  /api/works
+GET  /api/works/{workId}
+GET  /api/installments/{installmentId}
+GET  /api/pages/{pageId}/content
+```
+
+Exemplos de endpoints autenticados:
+
+```http
+GET    /api/me/works
+POST   /api/works
+PUT    /api/works/{workId}
+POST   /api/works/{workId}/installments
+DELETE /api/installments/{installmentId}
+POST   /api/installments/{installmentId}/pages
+PUT    /api/installments/{installmentId}/pages/order
+POST   /api/installments/{installmentId}/publish
+GET    /api/library
+PUT    /api/reading/progress/pages/{pageId}
+```
+
+As operações protegidas exigem sessão autenticada e, quando alteram estado, token CSRF válido.
+
+A API distingue endpoints públicos de leitura e endpoints administrativos utilizados pelos criadores.
+
+Contratos completos, payloads, autenticação e respostas HTTP estão documentados em [API](docs/API.md).
+
 ## Testes
 
-Para limpar o build, compilar o projeto e executar todos os testes:
+O Metopa utiliza testes unitários e de integração para validar regras de negócio e o comportamento da aplicação.
+
+Para executar a suíte completa:
 
 ```bash
 ./mvnw clean test
 ```
 
-Estado atual da suíte:
+Resultado da última execução completa reportada:
 
 ```text
 Tests run: 242
@@ -405,1554 +233,70 @@ Errors: 0
 Skipped: 0
 ```
 
-Os testes cobrem, entre outros cenários:
+A suíte cobre:
 
-- criação e persistência de obras;
-- associação da obra ao usuário autenticado;
-- normalização e validação dos dados da obra;
-- persistência de múltiplos gêneros por obra;
-- criação de obra com gêneros através do fluxo HTTP completo;
-- atualização dos metadados de uma obra pelo proprietário;
-- persistência da atualização da obra através do fluxo HTTP completo;
-- normalização de título e descrição durante a atualização da obra;
-- substituição dos gêneros anteriores pelos novos gêneros;
-- rejeição de atualização da obra por usuário que não seja proprietário;
-- preservação do estado da obra após tentativa de atualização não autorizada;
-- rejeição de metadados inválidos sem alteração do estado persistido;
-- listagem das obras pertencentes ao usuário autenticado;
-- conversão das obras do criador para `WorkSummary`;
-- exposição da listagem do criador através do fluxo HTTP;
-- inclusão de obras ainda não publicadas na listagem do proprietário;
-- isolamento entre obras pertencentes a usuários diferentes;
-- integração da consulta por proprietário com persistência real no PostgreSQL;
-- consulta administrativa dos detalhes de uma obra pelo proprietário;
-- exposição dos metadados completos da obra na visão administrativa;
-- consulta de obra ainda sem conteúdo publicado pelo proprietário;
-- rejeição da consulta administrativa por usuário que não seja proprietário;
-- exposição do detalhe da obra através do fluxo MVC autenticado;
-- integração completa da consulta administrativa com sessão real e PostgreSQL;
-- propagação de gêneros entre `Work`, `WorkSummary` e `WorkDetails`;
-- propagação de gêneros entre os módulos `catalog` e `publication`;
-- exposição de gêneros nos endpoints públicos de detalhe e descoberta;
-- persistência de referências de capa;
-- armazenamento e leitura real dos bytes da capa;
-- rejeição de upload de capa por usuário que não seja proprietário;
-- exigência de autenticação e CSRF no upload da capa;
-- leitura administrativa da capa pelo proprietário;
-- leitura administrativa da capa de obra ainda sem conteúdo publicado;
-- rejeição da leitura administrativa da capa por usuário que não seja proprietário;
-- impedimento da leitura do `BinaryStorage` quando a validação de propriedade da capa falha;
-- preservação do `Content-Type` no endpoint administrativo de capa;
-- integração completa da leitura administrativa da capa com sessão real, PostgreSQL e armazenamento local;
-- ocultação pública da capa de obras ainda não publicadas;
-- leitura pública da capa de obras publicadas;
-- propagação de `hasCover` entre `catalog` e `publication`;
-- exposição de `coverUrl` nos endpoints públicos de detalhe e descoberta;
-- criação, persistência, publicação e leitura de installments;
-- atualização dos metadados de installments em estado `DRAFT`;
-- persistência da atualização de installments através do fluxo HTTP completo;
-- normalização do título durante a atualização de installments;
-- alteração somente de título sem falso conflito de duplicidade;
-- rejeição de combinações duplicadas de tipo e número durante a atualização;
-- rejeição de alterações em installments publicados;
-- preservação dos metadados persistidos após tentativa de alteração de installment publicado;
-- listagem administrativa dos installments de uma obra pelo proprietário;
-- conversão de installments para `CreatorInstallmentSummary`;
-- retorno conjunto de installments `DRAFT` e `PUBLISHED` na visão do criador;
-- exposição explícita do status na listagem administrativa;
-- rejeição da listagem de installments para usuário que não seja proprietário da obra;
-- exposição da listagem administrativa através do fluxo MVC autenticado;
-- integração completa da listagem administrativa com sessão real e PostgreSQL;
-- preservação da ordem dos installments por número;
-- isolamento da visão administrativa entre proprietários diferentes;
-- consulta administrativa dos detalhes de installments;
-- consulta de installments em estado `DRAFT` pelo proprietário;
-- exposição de status e páginas através da visão administrativa;
-- rejeição da consulta de detalhes por usuário que não seja proprietário da obra;
-- impedimento da consulta das páginas quando a validação de propriedade falha;
-- exposição do detalhe administrativo através do fluxo MVC autenticado;
-- integração completa do detalhe administrativo com sessão real e PostgreSQL;
-- leitura administrativa do conteúdo de páginas;
-- leitura de página pertencente a installment `DRAFT` pelo proprietário;
-- rejeição da leitura de página por usuário que não seja proprietário da obra;
-- impedimento da leitura do `BinaryStorage` quando a validação de propriedade falha;
-- exposição do conteúdo binário através do fluxo MVC autenticado;
-- integração completa da leitura administrativa com sessão real, PostgreSQL e armazenamento local;
-- autorização baseada na propriedade da obra;
-- criação e persistência de páginas com número de leitura;
-- retorno de páginas ordenadas por número;
-- upload multipart;
-- armazenamento físico local e geração interna de `storageKey`;
-- compensação de upload de página após rollback no PostgreSQL, com remoção do arquivo físico que ficaria sem registro persistido;
-- preservação do arquivo criado pelo upload quando a transação é confirmada;
-- exclusão de conteúdo binário através de `BinaryStorage`;
-- proteção contra exclusão de arquivos fora da raiz configurada;
-- exclusão de página de installment `DRAFT` pelo proprietário;
-- rejeição de exclusão de página por usuário que não seja proprietário;
-- rejeição de exclusão de página pertencente a outro installment;
-- rejeição de exclusão de página de installment `PUBLISHED`;
-- ordem entre remoção persistida e exclusão física do arquivo;
-- integração completa da exclusão de página com sessão real, CSRF, PostgreSQL e filesystem local;
-- remoção do registro da página e do arquivo físico após exclusão válida e commit;
-- preservação do registro e do arquivo físico quando a exclusão de página publicada é rejeitada;
-- preservação do arquivo físico quando a exclusão individual de página sofre rollback no PostgreSQL;
-- exclusão de installments `DRAFT` com e sem páginas, incluindo validação de proprietário e rejeição de installments inexistentes ou publicados;
-- exclusão em cascata dos registros das páginas no PostgreSQL e remoção dos respectivos arquivos físicos após exclusão válida de installment;
-- preservação de installments publicados, seus registros de páginas e arquivos físicos após tentativa de exclusão;
-- contrato HTTP de exclusão de installment, com `204`, `401`, `403`, `404` e `409`, incluindo sessão autenticada e proteção CSRF;
-- rejeição de exclusão de installment publicado por não proprietário com `403`, sem revelar o status de publicação;
-- contenção real entre publicação e exclusão de um mesmo installment em transações independentes no PostgreSQL;
-- preservação dos registros e arquivos físicos quando a exclusão de um installment sofre rollback;
-- execução da exclusão física após commit, com sincronização transacional testada também em testes unitários;
-- validação de `ReorderPagesCommand` para lista de IDs não vazia e sem elementos nulos;
-- reordenação válida e atualização da numeração das páginas;
-- rejeição de ordens incompletas, IDs duplicados e páginas de outro installment;
-- rejeição de reordenação por usuário que não seja proprietário ou quando o installment está publicado;
-- persistência da nova ordem no PostgreSQL, sem violar a restrição de unicidade dos números;
-- reordenação com lacunas de numeração após exclusão de páginas;
-- preservação da numeração persistida após tentativa de reordenação inválida;
-- contrato HTTP da reordenação, incluindo `204 No Content` e `400 Bad Request`;
-- reordenação via sessão autenticada e CSRF, com verificação direta da ordem no PostgreSQL;
-- rejeição de reordenação sem CSRF, com preservação da ordem anterior;
-- rejeição de reordenação inválida (`400`) ou de installment publicado (`409`) através da API HTTP;
-- contenção real entre reordenação e publicação em transações independentes no PostgreSQL, com preservação da ordem e do status final;
-- prevenção de installments e páginas duplicados;
-- impedimento de publicação sem páginas;
-- impedimento de alteração de installments publicados;
-- autenticação, sessão HTTP e proteção CSRF;
-- fluxos HTTP 401, 403, 404 e 409;
-- persistência, listagem e remoção idempotente de entradas da biblioteca;
-- isolamento da biblioteca entre usuários;
-- persistência, atualização e consulta do progresso de leitura;
-- rejeição de páginas inexistentes ou ainda não publicadas no progresso;
-- leitura pública dos detalhes de obras publicadas;
-- ocultação de obras que possuem somente conteúdo em draft na descoberta pública;
-- listagem somente de installments publicados na visão pública;
-- descoberta pública de obras sem duplicação;
-- filtragem de obras publicadas por gênero;
-- integração completa do filtro de gênero com persistência real no PostgreSQL;
-- exclusão de obras draft mesmo quando possuem o gênero filtrado;
-- rejeição de valores inválidos no filtro de gênero.
+- Regras de domínio e validações.
+- Persistência real no PostgreSQL.
+- Endpoints HTTP e integração com Spring MVC.
+- Autenticação, autorização, sessão e CSRF.
+- Armazenamento e leitura de arquivos binários.
+- Operações de upload, exclusão e reordenação.
+- Rollback e compensação de operações com arquivos.
+- Concorrência utilizando transações independentes e bloqueios pessimistas.
+- Verificação da modularidade com Spring Modulith.
 
-## API atual
+Os testes de integração que dependem do banco exigem o PostgreSQL disponível.
 
-### Criar conta
+Para informações detalhadas, consulte [Testes](docs/TESTING.md).
 
-```http
-POST /api/users
-```
+## Banco de dados
 
-Exemplo:
+O schema do PostgreSQL é gerenciado pelo Flyway.
 
-```json
-{
-  "username": "andre",
-  "email": "andre@example.com",
-  "displayName": "André Ward",
-  "password": "StrongPassword123!"
-}
-```
-
-Resposta de sucesso:
-
-```http
-201 Created
-```
-
-### Obter token CSRF
-
-```http
-GET /api/auth/csrf
-```
-
-O token deve ser enviado nas requisições protegidas por CSRF através do header informado pela própria API.
-
-### Login
-
-```http
-POST /api/auth/login
-```
-
-O login utiliza:
-
-```text
-Content-Type: application/x-www-form-urlencoded
-```
-
-com os campos:
-
-```text
-username
-password
-```
-
-Após autenticação bem-sucedida, o servidor cria uma sessão HTTP identificada pelo cookie `JSESSIONID`.
-
-### Usuário autenticado
-
-```http
-GET /api/auth/me
-```
-
-Requer sessão autenticada.
-
-Exemplo de resposta:
-
-```json
-{
-  "username": "andre"
-}
-```
-
-### Logout
-
-```http
-POST /api/auth/logout
-```
-
-Requer sessão autenticada.
-
-O logout invalida a sessão atual.
-
-### Criar obra
-
-```http
-POST /api/works
-```
-
-Requer usuário autenticado e token CSRF válido.
-
-Exemplo:
-
-```json
-{
-  "title": "Metopa Origins",
-  "description": "A graphic novel.",
-  "type": "GRAPHIC_NOVEL",
-  "readingDirection": "LEFT_TO_RIGHT",
-  "presentationMode": "SINGLE_PAGE",
-  "genres": [
-    "SCI_FI",
-    "ADVENTURE"
-  ]
-}
-```
-
-O proprietário da obra não é informado pelo cliente. O Metopa determina o `ownerId` a partir do usuário autenticado.
-
-O campo `genres` é opcional no MVP. Quando omitido, a obra é criada sem gêneros associados.
-
-Os valores aceitos atualmente são:
-
-```text
-ACTION
-ADVENTURE
-COMEDY
-DRAMA
-FANTASY
-HORROR
-MYSTERY
-ROMANCE
-SCI_FI
-SLICE_OF_LIFE
-THRILLER
-```
-
-Valores duplicados não representam gêneros adicionais, pois o domínio mantém os gêneros da obra como um conjunto.
-
-Resposta de sucesso:
-
-```http
-201 Created
-```
-
-Exemplo:
-
-```json
-{
-  "id": "550e8400-e29b-41d4-a716-446655440000"
-}
-```
-
-### Atualizar metadados da obra
-
-```http
-PUT /api/works/{workId}
-```
-
-Requer usuário autenticado e token CSRF válido.
-
-Somente o proprietário da obra pode atualizar seus metadados.
-
-A operação utiliza `PUT`: a requisição representa o novo estado completo dos metadados editáveis da obra.
-
-Exemplo:
-
-```json
-{
-  "title": "Metopa Origins Revised",
-  "description": "Updated description.",
-  "type": "GRAPHIC_NOVEL",
-  "readingDirection": "LEFT_TO_RIGHT",
-  "presentationMode": "SINGLE_PAGE",
-  "genres": [
-    "SCI_FI",
-    "ADVENTURE"
-  ]
-}
-```
-
-Os campos editáveis são:
-
-```text
-title
-description
-type
-readingDirection
-presentationMode
-genres
-```
-
-O identificador da obra, o proprietário, a capa e a data de criação não são modificados por esse endpoint.
-
-`title`, `type`, `readingDirection` e `presentationMode` são obrigatórios.
-
-`description` pode ser omitida ou informada em branco. Após normalização, uma descrição vazia é armazenada como ausência de descrição.
-
-O campo `genres` pode ser omitido. Nesse caso, a obra passa a não possuir gêneros associados.
-
-Os gêneros previamente associados são substituídos pelo conjunto informado na requisição.
-
-Título e descrição são normalizados antes da persistência.
-
-Resposta de sucesso:
-
-```http
-204 No Content
-```
-
-Possíveis respostas:
-
-```text
-400 → um ou mais metadados são inválidos
-401 → usuário não autenticado
-403 → token CSRF ausente ou inválido, ou usuário autenticado não é proprietário da obra
-```
-
-### Listar obras do criador
-
-```http
-GET /api/me/works
-```
-
-Requer usuário autenticado.
-
-Retorna as obras pertencentes ao usuário da sessão, independentemente de possuírem conteúdo publicado.
-
-O cliente não informa `userId`. A identidade do proprietário é determinada a partir da sessão autenticada.
-
-Exemplo de resposta:
-
-```json
-[
-  {
-    "id": "550e8400-e29b-41d4-a716-446655440000",
-    "title": "Metopa Origins",
-    "type": "GRAPHIC_NOVEL",
-    "genres": [
-      "SCI_FI",
-      "ADVENTURE"
-    ],
-    "hasCover": true
-  }
-]
-```
-
-A resposta pode incluir:
-
-- obras sem installments;
-- obras que possuem somente installments em estado `DRAFT`;
-- obras com conteúdo publicado.
-
-Somente obras pertencentes ao usuário autenticado são retornadas.
-
-As obras são retornadas das atualizadas mais recentemente para as menos recentes.
-
-A ordem dos elementos de `genres` não faz parte do contrato da API.
-
-Quando o usuário ainda não possui obras:
-
-```json
-[]
-```
-
-Sem autenticação:
-
-```text
-401 → usuário não autenticado
-```
-
-A visão de gerenciamento do criador é independente da descoberta pública:
-
-```text
-GET /api/works
-→ descoberta pública
-→ somente obras com conteúdo publicado
-
-GET /api/me/works
-→ gerenciamento do criador
-→ todas as obras pertencentes ao usuário autenticado
-```
-
-### Consultar obra para o criador
-
-```http
-GET /api/me/works/{workId}
-```
-
-Requer usuário autenticado.
-
-Retorna os metadados completos de uma obra quando o usuário autenticado é seu proprietário.
-
-A consulta administrativa independe da existência de installments publicados. Obras sem installments ou com apenas conteúdo em estado `DRAFT` também podem ser consultadas pelo proprietário.
-
-O cliente não informa `userId`. A identidade do usuário é determinada através da sessão autenticada e a propriedade da obra é validada pelo backend.
-
-Exemplo de resposta:
-
-```json
-{
-  "id": "550e8400-e29b-41d4-a716-446655440000",
-  "title": "Metopa Origins",
-  "description": "A science fiction graphic novel.",
-  "type": "GRAPHIC_NOVEL",
-  "readingDirection": "LEFT_TO_RIGHT",
-  "presentationMode": "SINGLE_PAGE",
-  "genres": [
-    "SCI_FI",
-    "ADVENTURE"
-  ],
-  "hasCover": true
-}
-```
-
-A resposta contém:
-
-```text
-id
-title
-description
-type
-readingDirection
-presentationMode
-genres
-hasCover
-```
-
-O `storageKey` da capa não é exposto.
-
-A ordem dos elementos de `genres` não faz parte do contrato da API.
-
-Possíveis respostas:
-
-```text
-401 → usuário não autenticado
-403 → usuário autenticado não é proprietário da obra
-404 → obra não encontrada
-```
-
-A visão administrativa e a visão pública possuem contratos distintos:
-
-```text
-GET /api/works/{workId}
-→ visão pública
-→ somente obras com conteúdo publicado
-
-GET /api/me/works/{workId}
-→ gerenciamento do criador
-→ independe do estado de publicação
-→ somente proprietário
-```
-
-### Definir capa da obra
-
-```http
-PUT /api/works/{workId}/cover
-```
-
-Requer usuário autenticado e token CSRF válido.
-
-Somente o proprietário da obra pode definir a capa.
-
-A requisição utiliza:
-
-```text
-Content-Type: multipart/form-data
-```
-
-Campo:
-
-```text
-file → arquivo da capa
-```
-
-O cliente não informa o local físico do arquivo. O `storageKey` é gerado internamente pelo backend através do módulo `media`.
-
-Resposta de sucesso:
-
-```http
-204 No Content
-```
-
-### Ler capa da obra para o criador
-
-```http
-GET /api/me/works/{workId}/cover
-```
-
-Requer usuário autenticado.
-
-Retorna diretamente o conteúdo binário da capa quando o usuário autenticado é proprietário da obra.
-
-A leitura administrativa independe da existência de conteúdo publicado. Uma obra ainda sem installments ou contendo apenas installments em estado `DRAFT` pode ter sua capa visualizada pelo proprietário.
-
-O cliente não informa `userId`. A identidade do usuário é determinada através da sessão autenticada.
-
-A propriedade da obra é validada antes que o conteúdo seja lido do armazenamento binário.
-
-Exemplo:
-
-```text
-HTTP/1.1 200 OK
-Content-Type: image/webp
-
-<conteúdo binário da capa>
-```
-
-O `storageKey` não é exposto.
-
-Possíveis respostas:
-
-```text
-401 → usuário não autenticado
-403 → usuário autenticado não é proprietário da obra
-404 → obra ou capa não encontrada
-```
-
-A leitura administrativa e a leitura pública da capa possuem contratos distintos:
-
-```text
-GET /api/works/{workId}/cover
-→ leitura pública
-→ exige conteúdo publicado
-
-GET /api/me/works/{workId}/cover
-→ gerenciamento do criador
-→ independe do estado de publicação
-→ somente proprietário
-```
-
-### Ler capa de obra publicada
-
-```http
-GET /api/works/{workId}/cover
-```
-
-Endpoint público.
-
-Retorna diretamente o conteúdo binário da capa com o `Content-Type` correspondente.
-
-A capa somente é disponibilizada publicamente quando:
-
-- a obra possui uma capa;
-- a obra possui pelo menos um installment publicado.
-
-Exemplo:
-
-```text
-HTTP/1.1 200 OK
-Content-Type: image/webp
-```
-
-Uma obra sem capa ou sem conteúdo publicado retorna:
-
-```text
-404 → capa da obra não disponível
-```
-
-O `storageKey` não é exposto pela API.
-
-### Criar installment
-
-```http
-POST /api/works/{workId}/installments
-```
-
-Requer usuário autenticado e token CSRF válido.
-
-Exemplo:
-
-```json
-{
-  "type": "CHAPTER",
-  "number": 1,
-  "title": "The Beginning"
-}
-```
-
-O installment é criado inicialmente com status `DRAFT`.
-
-O usuário autenticado deve ser proprietário da obra.
-
-### Listar installments da obra para o criador
-
-```http
-GET /api/me/works/{workId}/installments
-```
-
-Requer usuário autenticado.
-
-Retorna todos os installments da obra quando o usuário autenticado é seu proprietário.
-
-A listagem inclui installments em estado `DRAFT` e `PUBLISHED`.
-
-O cliente não informa `userId`. A identidade do usuário é determinada a partir da sessão autenticada e a propriedade da obra é validada pelo backend.
-
-Exemplo de resposta:
-
-```json
-[
-  {
-    "id": "550e8400-e29b-41d4-a716-446655440001",
-    "type": "CHAPTER",
-    "number": 1,
-    "title": "Chapter One",
-    "status": "PUBLISHED"
-  },
-  {
-    "id": "550e8400-e29b-41d4-a716-446655440002",
-    "type": "CHAPTER",
-    "number": 2,
-    "title": "Chapter Two",
-    "status": "DRAFT"
-  }
-]
-```
-
-Cada item contém:
-
-```text
-id
-type
-number
-title
-status
-```
-
-O `workId` não é repetido em cada item porque a obra já é identificada pelo recurso solicitado.
-
-Os installments são ordenados por número crescente e, em caso de empate, pela data de criação.
-
-Quando a obra não possui installments:
-
-```json
-[]
-```
-
-Possíveis respostas:
-
-```text
-401 → usuário não autenticado
-403 → usuário autenticado não é proprietário da obra
-404 → obra não encontrada
-```
-
-A visão administrativa é distinta da leitura pública:
-
-```text
-GET /api/works/{workId}
-→ visão pública
-→ somente installments PUBLISHED
-
-GET /api/me/works/{workId}/installments
-→ gerenciamento do criador
-→ installments DRAFT + PUBLISHED
-→ status explícito
-```
-
-### Consultar installment para o criador
-
-```http
-GET /api/me/installments/{installmentId}
-```
-
-Requer usuário autenticado.
-
-Retorna os detalhes de um installment pertencente a uma obra do usuário autenticado.
-
-Diferentemente do endpoint público, a consulta administrativa permite installments nos estados `DRAFT` e `PUBLISHED`.
-
-O cliente não informa `userId`. A identidade do usuário é determinada através da sessão autenticada e a propriedade da obra é validada antes da consulta das páginas.
-
-Exemplo:
-
-```json
-{
-  "id": "550e8400-e29b-41d4-a716-446655440001",
-  "workId": "550e8400-e29b-41d4-a716-446655440000",
-  "type": "CHAPTER",
-  "number": 1,
-  "title": "Chapter One",
-  "status": "DRAFT",
-  "pages": [
-    {
-      "id": "550e8400-e29b-41d4-a716-446655440002",
-      "number": 1,
-      "contentType": "image/jpeg"
-    }
-  ]
-}
-```
-
-A resposta contém:
-
-```text
-id
-workId
-type
-number
-title
-status
-pages
-```
-
-Cada página expõe:
-
-```text
-id
-number
-contentType
-```
-
-O `storageKey` não é exposto.
-
-As páginas são retornadas em ordem crescente de número.
-
-Um installment em estado `DRAFT` pode ser consultado através desta visão administrativa, mas continua indisponível através dos endpoints públicos.
-
-Possíveis respostas:
-
-```text
-401 → usuário não autenticado
-403 → usuário autenticado não é proprietário da obra
-404 → installment não encontrado
-```
-
-A visão administrativa e a leitura pública possuem contratos distintos:
-
-```text
-GET /api/installments/{installmentId}
-→ leitura pública
-→ somente PUBLISHED
-→ status não é exposto
-
-GET /api/me/installments/{installmentId}
-→ gerenciamento do criador
-→ DRAFT ou PUBLISHED
-→ status explícito
-→ páginas disponíveis para gerenciamento
-```
-
-### Atualizar metadados do installment
-
-```http
-PUT /api/installments/{installmentId}
-```
-
-Requer usuário autenticado e token CSRF válido.
-
-Somente o proprietário da obra pode atualizar os metadados do installment.
-
-A atualização é permitida somente enquanto o installment estiver em estado `DRAFT`.
-
-A operação utiliza `PUT`: a requisição representa o novo estado completo dos metadados editáveis do installment.
-
-Exemplo:
-
-```json
-{
-  "type": "ISSUE",
-  "number": 2,
-  "title": "Issue Two"
-}
-```
-
-Os campos editáveis são:
-
-```text
-type
-number
-title
-```
-
-O campo `type` é obrigatório.
-
-O campo `number` deve ser maior que zero.
-
-O campo `title` é opcional. Espaços nas extremidades são removidos e um título vazio é normalizado para ausência de título.
-
-A combinação de `type` e `number` deve ser única dentro da mesma obra.
-
-Quando apenas o título é alterado, o installment pode manter seu `type` e `number` atuais sem entrar em conflito consigo mesmo.
-
-O identificador do installment, a obra associada, o status e a data de criação não são modificados por esse endpoint.
-
-Resposta de sucesso:
-
-```http
-204 No Content
-```
-
-Possíveis respostas:
-
-```text
-400 → um ou mais campos são inválidos
-401 → usuário não autenticado
-403 → token CSRF ausente ou inválido, ou usuário não é proprietário da obra
-404 → installment não encontrado
-409 → combinação de tipo e número já existe para a obra
-409 → installment já publicado e não pode ser modificado
-```
-
-Installments em estado `PUBLISHED` não podem ter seus metadados modificados.
-
-### Excluir installment em draft
-
-```http
-DELETE /api/installments/{installmentId}
-```
-
-Requer sessão autenticada, token CSRF válido e propriedade da obra associada ao installment. A identidade do usuário é obtida pela sessão, sem receber `userId` do cliente.
-
-A exclusão é permitida **somente para installments em estado `DRAFT`**, inclusive quando ainda não possuem páginas. Installments em estado `PUBLISHED` permanecem imutáveis.
-
-Quando o installment possui páginas:
-
-- o backend obtém um bloqueio pessimista na linha do installment e valida a propriedade da obra antes de verificar seu estado;
-- as referências `storageKey` das páginas são coletadas internamente;
-- o registro do installment é excluído no PostgreSQL, com remoção das páginas associadas por `ON DELETE CASCADE`;
-- após o **commit** da transação, os arquivos físicos das páginas são excluídos através de `BinaryStorage`;
-- se ocorrer **rollback**, os registros e seus arquivos físicos permanecem preservados.
-
-Resposta de sucesso:
-
-```http
-204 No Content
-```
-
-Possíveis respostas:
-
-```text
-401 → usuário não autenticado
-403 → token CSRF ausente ou inválido, ou usuário não é proprietário da obra
-404 → installment não encontrado
-409 → installment já publicado e não pode ser excluído
-```
-
-A operação não exige uma migration adicional e não retorna o `storageKey`. A exclusão física ocorre após o commit, mas ainda pode deixar arquivos órfãos caso a aplicação falhe após confirmar a transação e antes de concluir a limpeza. Essa limitação é descrita em **Decisões arquiteturais**.
-
-### Adicionar página
-
-```http
-POST /api/installments/{installmentId}/pages
-```
-
-Requer usuário autenticado e token CSRF válido.
-
-A requisição utiliza:
-
-```text
-Content-Type: multipart/form-data
-```
-
-Campos:
-
-```text
-number → número da página
-file   → arquivo da página
-```
-
-O cliente não informa o local físico do arquivo. O `storageKey` é gerado internamente pelo backend.
-
-A página somente pode ser adicionada enquanto o installment estiver em estado `DRAFT`.
-
-O número da página deve ser único dentro do installment.
-
-Após o armazenamento físico da página, o backend registra uma compensação transacional utilizando `TransactionSynchronization.afterCompletion()`.
-
-Se a transação PostgreSQL sofrer rollback, o arquivo recém-criado é removido através de `BinaryStorage`. Se a transação for confirmada, o arquivo é preservado.
-
-Esse mecanismo evita arquivos órfãos em rollbacks transacionais normais, mas não substitui uma estratégia durável de reconciliação para falhas abruptas da aplicação ou erros durante a limpeza física.
-
-Resposta de sucesso:
-
-```http
-201 Created
-```
-
-### Excluir página de installment em draft
-
-```http
-DELETE /api/installments/{installmentId}/pages/{pageId}
-```
-
-Requer usuário autenticado e token CSRF válido.
-
-Somente o proprietário da obra pode excluir a página.
-
-A exclusão é permitida somente enquanto o installment estiver em estado `DRAFT`.
-
-A página informada deve pertencer ao installment presente na URL.
-
-Quando a operação é válida:
-
-- o registro da página é removido do PostgreSQL;
-- a alteração é enviada ao PostgreSQL por `flush()`, mas só é confirmada no commit;
-- após o commit, o arquivo associado é removido através de `BinaryStorage`; em caso de rollback, o arquivo é preservado;
-- o `storageKey` permanece um detalhe interno e não é exposto ao cliente.
-
-Resposta de sucesso:
-
-```http
-204 No Content
-```
-
-Possíveis respostas:
-
-```text
-401 → usuário não autenticado
-403 → token CSRF ausente ou inválido, ou usuário não é proprietário da obra
-404 → installment ou página não encontrada, ou página não pertence ao installment informado
-409 → installment já publicado e não pode ser modificado
-```
-
-Installments em estado `PUBLISHED` permanecem imutáveis. Quando a exclusão é rejeitada por esse motivo, tanto o registro da página quanto seu arquivo físico permanecem preservados.
-
-A exclusão não renumera automaticamente as páginas restantes. Para redefinir a ordem e eliminar eventuais lacunas, utilize o endpoint de reordenação descrito abaixo.
-
-### Reordenar páginas de installment em draft
-
-```http
-PUT /api/installments/{installmentId}/pages/order
-```
-
-Requer sessão autenticada, token CSRF válido e propriedade da obra à qual o installment pertence.
-
-A reordenação é permitida somente enquanto o installment estiver em estado `DRAFT`.
-
-A requisição utiliza `Content-Type: application/json` e informa os IDs de **todas** as páginas existentes no installment, na nova ordem de leitura desejada.
-
-Exemplo:
-
-```json
-{
-  "pageIds": [
-    "11111111-1111-1111-1111-111111111111",
-    "22222222-2222-2222-2222-222222222222",
-    "33333333-3333-3333-3333-333333333333"
-  ]
-}
-```
-
-Os UUIDs acima são ilustrativos. Na operação real, devem corresponder aos identificadores das páginas existentes no installment.
-
-Regras da operação:
-
-- `pageIds` é obrigatório e não pode ser uma lista vazia;
-- todos os elementos devem ser UUIDs válidos e não nulos;
-- cada página do installment deve aparecer exatamente uma vez;
-- IDs repetidos, ausentes ou pertencentes a outro installment são rejeitados;
-- a sequência enviada define a ordem final de leitura;
-- os números das páginas são atribuídos sequencialmente a partir de `1`, inclusive quando há lacunas anteriores;
-- a operação altera apenas os números das páginas; conteúdo binário, `Content-Type` e arquivos físicos permanecem inalterados;
-- installments em estado `PUBLISHED` não podem ter suas páginas reordenadas.
-
-A renumeração é realizada em duas fases, com sincronização intermediária no PostgreSQL, para preservar a restrição de unicidade por installment e número de página.
-
-Resposta de sucesso:
-
-```http
-204 No Content
-```
-
-Possíveis respostas:
-
-```text
-400 → JSON inválido, lista vazia ou ordem inválida (IDs duplicados, ausentes ou de outro installment)
-401 → usuário não autenticado
-403 → token CSRF ausente ou inválido, ou usuário não é proprietário da obra
-404 → installment não encontrado
-409 → installment já publicado e não pode ser modificado
-```
-
-A criação, exclusão e reordenação de páginas, a exclusão do próprio installment, a publicação e a atualização de metadados utilizam bloqueio pessimista na linha do installment. Assim, operações que modificam o mesmo installment são coordenadas dentro de transações do PostgreSQL.
-
-A estratégia de concorrência foi validada em teste de integração com duas transações independentes: uma reordenação mantém o bloqueio enquanto uma tentativa de publicação aguarda a liberação; ao final, a nova ordem e o status `PUBLISHED` são confirmados no banco.
-
-### Ler conteúdo de página para o criador
-
-```http
-GET /api/me/pages/{pageId}/content
-```
-
-Requer usuário autenticado.
-
-Retorna diretamente o conteúdo binário de uma página pertencente a uma obra do usuário autenticado.
-
-Diferentemente do endpoint público, a leitura administrativa permite páginas pertencentes a installments em estado `DRAFT` ou `PUBLISHED`.
-
-O cliente não informa `userId`. A identidade do usuário é determinada através da sessão autenticada.
-
-A propriedade da obra é validada antes que o conteúdo seja lido do armazenamento binário.
-
-Exemplo:
-
-```text
-HTTP/1.1 200 OK
-Content-Type: image/jpeg
-
-<conteúdo binário da página>
-```
-
-O `storageKey` não é exposto.
-
-Possíveis respostas:
-
-```text
-401 → usuário não autenticado
-403 → usuário autenticado não é proprietário da obra
-404 → página não encontrada
-```
-
-A leitura administrativa e a leitura pública possuem contratos distintos:
-
-```text
-GET /api/pages/{pageId}/content
-→ leitura pública
-→ somente páginas de installments PUBLISHED
-
-GET /api/me/pages/{pageId}/content
-→ gerenciamento do criador
-→ páginas de installments DRAFT ou PUBLISHED
-→ somente proprietário
-```
-
-### Publicar installment
-
-```http
-POST /api/installments/{installmentId}/publish
-```
-
-Requer usuário autenticado e token CSRF válido.
-
-Para publicação:
-
-- o usuário deve ser proprietário da obra;
-- o installment deve possuir pelo menos uma página;
-- o installment deve estar em estado `DRAFT`.
-
-Resposta de sucesso:
-
-```http
-204 No Content
-```
-
-Após a publicação, o status passa para `PUBLISHED`.
-
-### Consultar installment publicado
-
-```http
-GET /api/installments/{installmentId}
-```
-
-Endpoint público.
-
-Retorna somente installments com status `PUBLISHED`.
-
-Exemplo:
-
-```json
-{
-  "id": "550e8400-e29b-41d4-a716-446655440000",
-  "workId": "5c4f1d34-7623-4ccf-9ee1-d5bc16d0af61",
-  "type": "CHAPTER",
-  "number": 1,
-  "title": "The Beginning",
-  "pages": [
-    {
-      "id": "26fdb67d-261c-4760-b88a-ec0b0843f9fc",
-      "number": 1,
-      "contentType": "image/jpeg"
-    }
-  ]
-}
-```
-
-Installments em estado `DRAFT` são tratados como não encontrados.
-
-### Ler conteúdo de página publicada
-
-```http
-GET /api/pages/{pageId}/content
-```
-
-Endpoint público.
-
-Retorna diretamente o conteúdo binário da página com o `Content-Type` correspondente.
-
-Exemplo:
-
-```text
-HTTP/1.1 200 OK
-Content-Type: image/jpeg
-```
-
-O `storageKey` não é exposto pela API.
-
-Páginas pertencentes a installments em estado `DRAFT` são tratadas como não encontradas.
-
-### Consultar obra publicada
-
-```http
-GET /api/works/{workId}
-```
-
-Endpoint público. Não requer autenticação.
-
-Uma obra somente é disponibilizada quando possui pelo menos um installment publicado.
-
-Resposta:
-
-```http
-200 OK
-```
-
-Exemplo:
-
-```json
-{
-  "id": "550e8400-e29b-41d4-a716-446655440000",
-  "title": "Metopa Origins",
-  "description": "A science fiction graphic novel.",
-  "type": "GRAPHIC_NOVEL",
-  "readingDirection": "LEFT_TO_RIGHT",
-  "presentationMode": "SINGLE_PAGE",
-  "genres": [
-    "SCI_FI",
-    "ADVENTURE"
-  ],
-  "coverUrl": "/api/works/550e8400-e29b-41d4-a716-446655440000/cover",
-  "installments": [
-    {
-      "id": "550e8400-e29b-41d4-a716-446655440001",
-      "type": "ISSUE",
-      "number": 1,
-      "title": "Issue One"
-    }
-  ]
-}
-```
-
-Quando a obra não possui gêneros associados:
-
-```json
-{
-  "genres": []
-}
-```
-
-A ordem dos elementos de `genres` não deve ser considerada parte do contrato da API.
-
-Quando a obra não possui capa, `coverUrl` é `null`.
-
-Somente installments publicados são retornados. Installments em estado `DRAFT` permanecem invisíveis.
-
-Caso a obra não exista ou ainda não possua conteúdo publicado:
-
-```text
-404 → obra não disponível
-```
-
-### Listar obras publicadas
-
-```http
-GET /api/works
-```
-
-Endpoint público. Não requer autenticação.
-
-Retorna as obras que possuem pelo menos um installment publicado.
-
-A listagem pode ser filtrada opcionalmente por gênero:
-
-```http
-GET /api/works?genre=SCI_FI
-```
-
-Quando `genre` é informado, somente obras publicadas associadas ao gênero solicitado são retornadas.
-
-Os valores aceitos atualmente são:
-
-```text
-ACTION
-ADVENTURE
-COMEDY
-DRAMA
-FANTASY
-HORROR
-MYSTERY
-ROMANCE
-SCI_FI
-SLICE_OF_LIFE
-THRILLER
-```
-
-O filtro utiliza os valores exatos definidos pelo enum `Genre`. Valores desconhecidos são rejeitados com:
-
-```http
-400 Bad Request
-```
-
-Exemplo de resposta:
-
-```json
-[
-  {
-    "id": "550e8400-e29b-41d4-a716-446655440000",
-    "title": "Metopa Origins",
-    "type": "GRAPHIC_NOVEL",
-    "genres": [
-      "SCI_FI",
-      "ADVENTURE"
-    ],
-    "coverUrl": "/api/works/550e8400-e29b-41d4-a716-446655440000/cover"
-  }
-]
-```
-
-Sem o parâmetro `genre`, o comportamento permanece o mesmo e todas as obras publicadas são retornadas.
-
-Uma obra aparece apenas uma vez, mesmo que possua vários installments publicados.
-
-Obras que possuem o gênero solicitado, mas não possuem nenhum installment publicado, continuam invisíveis na descoberta pública.
-
-A ordem dos gêneros de cada obra não deve ser utilizada pelo cliente como informação semântica.
-
-Caso nenhuma obra publicada corresponda ao filtro:
-
-```json
-[]
-```
-
-### Adicionar obra à biblioteca
-
-```http
-POST /api/library/works/{workId}
-```
-
-Requer usuário autenticado e token CSRF válido.
-
-Não existe `userId` no corpo da requisição. O proprietário da biblioteca é determinado através da sessão autenticada.
-
-Somente obras que possuam conteúdo publicado podem ser adicionadas.
-
-Resposta de sucesso:
-
-```http
-201 Created
-```
-
-Exemplo:
-
-```json
-{
-  "id": "550e8400-e29b-41d4-a716-446655440000"
-}
-```
-
-Possíveis respostas:
-
-```text
-401 → usuário não autenticado
-404 → obra não disponível para biblioteca
-409 → obra já presente na biblioteca
-```
-
-### Listar biblioteca
-
-```http
-GET /api/library
-```
-
-Requer usuário autenticado.
-
-A identidade do proprietário da biblioteca é obtida através da sessão autenticada. Não existe `userId` na URL ou nos parâmetros.
-
-Resposta:
-
-```http
-200 OK
-```
-
-Exemplo:
-
-```json
-[
-  {
-    "id": "550e8400-e29b-41d4-a716-446655440000",
-    "workId": "550e8400-e29b-41d4-a716-446655440001",
-    "title": "Metopa Origins",
-    "type": "GRAPHIC_NOVEL",
-    "addedAt": "2026-10-07T19:30:00Z"
-  }
-]
-```
-
-Uma biblioteca vazia retorna:
-
-```json
-[]
-```
-
-Sem autenticação:
-
-```text
-401 → usuário não autenticado
-```
-
-### Remover obra da biblioteca
-
-```http
-DELETE /api/library/works/{workId}
-```
-
-Requer usuário autenticado e token CSRF válido.
-
-A identidade do proprietário da biblioteca é obtida através da sessão autenticada.
-
-Resposta:
-
-```http
-204 No Content
-```
-
-A operação é idempotente. Caso a obra já não esteja presente na biblioteca do usuário, a resposta continua sendo:
-
-```http
-204 No Content
-```
-
-Sem autenticação:
-
-```text
-401 → usuário não autenticado
-```
-
-### Salvar progresso de leitura
-
-```http
-PUT /api/reading/progress/pages/{pageId}
-```
-
-Requer usuário autenticado e token CSRF válido.
-
-O cliente informa somente a página atual. A obra e o installment são determinados internamente a partir da página publicada.
-
-Se ainda não existir progresso para o usuário e a obra, ele é criado. Caso já exista, a posição existente é atualizada.
-
-Resposta:
-
-```http
-204 No Content
-```
-
-Possíveis respostas:
-
-```text
-401 → usuário não autenticado
-403 → token CSRF ausente ou inválido
-404 → página não disponível para progresso
-```
-
-### Consultar progresso de leitura
-
-```http
-GET /api/reading/progress/works/{workId}
-```
-
-Requer usuário autenticado.
-
-Resposta:
-
-```http
-200 OK
-```
-
-Exemplo:
-
-```json
-{
-  "id": "550e8400-e29b-41d4-a716-446655440000",
-  "workId": "550e8400-e29b-41d4-a716-446655440001",
-  "installmentId": "550e8400-e29b-41d4-a716-446655440002",
-  "pageId": "550e8400-e29b-41d4-a716-446655440003",
-  "updatedAt": "2026-10-09T03:00:00Z"
-}
-```
-
-Caso ainda não exista progresso para aquela obra:
-
-```http
-404 Not Found
-```
-
-## Migrations
-
-As alterações no schema do banco são controladas pelo Flyway.
-
-As migrations ficam em:
+As migrations estão localizadas em:
 
 ```text
 src/main/resources/db/migration/
 ```
 
-Migrations atuais:
+O projeto utiliza migrations versionadas. Arquivos de migrations já executadas não devem ser modificados; alterações posteriores são introduzidas por novas versões.
 
-```text
-V1__create_user_account.sql
-V2__add_password_to_user_account.sql
-V3__create_work.sql
-V4__create_installment.sql
-V5__create_installment_page.sql
-V6__create_library_entry.sql
-V7__create_reading_progress.sql
-V8__add_work_cover.sql
-V9__create_work_genre.sql
-```
-
-A migration `V9__create_work_genre.sql` introduz a tabela `work_genre`, utilizada para persistir múltiplos gêneros associados a uma obra.
-
-A relação utiliza o identificador da obra e o valor do gênero, mantendo a associação dentro do módulo `catalog`.
-
-A exclusão de installments, a exclusão e reordenação de páginas e a compensação de uploads após rollback não exigem alterações no schema existente.
-
-A associação com `ON DELETE CASCADE` remove os registros de páginas quando um installment é excluído. A tabela `installment_page` também possui a restrição de unicidade de `(installment_id, page_number)` utilizada na validação da renumeração.
-
-A compensação transacional dos arquivos ocorre na camada de aplicação, através do módulo `publication` e da abstração `BinaryStorage`, sem necessidade de novas tabelas ou migrations.
-
-Migrations já executadas não devem ser alteradas. Novas mudanças no banco devem ser implementadas através de uma nova migration versionada.
+As decisões de persistência e integridade estão descritas em [Arquitetura](docs/ARCHITECTURE.md).
 
 ## Segurança
 
-O Metopa utiliza Spring Security com autenticação baseada em sessão HTTP e proteção CSRF habilitada.
+A autenticação do MVP utiliza sessões HTTP gerenciadas pelo Spring Security.
 
-Principais endpoints públicos:
+As principais medidas implementadas incluem:
 
-```text
-POST /api/users
-GET  /api/auth/csrf
-POST /api/auth/login
+- Hash de senhas com bcrypt.
+- Proteção CSRF habilitada.
+- Validação de autenticação para operações privadas.
+- Autorização baseada na propriedade das obras.
+- Separação entre conteúdo público e conteúdo administrativo.
+- Bloqueio de alterações em installments publicados.
+- Respostas HTTP apropriadas para falhas de autenticação, autorização e regras de negócio.
 
-GET  /api/installments/{installmentId}
-GET  /api/pages/{pageId}/content
-GET  /api/works
-GET  /api/works/{workId}
-GET  /api/works/{workId}/cover
-```
+## Documentação
 
-Principais endpoints autenticados:
+A documentação técnica detalhada é organizada nos seguintes arquivos:
 
-```text
-GET    /api/auth/me
-POST   /api/auth/logout
-
-POST   /api/works
-PUT    /api/works/{workId}
-PUT    /api/works/{workId}/cover
-POST   /api/works/{workId}/installments
-
-GET    /api/me/works
-GET    /api/me/works/{workId}
-GET    /api/me/works/{workId}/cover
-GET    /api/me/works/{workId}/installments
-GET    /api/me/installments/{installmentId}
-GET    /api/me/pages/{pageId}/content
-
-PUT    /api/installments/{installmentId}
-DELETE /api/installments/{installmentId}
-POST   /api/installments/{installmentId}/pages
-PUT    /api/installments/{installmentId}/pages/order
-DELETE /api/installments/{installmentId}/pages/{pageId}
-POST   /api/installments/{installmentId}/publish
-
-GET    /api/library
-POST   /api/library/works/{workId}
-DELETE /api/library/works/{workId}
-
-GET    /api/reading/progress/works/{workId}
-PUT    /api/reading/progress/pages/{pageId}
-```
-
-Operações que alteram estado permanecem protegidas por CSRF.
-
-A exclusão de installments e a exclusão e reordenação de páginas exigem sessão autenticada, token CSRF válido, propriedade da obra e installment em estado `DRAFT`.
-
-As operações de criação, exclusão e reordenação de páginas, exclusão de installments, publicação e atualização de metadados utilizam bloqueio pessimista para coordenar escritas no mesmo installment.
-
-Na exclusão de installments, a autorização do proprietário é verificada antes do estado de publicação: usuários não autorizados recebem `403`, sem distinção entre installments `DRAFT` e `PUBLISHED`.
-
-Installments em estado `PUBLISHED` permanecem imutáveis.
-
-Senhas são processadas utilizando `PasswordEncoder` e armazenadas somente como hash.
-
-Respostas de autenticação inválida não revelam se determinado username existe.
+| Documento | Conteúdo |
+|-----------|----------|
+| [API](docs/API.md) | Endpoints, payloads, autenticação, respostas HTTP e regras de acesso |
+| [Arquitetura](docs/ARCHITECTURE.md) | Módulos, decisões arquiteturais, persistência, armazenamento e transações |
+| [Testes](docs/TESTING.md) | Estratégia de testes, cobertura funcional, integração, rollback e concorrência |
 
 ## Desenvolvimento
 
-O projeto utiliza branches de feature e refactor para mudanças relevantes.
+O desenvolvimento é organizado em branches de funcionalidades, correções, refatorações e documentação.
 
-Exemplos:
-
-```text
-feature/modulith-architecture
-feature/module-boundaries
-feature/identity-user
-feature/identity-authentication
-feature/catalog-work
-refactor/media-storage
-feature/work-cover
-feature/work-genres
-feature/work-discovery-filtering
-feature/work-metadata-update
-feature/installment-metadata-update
-feature/creator-work-list
-feature/creator-installment-list
-feature/creator-installment-detail
-feature/creator-page-content
-feature/creator-work-detail
-feature/creator-cover-content
-feature/page-management
-feature/page-reordering
-feature/installment-deletion
-feature/page-upload-rollback-cleanup
-```
-
-O fluxo utilizado é:
+Fluxo habitual:
 
 ```text
 main
   ↓
-feature/* ou refactor/*
+feature/*, fix/*, refactor/* ou docs/*
   ↓
 commit
   ↓
@@ -1962,3 +306,7 @@ pull request
   ↓
 merge
 ```
+
+As alterações são integradas à `main` por meio de Pull Requests.
+
+O desenvolvimento prioriza incrementos pequenos, testes automatizados, clareza das responsabilidades e preservação dos limites entre módulos.
