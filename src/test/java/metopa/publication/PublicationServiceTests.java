@@ -202,8 +202,39 @@ class PublicationServiceTests {
         when(pageRepository.save(any(Page.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
-        UUID pageId =
-                publicationService.createPage(userId, command);
+        UUID pageId;
+
+        TransactionSynchronizationManager.initSynchronization();
+
+        try {
+            pageId = publicationService.createPage(
+                    userId,
+                    command
+            );
+
+            List<TransactionSynchronization> synchronizations =
+                    TransactionSynchronizationManager.getSynchronizations();
+
+            assertThat(synchronizations).hasSize(1);
+
+            // The file must not be deleted before transaction completion.
+            verify(binaryStorage, never())
+                    .delete(any(String.class));
+
+            // Simulate a successful transaction commit.
+            synchronizations.forEach(synchronization ->
+                    synchronization.afterCompletion(
+                            TransactionSynchronization.STATUS_COMMITTED
+                    )
+            );
+
+            // A successful commit must preserve the uploaded file.
+            verify(binaryStorage, never())
+                    .delete(any(String.class));
+
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
 
         assertThat(pageId).isNotNull();
 

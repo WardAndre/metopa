@@ -24,6 +24,8 @@ import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
@@ -1595,4 +1597,59 @@ class PageUploadIntegrationTests {
         // The physical file must remain available.
         assertThat(Files.exists(physicalFile)).isTrue();
     }
+
+    @Test
+    void shouldRemoveUploadedPageFileWhenTransactionRollsBack() {
+        TransactionTemplate transactionTemplate =
+                new TransactionTemplate(transactionManager);
+
+        Path uploadedFile = transactionTemplate.execute(status -> {
+            publicationService.createPage(
+                    userId,
+                    new CreatePageCommand(
+                            installmentId,
+                            1,
+                            "image/jpeg",
+                            "rollback-upload".getBytes()
+                    )
+            );
+
+            // Verify that the file exists before rolling back.
+            Path storedFile;
+
+            try (var paths = Files.walk(STORAGE_ROOT)) {
+                List<Path> storedFiles = paths
+                        .filter(Files::isRegularFile)
+                        .toList();
+
+                assertThat(storedFiles).hasSize(1);
+                storedFile = storedFiles.getFirst();
+
+            } catch (IOException exception) {
+                throw new UncheckedIOException(exception);
+            }
+
+            status.setRollbackOnly();
+
+            return storedFile;
+        });
+
+        Long persistedPages = jdbcTemplate.queryForObject(
+                """
+                SELECT COUNT(*)
+                FROM installment_page
+                WHERE installment_id = ?
+                """,
+                Long.class,
+                installmentId
+        );
+
+        // PostgreSQL must discard the page record.
+        assertThat(persistedPages).isZero();
+
+        // The physical file must also be removed.
+        assertThat(uploadedFile).isNotNull();
+        assertThat(Files.exists(uploadedFile)).isFalse();
+    }
+
 }
