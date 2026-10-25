@@ -11,7 +11,7 @@ Projeto em desenvolvimento — MVP.
 
 Nesta primeira fase, toda a infraestrutura é executada localmente, sem dependência de serviços cloud pagos.
 
-A suíte automatizada possui atualmente **241 testes**, cobrindo regras de domínio, persistência, segurança, APIs HTTP, armazenamento binário, exclusões transacionais, rollback e concorrência com transações reais no PostgreSQL.
+A suíte automatizada possui atualmente **242 testes**, cobrindo regras de domínio, persistência, segurança, APIs HTTP, armazenamento binário, compensação de uploads, exclusões transacionais, rollback e concorrência com transações reais no PostgreSQL.
 
 ## Tecnologias
 
@@ -167,6 +167,7 @@ Atualmente suporta:
 - retorno das páginas ordenadas pelo número;
 - upload de páginas através de `multipart/form-data`;
 - armazenamento local dos arquivos através do módulo `media`;
+- compensação de uploads de páginas em caso de rollback transacional, removendo o arquivo físico recém-criado;
 - armazenamento de metadados das páginas no PostgreSQL;
 - prevenção de números de página duplicados;
 - reordenação manual de todas as páginas de installments em estado `DRAFT`;
@@ -272,7 +273,12 @@ Algumas decisões adotadas no MVP:
 - a exclusão de installments utiliza o `ON DELETE CASCADE` existente para remover suas páginas no PostgreSQL, sem exigir nova migration;
 - PostgreSQL e filesystem não compartilham uma transação distribuída no MVP;
 - falhas após o commit, antes ou durante a limpeza física, podem deixar arquivos órfãos; o callback pós-commit não garante execução durável ou limpeza integral em caso de falha;
-- uploads de arquivos, por ocorrerem antes do commit do registro correspondente, também podem deixar arquivos órfãos em caso de rollback; a reconciliação desses casos permanece uma evolução futura;
+- uploads de páginas registram uma compensação transacional imediatamente após o armazenamento físico, utilizando `TransactionSynchronization.afterCompletion()`;
+- quando a transação termina com `STATUS_ROLLED_BACK`, o arquivo recém-criado é excluído através de `BinaryStorage`;
+- quando a transação é confirmada, o arquivo permanece disponível, associado ao registro persistido no PostgreSQL;
+- a compensação de uploads não oferece garantia durável: encerramento abrupto da JVM, falhas durante a remoção física ou resultado transacional incerto ainda podem deixar arquivos órfãos;
+- a implementação atual da compensação foi aplicada ao upload de páginas; outros fluxos de armazenamento binário devem ser avaliados separadamente;
+- uma estratégia de reconciliação de arquivos órfãos permanece como possível evolução futura do MVP;
 - gêneros tratados como vocabulário pertencente ao módulo `catalog`;
 - múltiplos gêneros representados como `Set<Genre>`, sem entidade de domínio dedicada;
 - alterações dos metadados da obra concentradas em uma operação de domínio;
@@ -393,7 +399,7 @@ Para limpar o build, compilar o projeto e executar todos os testes:
 Estado atual da suíte:
 
 ```text
-Tests run: 241
+Tests run: 242
 Failures: 0
 Errors: 0
 Skipped: 0
@@ -477,6 +483,8 @@ Os testes cobrem, entre outros cenários:
 - retorno de páginas ordenadas por número;
 - upload multipart;
 - armazenamento físico local e geração interna de `storageKey`;
+- compensação de upload de página após rollback no PostgreSQL, com remoção do arquivo físico que ficaria sem registro persistido;
+- preservação do arquivo criado pelo upload quando a transação é confirmada;
 - exclusão de conteúdo binário através de `BinaryStorage`;
 - proteção contra exclusão de arquivos fora da raiz configurada;
 - exclusão de página de installment `DRAFT` pelo proprietário;
@@ -1280,6 +1288,12 @@ A página somente pode ser adicionada enquanto o installment estiver em estado `
 
 O número da página deve ser único dentro do installment.
 
+Após o armazenamento físico da página, o backend registra uma compensação transacional utilizando `TransactionSynchronization.afterCompletion()`.
+
+Se a transação PostgreSQL sofrer rollback, o arquivo recém-criado é removido através de `BinaryStorage`. Se a transação for confirmada, o arquivo é preservado.
+
+Esse mecanismo evita arquivos órfãos em rollbacks transacionais normais, mas não substitui uma estratégia durável de reconciliação para falhas abruptas da aplicação ou erros durante a limpeza física.
+
 Resposta de sucesso:
 
 ```http
@@ -1830,7 +1844,11 @@ A migration `V9__create_work_genre.sql` introduz a tabela `work_genre`, utilizad
 
 A relação utiliza o identificador da obra e o valor do gênero, mantendo a associação dentro do módulo `catalog`.
 
-A exclusão de installments e a exclusão e reordenação de páginas não exigem alterações no schema existente. A associação com `ON DELETE CASCADE` remove os registros de páginas quando um installment é excluído. A tabela `installment_page` também possui a restrição de unicidade de `(installment_id, page_number)` utilizada na validação da renumeração.
+A exclusão de installments, a exclusão e reordenação de páginas e a compensação de uploads após rollback não exigem alterações no schema existente.
+
+A associação com `ON DELETE CASCADE` remove os registros de páginas quando um installment é excluído. A tabela `installment_page` também possui a restrição de unicidade de `(installment_id, page_number)` utilizada na validação da renumeração.
+
+A compensação transacional dos arquivos ocorre na camada de aplicação, através do módulo `publication` e da abstração `BinaryStorage`, sem necessidade de novas tabelas ou migrations.
 
 Migrations já executadas não devem ser alteradas. Novas mudanças no banco devem ser implementadas através de uma nova migration versionada.
 
@@ -1926,6 +1944,7 @@ feature/creator-cover-content
 feature/page-management
 feature/page-reordering
 feature/installment-deletion
+feature/page-upload-rollback-cleanup
 ```
 
 O fluxo utilizado é:

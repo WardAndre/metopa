@@ -79,6 +79,7 @@ public class PublicationService {
         return saved.getId();
     }
 
+
     @Transactional
     public UUID createPage(
             UUID userId,
@@ -121,6 +122,18 @@ public class PublicationService {
                         command.content()
                 );
 
+        // Remove the newly stored file if the transaction rolls back.
+        TransactionSynchronizationManager.registerSynchronization(
+                new TransactionSynchronization() {
+                    @Override
+                    public void afterCompletion(int status) {
+                        if (status == TransactionSynchronization.STATUS_ROLLED_BACK) {
+                            binaryStorage.delete(storageKey);
+                        }
+                    }
+                }
+        );
+
         Page page = new Page(
                 command.installmentId(),
                 command.number(),
@@ -133,6 +146,7 @@ public class PublicationService {
 
         return saved.getId();
     }
+
 
     @Transactional
     public void deletePage(
