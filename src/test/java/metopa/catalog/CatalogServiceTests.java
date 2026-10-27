@@ -8,11 +8,13 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
-import java.util.Optional;
-import java.util.UUID;
-import java.util.Set;
 import java.util.List;
+import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -301,7 +303,7 @@ class CatalogServiceTests {
                         + work.getId()
                         + "/cover-file";
 
-        when(repository.findById(work.getId()))
+        when(repository.findByIdForUpdate(work.getId()))
                 .thenReturn(Optional.of(work));
 
         when(
@@ -312,11 +314,14 @@ class CatalogServiceTests {
                 )
         ).thenReturn(storageKey);
 
-        catalogService.setCover(
-                userId,
-                work.getId(),
-                "image/webp",
-                content
+        simulateTransactionCompletion(
+                () -> catalogService.setCover(
+                        userId,
+                        work.getId(),
+                        "image/webp",
+                        content
+                ),
+                TransactionSynchronization.STATUS_COMMITTED
         );
 
         assertThat(work.getCoverStorageKey())
@@ -325,12 +330,76 @@ class CatalogServiceTests {
         assertThat(work.getCoverContentType())
                 .isEqualTo("image/webp");
 
+        verify(repository)
+                .findByIdForUpdate(work.getId());
+
         verify(binaryStorage)
                 .store(
                         "covers",
                         work.getId(),
                         content
                 );
+
+        verify(binaryStorage, never())
+                .delete(any(String.class));
+    }
+
+    @Test
+    void shouldDeleteNewCoverAfterTransactionRollback() {
+        UUID ownerId = UUID.randomUUID();
+
+        Work work = new Work(
+                ownerId,
+                "Covered Work",
+                null,
+                WorkType.COMIC,
+                ReadingDirection.LEFT_TO_RIGHT,
+                PresentationMode.SINGLE_PAGE
+        );
+
+        String originalStorageKey =
+                "covers/" + work.getId() + "/original";
+
+        String newStorageKey =
+                "covers/" + work.getId() + "/replacement";
+
+        work.setCover(
+                originalStorageKey,
+                "image/webp"
+        );
+
+        byte[] content =
+                "replacement-cover".getBytes();
+
+        when(repository.findByIdForUpdate(work.getId()))
+                .thenReturn(Optional.of(work));
+
+        when(
+                binaryStorage.store(
+                        "covers",
+                        work.getId(),
+                        content
+                )
+        ).thenReturn(newStorageKey);
+
+        simulateTransactionCompletion(
+                () -> catalogService.setCover(
+                        ownerId,
+                        work.getId(),
+                        "image/png",
+                        content
+                ),
+                TransactionSynchronization.STATUS_ROLLED_BACK
+        );
+
+        verify(repository)
+                .findByIdForUpdate(work.getId());
+
+        verify(binaryStorage)
+                .delete(newStorageKey);
+
+        verify(binaryStorage, never())
+                .delete(originalStorageKey);
     }
 
     @Test
@@ -351,7 +420,7 @@ class CatalogServiceTests {
         byte[] content =
                 "cover-content".getBytes();
 
-        when(repository.findById(work.getId()))
+        when(repository.findByIdForUpdate(work.getId()))
                 .thenReturn(Optional.of(work));
 
         assertThatThrownBy(() ->
@@ -364,6 +433,9 @@ class CatalogServiceTests {
         ).isInstanceOf(
                 WorkAccessDeniedException.class
         );
+
+        verify(repository)
+                .findByIdForUpdate(work.getId());
 
         verify(
                 binaryStorage,
@@ -425,6 +497,9 @@ class CatalogServiceTests {
         assertThat(result.content())
                 .isEqualTo(content);
 
+        verify(repository)
+                .findById(work.getId());
+
         verify(binaryStorage)
                 .read(storageKey);
     }
@@ -480,7 +555,7 @@ class CatalogServiceTests {
                 )
         );
 
-        when(repository.findById(work.getId()))
+        when(repository.findByIdForUpdate(work.getId()))
                 .thenReturn(Optional.of(work));
 
         UpdateWorkCommand command =
@@ -501,6 +576,9 @@ class CatalogServiceTests {
                 work.getId(),
                 command
         );
+
+        verify(repository)
+                .findByIdForUpdate(work.getId());
 
         assertThat(work.getTitle())
                 .isEqualTo("Updated Title");
@@ -548,7 +626,7 @@ class CatalogServiceTests {
                 )
         );
 
-        when(repository.findById(work.getId()))
+        when(repository.findByIdForUpdate(work.getId()))
                 .thenReturn(Optional.of(work));
 
         UpdateWorkCommand command =
@@ -572,6 +650,9 @@ class CatalogServiceTests {
         ).isInstanceOf(
                 WorkAccessDeniedException.class
         );
+
+        verify(repository)
+                .findByIdForUpdate(work.getId());
 
         assertThat(work.getTitle())
                 .isEqualTo("Original Title");
@@ -799,5 +880,98 @@ class CatalogServiceTests {
         ).read(
                 any(String.class)
         );
+    }
+
+    @Test
+    void shouldDeletePreviousCoverAfterTransactionCommit() {
+        UUID ownerId = UUID.randomUUID();
+
+        Work work = new Work(
+                ownerId,
+                "Covered Work",
+                null,
+                WorkType.COMIC,
+                ReadingDirection.LEFT_TO_RIGHT,
+                PresentationMode.SINGLE_PAGE
+        );
+
+        String originalStorageKey =
+                "covers/" + work.getId() + "/original";
+
+        String newStorageKey =
+                "covers/" + work.getId() + "/replacement";
+
+        work.setCover(
+                originalStorageKey,
+                "image/webp"
+        );
+
+        byte[] content =
+                "replacement-cover".getBytes();
+
+        when(repository.findByIdForUpdate(work.getId()))
+                .thenReturn(Optional.of(work));
+
+        when(
+                binaryStorage.store(
+                        "covers",
+                        work.getId(),
+                        content
+                )
+        ).thenReturn(newStorageKey);
+
+        simulateTransactionCompletion(
+                () -> catalogService.setCover(
+                        ownerId,
+                        work.getId(),
+                        "image/png",
+                        content
+                ),
+                TransactionSynchronization.STATUS_COMMITTED
+        );
+
+        assertThat(work.getCoverStorageKey())
+                .isEqualTo(newStorageKey);
+
+        assertThat(work.getCoverContentType())
+                .isEqualTo("image/png");
+
+        verify(repository)
+                .findByIdForUpdate(work.getId());
+
+        verify(binaryStorage)
+                .delete(originalStorageKey);
+
+        verify(binaryStorage, never())
+                .delete(newStorageKey);
+    }
+
+    private void simulateTransactionCompletion(
+            Runnable operation,
+            int completionStatus
+    ) {
+        TransactionSynchronizationManager.initSynchronization();
+
+        try {
+            operation.run();
+
+            List<TransactionSynchronization> synchronizations =
+                    TransactionSynchronizationManager.getSynchronizations();
+
+            assertThat(synchronizations).isNotEmpty();
+
+            if (completionStatus
+                    == TransactionSynchronization.STATUS_COMMITTED) {
+                synchronizations.forEach(
+                        TransactionSynchronization::afterCommit
+                );
+            }
+
+            synchronizations.forEach(synchronization ->
+                    synchronization.afterCompletion(completionStatus)
+            );
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
     }
 }

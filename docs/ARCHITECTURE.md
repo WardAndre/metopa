@@ -1,4 +1,3 @@
-
 # Metopa — Arquitetura
 
 Documentação da arquitetura do backend do Metopa, incluindo organização modular, responsabilidades dos módulos, persistência, segurança, concorrência e consistência entre PostgreSQL e filesystem.
@@ -109,6 +108,8 @@ Principais funcionalidades:
 - descrição e título;
 - associação de gêneros;
 - definição, substituição e leitura de capas;
+- compensação de arquivos de capas em commits e rollbacks;
+- coordenação de substituições de capas e atualizações de metadados por bloqueio pessimista;
 - exposição de informações da obra para outros módulos através de APIs internas.
 
 A propriedade de uma obra pertence ao domínio `catalog`.
@@ -345,7 +346,7 @@ V9__create_work_genre.sql
 
 A migration `V9__create_work_genre.sql` introduziu a persistência de múltiplos gêneros associados a uma obra.
 
-As operações de exclusão de installments, reordenação de páginas e compensação transacional de uploads foram implementadas sem necessidade de novas migrations.
+As operações de exclusão de installments, reordenação de páginas, compensação transacional de uploads e substituição de capas, bem como o bloqueio pessimista das escritas sobre obras, foram implementadas sem necessidade de novas migrations.
 
 ### Política de evolução do schema
 
@@ -422,15 +423,13 @@ Essa separação faz parte das regras de acesso do domínio e não depende apena
 
 ## 8. Concorrência e bloqueio pessimista
 
-O Metopa utiliza bloqueios pessimistas no PostgreSQL para coordenar operações que modificam o mesmo installment.
+O Metopa utiliza bloqueios pessimistas no PostgreSQL para coordenar operações de escrita concorrentes sobre o mesmo installment ou a mesma obra.
 
-A estratégia utiliza `PESSIMISTIC_WRITE`.
-
-O repository disponibiliza a consulta `findByIdForUpdate()`, utilizada nas operações que precisam bloquear a linha correspondente.
+A estratégia utiliza `PESSIMISTIC_WRITE`, por meio de consultas `findByIdForUpdate()` nos repositories responsáveis por cada entidade.
 
 ### Operações coordenadas
 
-A estratégia se aplica às operações de escrita sobre o mesmo installment, incluindo:
+No módulo `publication`, a estratégia se aplica às operações de escrita sobre o mesmo installment, incluindo:
 
 - criação de páginas;
 - exclusão de páginas;
@@ -496,6 +495,34 @@ Ele não substitui restrições de unicidade e integridade do PostgreSQL.
 
 Conflitos envolvendo registros diferentes continuam exigindo validações apropriadas e restrições no banco.
 
+### 8.4. Substituição concorrente de capas
+
+No módulo `catalog`, o `WorkRepository` disponibiliza `findByIdForUpdate()` com `@Lock(LockModeType.PESSIMISTIC_WRITE)`.
+
+O método `CatalogService.setCover()` adquire o bloqueio da obra antes de verificar a propriedade, identificar a capa anterior ou armazenar o novo arquivo em `BinaryStorage`.
+
+Se outra transação já estiver modificando a mesma obra, a substituição aguarda a liberação do bloqueio antes de começar o armazenamento físico da nova capa.
+
+Isso evita que duas substituições utilizem simultaneamente uma referência anterior desatualizada e reduz o risco de arquivos órfãos decorrentes de atualizações concorrentes.
+
+O bloqueio permanece associado à transação de banco até seu commit ou rollback.
+
+### 8.5. Concorrência entre metadados e capas
+
+O método `CatalogService.updateWork()` também utiliza `findByIdForUpdate()`.
+
+Como a atualização de metadados e a substituição de capa alteram a mesma entidade `Work`, ambas precisam observar o estado consolidado da transação anterior.
+
+A coordenação impede que uma atualização de metadados baseada em uma entidade carregada anteriormente sobrescreva a referência de uma capa recém-confirmada (*lost update*).
+
+Esse cenário foi validado com transações independentes no PostgreSQL, preservando tanto os metadados atualizados quanto a referência e o conteúdo da capa substituta.
+
+### 8.6. Limites da coordenação
+
+O bloqueio protege os fluxos que utilizam a mesma estratégia de acesso à linha. Ele não torna operações de filesystem transacionais, não elimina falhas de infraestrutura e não substitui as restrições relacionais do banco.
+
+Testes concorrentes baseados em sincronização de threads e janelas de tempo oferecem evidência de comportamento sob os cenários exercitados, mas não demonstram ausência de todas as condições de corrida possíveis.
+
 ## 9. Armazenamento binário
 
 O Metopa mantém arquivos binários fora do PostgreSQL.
@@ -538,12 +565,13 @@ O Metopa utiliza mecanismos compensatórios para reduzir as inconsistências nes
 
 ## 10. Consistência transacional entre PostgreSQL e filesystem
 
-A implementação atual diferencia duas situações:
+A implementação atual diferencia três situações:
 
 1. exclusão de conteúdo que já existe;
-2. upload de conteúdo que está sendo criado.
+2. upload de conteúdo que está sendo criado;
+3. substituição de uma capa existente por um novo arquivo.
 
-Cada situação possui uma estratégia própria.
+Cada situação exige coordenação entre os registros do PostgreSQL e os arquivos administrados por `BinaryStorage`.
 
 ### 10.1. Exclusão física após commit
 
@@ -649,40 +677,92 @@ Preservar arquivo            Excluir arquivo
                              recém-criado
 ```
 
-### 10.4. Comparação das estratégias
+### 10.4. Consistência transacional de capas
+
+O módulo `catalog` aplica compensações na criação e na substituição de capas por meio de `CatalogService.setCover()`.
+
+Após adquirir o bloqueio pessimista da obra e validar seu proprietário, o método:
+
+1. captura o `previousStorageKey` da capa anterior, se existir;
+2. armazena o novo arquivo utilizando `BinaryStorage.store()`;
+3. registra uma sincronização transacional com `afterCommit()` e `afterCompletion()`;
+4. atualiza a referência e o `Content-Type` da capa na entidade `Work`;
+5. deixa a confirmação ou reversão dos dados relacionais sob responsabilidade da transação PostgreSQL.
+
+**Quando há commit:** o arquivo novo é preservado e `afterCommit()` solicita a exclusão do arquivo anterior, desde que exista uma chave anterior diferente da nova.
+
+**Quando há rollback:** `afterCompletion(STATUS_ROLLED_BACK)` solicita a exclusão do arquivo recém-armazenado. A referência anterior permanece persistida no banco e seu arquivo não é excluído.
+
+**No primeiro upload:** como não existe capa anterior, não há arquivo antigo a remover após commit. Se a transação for revertida, o novo arquivo é excluído pela compensação.
+
+```text
+Upload ou substituição de capa
+    |
+    v
+Bloquear obra com PESSIMISTIC_WRITE
+    |
+    v
+Validar proprietário e capturar chave anterior
+    |
+    v
+Armazenar nova capa em BinaryStorage
+    |
+    v
+Registrar callbacks e atualizar Work
+    |
+    +-----------------------------------------+
+    |                                         |
+    v                                         v
+ COMMIT                                   ROLLBACK
+    |                                         |
+    v                                         v
+Preservar capa nova                     Preservar capa antiga
+Excluir capa antiga                     Excluir capa nova
+(se existir e for diferente)            via afterCompletion()
+via afterCommit()
+```
+
+Essa estratégia foi validada por testes de integração com PostgreSQL e filesystem local para substituições confirmadas, rollbacks e operações concorrentes sobre a mesma obra.
+
+### 10.5. Comparação das estratégias
 
 | Operação | Momento da limpeza | Objetivo |
 |----------|--------------------|----------|
 | Exclusão de página | Após commit | Não remover arquivo de registro que pode ser restaurado |
 | Exclusão de installment | Após commit | Não remover arquivos de páginas cuja exclusão pode ser revertida |
 | Upload de página | Após rollback | Não manter arquivo sem registro persistido |
+| Primeiro upload de capa | Após rollback | Não manter capa nova se o registro não for confirmado |
+| Substituição de capa — commit | Após commit | Remover arquivo da capa anterior sem afetar a nova referência |
+| Substituição de capa — rollback | Após rollback | Remover arquivo recém-armazenado e preservar a capa anterior |
 
 As estratégias são complementares.
 
 O armazenamento físico permanece encapsulado por `BinaryStorage`.
 
-A coordenação transacional pertence ao fluxo de negócio implementado em `publication`.
+A coordenação transacional pertence aos fluxos de negócio implementados nos módulos `publication` e `catalog`.
 
-### 10.5. Limitações conhecidas
+### 10.6. Limitações conhecidas
 
 Os callbacks transacionais não transformam PostgreSQL e filesystem em um sistema com transações distribuídas.
 
 A solução atual não oferece garantia durável de limpeza em todos os cenários.
 
-Situações que ainda podem produzir arquivos órfãos incluem:
+Situações que ainda podem produzir arquivos órfãos ou inconsistências incluem:
 
 - encerramento abrupto da JVM antes da execução de um callback;
 - falhas de acesso ao filesystem durante a exclusão;
 - interrupção da aplicação após o commit e antes de completar a limpeza física;
-- resultado transacional incerto;
+- resultado transacional incerto, incluindo `STATUS_UNKNOWN`;
 - falhas entre o armazenamento físico e o registro da compensação;
-- outros fluxos de armazenamento binário que ainda não utilizem a mesma compensação.
+- outros fluxos binários que não adotem essa estratégia.
 
-O callback de rollback implementado em `createPage()` atua especificamente sobre uploads de páginas.
+A compensação de rollback cobre o fluxo de `PublicationService.createPage()` e o fluxo de `CatalogService.setCover()` nos rollbacks observados pelo Spring.
 
-Não se deve assumir que outros fluxos, como substituição de capas, possuem automaticamente a mesma proteção.
+Se `binaryStorage.delete()` falhar durante `afterCommit()`, a transação relacional já terá sido confirmada. A limpeza poderá ficar pendente e a exceção poderá ser propagada, sem desfazer o commit.
 
-### 10.6. Possíveis evoluções
+Os callbacks atuais não persistem tarefas de limpeza para repetição após falha ou reinicialização da aplicação.
+
+### 10.7. Possíveis evoluções
 
 Uma implementação futura poderá avaliar mecanismos de limpeza durável ou reconciliação de arquivos.
 
@@ -752,7 +832,7 @@ Os contratos específicos de cada endpoint são descritos em [API.md](API.md).
 
 ## 12. Testes de arquitetura e integração
 
-A suíte automatizada possui **242 testes aprovados** na referência atual.
+Na validação completa de 26/10/2026, a suíte automatizada executou **248 testes com sucesso**, sem falhas, erros ou testes ignorados (`./mvnw clean test`).
 
 Entre os aspectos relacionados à arquitetura estão:
 
@@ -764,9 +844,12 @@ Entre os aspectos relacionados à arquitetura estão:
 - integração com Spring Web MVC;
 - armazenamento e leitura de arquivos;
 - exclusões transacionais;
-- compensação de upload em rollback;
+- compensação de upload em rollback para páginas e capas;
+- exclusão de capas anteriores após commit de substituição;
 - concorrência com transações independentes;
-- bloqueios pessimistas;
+- bloqueios pessimistas para installments e obras;
+- substituições concorrentes de capas;
+- concorrência entre atualização de metadados e substituição de capa;
 - preservação de registros e arquivos após rollback.
 
 O teste de modularidade ajuda a identificar dependências indevidas entre módulos.

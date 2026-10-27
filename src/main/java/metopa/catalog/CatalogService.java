@@ -6,10 +6,12 @@ import metopa.catalog.internal.WorkRepository;
 import metopa.media.BinaryStorage;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.validation.annotation.Validated;
 
-import java.util.UUID;
 import java.util.List;
+import java.util.UUID;
 
 @Service
 @Validated
@@ -53,7 +55,7 @@ public class CatalogService {
             UUID workId,
             @Valid UpdateWorkCommand command
     ) {
-        Work work = repository.findById(workId)
+        Work work = repository.findByIdForUpdate(workId)
                 .orElseThrow(() ->
                         new WorkNotFoundException(workId)
                 );
@@ -127,7 +129,7 @@ public class CatalogService {
             String contentType,
             byte[] content
     ) {
-        Work work = repository.findById(workId)
+        Work work = repository.findByIdForUpdate(workId)
                 .orElseThrow(() ->
                         new WorkNotFoundException(workId)
                 );
@@ -136,12 +138,35 @@ public class CatalogService {
             throw new WorkAccessDeniedException();
         }
 
+        String previousStorageKey =
+                work.getCoverStorageKey();
+
         String storageKey =
                 binaryStorage.store(
                         "covers",
                         workId,
                         content
                 );
+
+        TransactionSynchronizationManager.registerSynchronization(
+                new TransactionSynchronization() {
+
+                    @Override
+                    public void afterCommit() {
+                        if (previousStorageKey != null
+                                && !previousStorageKey.equals(storageKey)) {
+                            binaryStorage.delete(previousStorageKey);
+                        }
+                    }
+
+                    @Override
+                    public void afterCompletion(int status) {
+                        if (status == STATUS_ROLLED_BACK) {
+                            binaryStorage.delete(storageKey);
+                        }
+                    }
+                }
+        );
 
         work.setCover(
                 storageKey,
