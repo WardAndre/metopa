@@ -1,6 +1,7 @@
 package metopa.catalog.web;
 
 import metopa.catalog.WorkAccessDeniedException;
+import metopa.catalog.WorkNotFoundException;
 
 import jakarta.validation.ConstraintViolationException;
 import org.springframework.http.HttpStatus;
@@ -44,6 +45,24 @@ class CatalogExceptionHandler {
 
         problem.setDetail(
                 "The authenticated user cannot modify this work."
+        );
+
+        return problem;
+    }
+
+    @ExceptionHandler(WorkNotFoundException.class)
+    ProblemDetail handleWorkNotFound(
+            WorkNotFoundException exception
+    ) {
+        ProblemDetail problem =
+                ProblemDetail.forStatus(
+                        HttpStatus.NOT_FOUND
+                );
+
+        problem.setTitle("Work not found");
+
+        problem.setDetail(
+                "The requested work does not exist."
         );
 
         return problem;

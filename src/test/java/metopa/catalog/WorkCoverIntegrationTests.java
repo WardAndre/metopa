@@ -40,8 +40,9 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.response.SecurityMockMvcResultMatchers.authenticated;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -887,6 +888,657 @@ class WorkCoverIntegrationTests {
 
         } finally {
             allowMetadataCommit.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void shouldRemoveExistingCoverForWorkOwner()
+            throws Exception {
+
+        TestUser user = createUser("cover-removal");
+
+        UUID workId = createWork(user.id());
+
+        byte[] content =
+                "original-cover".getBytes(StandardCharsets.UTF_8);
+
+        catalogService.setCover(
+                user.id(),
+                workId,
+                "image/webp",
+                content
+        );
+
+        String storageKey =
+                jdbcTemplate.queryForObject(
+                        """
+                        SELECT cover_storage_key
+                        FROM work
+                        WHERE id = ?
+                        """,
+                        String.class,
+                        workId
+                );
+
+        Path coverFile =
+                Path.of("target/test-work-cover-storage")
+                        .resolve(storageKey);
+
+        assertThat(Files.exists(coverFile))
+                .isTrue();
+
+        MockHttpSession session = login(user.username());
+
+        mockMvc.perform(
+                        delete(
+                                "/api/works/{workId}/cover",
+                                workId
+                        )
+                                .session(session)
+                                .with(csrf())
+                )
+                .andExpect(status().isNoContent());
+
+        Map<String, Object> row =
+                jdbcTemplate.queryForMap(
+                        """
+                        SELECT cover_storage_key,
+                               cover_content_type
+                        FROM work
+                        WHERE id = ?
+                        """,
+                        workId
+                );
+
+        assertThat(row.get("cover_storage_key"))
+                .isNull();
+
+        assertThat(row.get("cover_content_type"))
+                .isNull();
+
+        assertThat(Files.exists(coverFile))
+                .isFalse();
+    }
+
+    @Test
+    void shouldPreserveCoverWhenRemovalRollsBack() {
+        TestUser user =
+                createUser("cover-removal-rollback");
+
+        UUID workId =
+                createWork(user.id());
+
+        byte[] content =
+                "original-cover-content".getBytes(
+                        StandardCharsets.UTF_8
+                );
+
+        catalogService.setCover(
+                user.id(),
+                workId,
+                "image/webp",
+                content
+        );
+
+        Map<String, Object> originalRow =
+                jdbcTemplate.queryForMap(
+                        """
+                        SELECT cover_storage_key,
+                               cover_content_type
+                        FROM work
+                        WHERE id = ?
+                        """,
+                        workId
+                );
+
+        String originalStorageKey =
+                (String) originalRow.get(
+                        "cover_storage_key"
+                );
+
+        assertThat(originalStorageKey)
+                .isNotNull();
+
+        assertThat(coverFiles(workId))
+                .hasSize(1);
+
+        TransactionTemplate transaction =
+                new TransactionTemplate(
+                        transactionManager
+                );
+
+        transaction.executeWithoutResult(status -> {
+            catalogService.removeCover(
+                    user.id(),
+                    workId
+            );
+
+            // The physical file must not be deleted
+            // before the transaction commits.
+            assertThat(coverFiles(workId))
+                    .hasSize(1);
+
+            status.setRollbackOnly();
+        });
+
+        Map<String, Object> persistedRow =
+                jdbcTemplate.queryForMap(
+                        """
+                        SELECT cover_storage_key,
+                               cover_content_type
+                        FROM work
+                        WHERE id = ?
+                        """,
+                        workId
+                );
+
+        assertThat(
+                persistedRow.get("cover_storage_key")
+        ).isEqualTo(originalStorageKey);
+
+        assertThat(
+                persistedRow.get("cover_content_type")
+        ).isEqualTo("image/webp");
+
+        assertThat(
+                binaryStorage.read(originalStorageKey)
+        ).isEqualTo(content);
+
+        assertThat(coverFiles(workId))
+                .hasSize(1);
+    }
+
+    @Test
+    void shouldRemoveCoverIdempotentlyWhenWorkHasNoCover()
+            throws Exception {
+
+        TestUser user =
+                createUser("cover-removal-idempotent");
+
+        UUID workId =
+                createWork(user.id());
+
+        MockHttpSession session =
+                login(user.username());
+
+        // First removal: the work has no cover.
+        mockMvc.perform(
+                        delete(
+                                "/api/works/{workId}/cover",
+                                workId
+                        )
+                                .session(session)
+                                .with(csrf())
+                )
+                .andExpect(status().isNoContent());
+
+        // Second removal: the operation remains idempotent.
+        mockMvc.perform(
+                        delete(
+                                "/api/works/{workId}/cover",
+                                workId
+                        )
+                                .session(session)
+                                .with(csrf())
+                )
+                .andExpect(status().isNoContent());
+
+        Map<String, Object> row =
+                jdbcTemplate.queryForMap(
+                        """
+                        SELECT cover_storage_key,
+                               cover_content_type
+                        FROM work
+                        WHERE id = ?
+                        """,
+                        workId
+                );
+
+        assertThat(
+                row.get("cover_storage_key")
+        ).isNull();
+
+        assertThat(
+                row.get("cover_content_type")
+        ).isNull();
+    }
+
+    @Test
+    void shouldRejectCoverRemovalFromAnotherUser()
+            throws Exception {
+
+        TestUser owner =
+                createUser("cover-removal-owner");
+
+        TestUser anotherUser =
+                createUser("cover-removal-other");
+
+        UUID workId =
+                createWork(owner.id());
+
+        byte[] content =
+                "original-cover".getBytes(StandardCharsets.UTF_8);
+
+        catalogService.setCover(
+                owner.id(),
+                workId,
+                "image/webp",
+                content
+        );
+
+        String originalStorageKey =
+                jdbcTemplate.queryForObject(
+                        """
+                        SELECT cover_storage_key
+                        FROM work
+                        WHERE id = ?
+                        """,
+                        String.class,
+                        workId
+                );
+
+        assertThat(originalStorageKey)
+                .isNotNull();
+
+        MockHttpSession session =
+                login(anotherUser.username());
+
+        mockMvc.perform(
+                        delete(
+                                "/api/works/{workId}/cover",
+                                workId
+                        )
+                                .session(session)
+                                .with(csrf())
+                )
+                .andExpect(status().isForbidden())
+                .andExpect(
+                        jsonPath("$.title")
+                                .value("Work access denied")
+                )
+                .andExpect(
+                        jsonPath("$.status")
+                                .value(403)
+                );
+
+        Map<String, Object> row =
+                jdbcTemplate.queryForMap(
+                        """
+                        SELECT cover_storage_key,
+                               cover_content_type
+                        FROM work
+                        WHERE id = ?
+                        """,
+                        workId
+                );
+
+        assertThat(row.get("cover_storage_key"))
+                .isEqualTo(originalStorageKey);
+
+        assertThat(row.get("cover_content_type"))
+                .isEqualTo("image/webp");
+
+        assertThat(
+                binaryStorage.read(originalStorageKey)
+        ).isEqualTo(content);
+
+        assertThat(coverFiles(workId))
+                .hasSize(1);
+    }
+
+    @Test
+    void shouldRejectUnauthenticatedCoverRemoval()
+            throws Exception {
+
+        TestUser owner =
+                createUser("cover-unauth");
+
+        UUID workId =
+                createWork(owner.id());
+
+        byte[] content =
+                "original-cover".getBytes(StandardCharsets.UTF_8);
+
+        catalogService.setCover(
+                owner.id(),
+                workId,
+                "image/webp",
+                content
+        );
+
+        String originalStorageKey =
+                jdbcTemplate.queryForObject(
+                        """
+                        SELECT cover_storage_key
+                        FROM work
+                        WHERE id = ?
+                        """,
+                        String.class,
+                        workId
+                );
+
+        assertThat(originalStorageKey)
+                .isNotNull();
+
+        mockMvc.perform(
+                        delete(
+                                "/api/works/{workId}/cover",
+                                workId
+                        )
+                                .with(csrf())
+                )
+                .andExpect(status().isUnauthorized());
+
+        Map<String, Object> row =
+                jdbcTemplate.queryForMap(
+                        """
+                        SELECT cover_storage_key,
+                               cover_content_type
+                        FROM work
+                        WHERE id = ?
+                        """,
+                        workId
+                );
+
+        assertThat(row.get("cover_storage_key"))
+                .isEqualTo(originalStorageKey);
+
+        assertThat(row.get("cover_content_type"))
+                .isEqualTo("image/webp");
+
+        assertThat(binaryStorage.read(originalStorageKey))
+                .isEqualTo(content);
+
+        assertThat(coverFiles(workId))
+                .hasSize(1);
+    }
+
+    @Test
+    void shouldRequireCsrfForCoverRemoval()
+            throws Exception {
+
+        TestUser owner =
+                createUser("cover-removal-csrf");
+
+        UUID workId =
+                createWork(owner.id());
+
+        byte[] content =
+                "original-cover".getBytes(StandardCharsets.UTF_8);
+
+        catalogService.setCover(
+                owner.id(),
+                workId,
+                "image/webp",
+                content
+        );
+
+        String originalStorageKey =
+                jdbcTemplate.queryForObject(
+                        """
+                        SELECT cover_storage_key
+                        FROM work
+                        WHERE id = ?
+                        """,
+                        String.class,
+                        workId
+                );
+
+        assertThat(originalStorageKey)
+                .isNotNull();
+
+        MockHttpSession session =
+                login(owner.username());
+
+        mockMvc.perform(
+                        delete(
+                                "/api/works/{workId}/cover",
+                                workId
+                        )
+                                .session(session)
+                )
+                .andExpect(status().isForbidden());
+
+        Map<String, Object> row =
+                jdbcTemplate.queryForMap(
+                        """
+                        SELECT cover_storage_key,
+                               cover_content_type
+                        FROM work
+                        WHERE id = ?
+                        """,
+                        workId
+                );
+
+        assertThat(row.get("cover_storage_key"))
+                .isEqualTo(originalStorageKey);
+
+        assertThat(row.get("cover_content_type"))
+                .isEqualTo("image/webp");
+
+        assertThat(
+                binaryStorage.read(originalStorageKey)
+        ).isEqualTo(content);
+
+        assertThat(coverFiles(workId))
+                .hasSize(1);
+    }
+
+    @Test
+    void shouldReturnNotFoundWhenRemovingCoverFromNonexistentWork()
+            throws Exception {
+
+        TestUser user =
+                createUser("cover-removal-notfound");
+
+        UUID nonexistentWorkId =
+                UUID.randomUUID();
+
+        MockHttpSession session =
+                login(user.username());
+
+        mockMvc.perform(
+                        delete(
+                                "/api/works/{workId}/cover",
+                                nonexistentWorkId
+                        )
+                                .session(session)
+                                .with(csrf())
+                )
+                .andExpect(status().isNotFound());
+
+        Integer workCount =
+                jdbcTemplate.queryForObject(
+                        """
+                        SELECT COUNT(*)
+                        FROM work
+                        WHERE id = ?
+                        """,
+                        Integer.class,
+                        nonexistentWorkId
+                );
+
+        assertThat(workCount)
+                .isZero();
+    }
+
+    @Test
+    void shouldPreserveReplacementWhenCoverRemovalCommitsConcurrently()
+            throws Exception {
+
+        TestUser owner =
+                createUser("cover-removal-race");
+
+        UUID workId =
+                createWork(owner.id());
+
+        byte[] originalContent =
+                "original-cover".getBytes(
+                        StandardCharsets.UTF_8
+                );
+
+        byte[] replacementContent =
+                "replacement-cover".getBytes(
+                        StandardCharsets.UTF_8
+                );
+
+        catalogService.setCover(
+                owner.id(),
+                workId,
+                "image/webp",
+                originalContent
+        );
+
+        String originalStorageKey =
+                jdbcTemplate.queryForObject(
+                        """
+                        SELECT cover_storage_key
+                        FROM work
+                        WHERE id = ?
+                        """,
+                        String.class,
+                        workId
+                );
+
+        assertThat(originalStorageKey).isNotNull();
+        assertThat(coverFiles(workId)).hasSize(1);
+
+        CountDownLatch removalReady =
+                new CountDownLatch(1);
+
+        CountDownLatch allowRemovalCommit =
+                new CountDownLatch(1);
+
+        CountDownLatch replacementStarted =
+                new CountDownLatch(1);
+
+        CountDownLatch replacementFinished =
+                new CountDownLatch(1);
+
+        ExecutorService executor =
+                Executors.newFixedThreadPool(2);
+
+        try {
+            Future<?> removal = executor.submit(() -> {
+                TransactionTemplate transaction =
+                        new TransactionTemplate(
+                                transactionManager
+                        );
+
+                transaction.executeWithoutResult(status -> {
+                    catalogService.removeCover(
+                            owner.id(),
+                            workId
+                    );
+
+                    removalReady.countDown();
+
+                    try {
+                        if (!allowRemovalCommit.await(
+                                10,
+                                TimeUnit.SECONDS
+                        )) {
+                            throw new IllegalStateException(
+                                    "Timed out waiting for removal commit"
+                            );
+                        }
+                    } catch (InterruptedException exception) {
+                        Thread.currentThread().interrupt();
+                        throw new IllegalStateException(
+                                exception
+                        );
+                    }
+                });
+            });
+
+            assertThat(
+                    removalReady.await(
+                            10,
+                            TimeUnit.SECONDS
+                    )
+            ).isTrue();
+
+            // The original file must still exist
+            // before the removal transaction commits.
+            assertThat(coverFiles(workId))
+                    .hasSize(1);
+
+            Future<?> replacement = executor.submit(() -> {
+                replacementStarted.countDown();
+
+                try {
+                    catalogService.setCover(
+                            owner.id(),
+                            workId,
+                            "image/png",
+                            replacementContent
+                    );
+                } finally {
+                    replacementFinished.countDown();
+                }
+            });
+
+            assertThat(
+                    replacementStarted.await(
+                            10,
+                            TimeUnit.SECONDS
+                    )
+            ).isTrue();
+
+            // Replacement must not complete while
+            // the removal transaction holds the lock.
+            assertThat(
+                    replacementFinished.await(
+                            300,
+                            TimeUnit.MILLISECONDS
+                    )
+            ).isFalse();
+
+            // No replacement file should have been
+            // stored while the row remains locked.
+            assertThat(coverFiles(workId))
+                    .hasSize(1);
+
+            allowRemovalCommit.countDown();
+
+            removal.get(15, TimeUnit.SECONDS);
+            replacement.get(15, TimeUnit.SECONDS);
+
+            Map<String, Object> row =
+                    jdbcTemplate.queryForMap(
+                            """
+                            SELECT cover_storage_key,
+                                   cover_content_type
+                            FROM work
+                            WHERE id = ?
+                            """,
+                            workId
+                    );
+
+            String finalStorageKey =
+                    (String) row.get(
+                            "cover_storage_key"
+                    );
+
+            assertThat(finalStorageKey)
+                    .isNotNull()
+                    .isNotEqualTo(originalStorageKey);
+
+            assertThat(
+                    row.get("cover_content_type")
+            ).isEqualTo("image/png");
+
+            assertThat(
+                    binaryStorage.read(finalStorageKey)
+            ).isEqualTo(replacementContent);
+
+            // Only the replacement cover should remain.
+            assertThat(coverFiles(workId))
+                    .hasSize(1);
+
+        } finally {
+            allowRemovalCommit.countDown();
             executor.shutdownNow();
         }
     }

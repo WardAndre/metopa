@@ -277,4 +277,37 @@ public class CatalogService {
                 content
         );
     }
+
+    @Transactional
+    public void removeCover(
+            UUID userId,
+            UUID workId
+    ) {
+        Work work = repository.findByIdForUpdate(workId)
+                .orElseThrow(() ->
+                        new WorkNotFoundException(workId)
+                );
+
+        if (!work.getOwnerId().equals(userId)) {
+            throw new WorkAccessDeniedException();
+        }
+
+        String storageKey = work.getCoverStorageKey();
+
+        if (storageKey == null) {
+            return;
+        }
+
+        work.clearCover();
+
+        TransactionSynchronizationManager.registerSynchronization(
+                new TransactionSynchronization() {
+
+                    @Override
+                    public void afterCommit() {
+                        binaryStorage.delete(storageKey);
+                    }
+                }
+        );
+    }
 }

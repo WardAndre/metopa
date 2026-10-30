@@ -11,7 +11,7 @@ O projeto utiliza Java 25, Spring Boot 4.1, JUnit, Mockito, Spring Test e Postgr
 A última execução completa reportada da suíte apresentou:
 
 ```text
-Tests run: 248
+Tests run: 258
 Failures: 0
 Errors: 0
 Skipped: 0
@@ -19,17 +19,32 @@ Skipped: 0
 BUILD SUCCESS
 ```
 
-A execução foi realizada em 26 de outubro de 2026, através do comando:
+A execução foi realizada em 29 de outubro de 2026, através do comando:
 
 ```bash
 ./mvnw clean test
 ```
 
-O tempo total registrado foi de aproximadamente 2 minutos e 23 segundos.
+O tempo total registrado foi de aproximadamente 2 minutos e 34 segundos.
 
-A referência anterior era de 242 testes aprovados, estabelecida após a implementação da compensação de uploads de páginas em caso de rollback.
+A referência anterior era de 248 testes aprovados, estabelecida após a implementação da `feature/cover-transaction-consistency`.
 
-A execução atual contempla também os testes introduzidos durante o desenvolvimento da `feature/cover-transaction-consistency`, incluindo:
+A execução atual contempla também os dez testes introduzidos durante o desenvolvimento da `feature/creator-cover-removal`.
+
+Entre os comportamentos validados estão:
+
+- remoção de capas existentes;
+- exclusão física de arquivos após commit;
+- preservação de referências e arquivos após rollback;
+- idempotência na remoção de obras sem capa;
+- autorização por propriedade da obra;
+- rejeição de operações sem autenticação;
+- proteção CSRF;
+- tratamento de obras inexistentes com HTTP `404`;
+- concorrência entre remoção e substituição de capas;
+- execução correta dos callbacks transacionais em testes unitários.
+
+A suíte também preserva os testes introduzidos na `feature/cover-transaction-consistency`, incluindo:
 
 - compensação de uploads de capas após rollback;
 - remoção da capa anterior após commit;
@@ -84,6 +99,15 @@ No módulo `catalog`, os testes também verificam a utilização de `findByIdFor
 
 Essa verificação confirma a interação com o repository, mas não demonstra, isoladamente, a aquisição de bloqueios no PostgreSQL.
 
+Os testes unitários da remoção de capas verificam que:
+
+- a referência da capa é removida da entidade;
+- a exclusão física é solicitada após commit;
+- a exclusão física não é solicitada após rollback;
+- o serviço utiliza o repository com bloqueio pessimista.
+
+A reversão efetiva dos dados persistidos é verificada separadamente pelos testes de integração.
+
 ### 3.2. Testes de integração
 
 Os testes de integração verificam o comportamento conjunto de diferentes componentes da aplicação.
@@ -102,6 +126,8 @@ Esses testes são especialmente relevantes para funcionalidades cujo comportamen
 
 Os testes de consistência de capas verificam simultaneamente o estado persistido no PostgreSQL e a presença dos arquivos no filesystem.
 
+Na remoção de capas, os testes verificam tanto a exclusão confirmada quanto a preservação dos dados e arquivos em cenários de rollback ou operações não autorizadas.
+
 ### 3.3. Testes de contratos HTTP
 
 Os testes HTTP verificam o comportamento observado pelo cliente da aplicação.
@@ -119,6 +145,14 @@ Entre os aspectos validados estão:
 - persistência dos efeitos das operações.
 
 O Spring MockMvc é utilizado nos testes que exercitam a camada HTTP sem exigir um servidor externo iniciado manualmente.
+
+O endpoint de remoção de capas utiliza:
+
+```http
+DELETE /api/works/{workId}/cover
+```
+
+Os testes verificam as respostas `204 No Content`, `401 Unauthorized`, `403 Forbidden` e `404 Not Found`, conforme o cenário.
 
 ### 3.4. Testes de modularidade
 
@@ -203,6 +237,12 @@ Para os testes unitários do módulo `catalog`:
 ./mvnw -Dtest=CatalogServiceTests test
 ```
 
+Para os testes HTTP do controller de capas:
+
+```bash
+./mvnw -Dtest=WorkCoverControllerTests test
+```
+
 Para os testes de integração de capas:
 
 ```bash
@@ -213,6 +253,36 @@ Também é possível executar um método específico:
 
 ```bash
 ./mvnw -Dtest=WorkCoverIntegrationTests#shouldRemoveNewCoverWhenReplacementRollsBack test
+```
+
+Para executar o teste de remoção de capa existente:
+
+```bash
+./mvnw -Dtest=WorkCoverIntegrationTests#shouldRemoveExistingCoverForWorkOwner test
+```
+
+Para executar o teste de rollback da remoção:
+
+```bash
+./mvnw -Dtest=WorkCoverIntegrationTests#shouldPreserveCoverWhenRemovalRollsBack test
+```
+
+Para executar o teste de concorrência entre remoção e substituição:
+
+```bash
+./mvnw -Dtest=WorkCoverIntegrationTests#shouldPreserveReplacementWhenCoverRemovalCommitsConcurrently test
+```
+
+Para verificar o callback de remoção após commit:
+
+```bash
+./mvnw -Dtest=CatalogServiceTests#shouldDeleteCoverFileAfterRemovalCommit test
+```
+
+Para verificar a preservação do arquivo após rollback:
+
+```bash
+./mvnw -Dtest=CatalogServiceTests#shouldPreserveCoverFileAfterRemovalRollback test
 ```
 
 Essa abordagem permite obter feedback mais rápido durante as etapas de implementação.
@@ -322,6 +392,125 @@ A implementação passou a coordenar `updateWork()` e `setCover()` através do m
 
 Depois desses ciclos, a suíte completa foi executada com 248 testes aprovados.
 
+### 5.6. Exemplo: remoção de capas
+
+A `feature/creator-cover-removal` foi desenvolvida de forma incremental, acrescentando testes para os comportamentos funcionais, transacionais, de segurança e de concorrência.
+
+**Primeiro cenário — remoção de capa existente**
+
+O teste:
+
+```java
+shouldRemoveExistingCoverForWorkOwner();
+```
+
+foi criado para verificar a exclusão de uma capa existente pelo proprietário da obra.
+
+Durante o RED, o endpoint retornava `405 Method Not Allowed`, pois o método `DELETE` ainda não estava implementado.
+
+A implementação introduziu:
+
+- `DELETE /api/works/{workId}/cover`;
+- `CatalogService.removeCover()`;
+- `Work.clearCover()`;
+- limpeza física após commit.
+
+**Segundo cenário — rollback da remoção**
+
+O teste:
+
+```java
+shouldPreserveCoverWhenRemovalRollsBack();
+```
+
+verifica que a referência original e o arquivo físico permanecem preservados quando a transação sofre rollback.
+
+**Terceiro cenário — idempotência**
+
+O teste:
+
+```java
+shouldRemoveCoverIdempotentlyWhenWorkHasNoCover();
+```
+
+verifica que uma obra existente sem capa pode receber chamadas repetidas de remoção, retornando `204 No Content`.
+
+**Quarto cenário — propriedade da obra**
+
+O teste:
+
+```java
+shouldRejectCoverRemovalFromAnotherUser();
+```
+
+verifica que outro usuário autenticado recebe `403 Forbidden` e não consegue alterar a referência nem remover o arquivo físico da capa.
+
+**Quinto cenário — autenticação**
+
+O teste:
+
+```java
+shouldRejectUnauthenticatedCoverRemoval();
+```
+
+verifica que uma requisição sem sessão autenticada recebe `401 Unauthorized`.
+
+**Sexto cenário — proteção CSRF**
+
+O teste:
+
+```java
+shouldRequireCsrfForCoverRemoval();
+```
+
+verifica que uma requisição autenticada sem token CSRF válido recebe `403 Forbidden`.
+
+**Sétimo cenário — obra inexistente**
+
+O teste:
+
+```java
+shouldReturnNotFoundWhenRemovingCoverFromNonexistentWork();
+```
+
+identificou uma exceção `WorkNotFoundException` não traduzida pela camada HTTP.
+
+A implementação passou a tratar essa exceção em `CatalogExceptionHandler`, retornando `404 Not Found` através de `ProblemDetail`.
+
+**Oitavo cenário — concorrência com substituição**
+
+O teste:
+
+```java
+shouldPreserveReplacementWhenCoverRemovalCommitsConcurrently();
+```
+
+verifica o comportamento de duas transações independentes, uma removendo a capa e outra realizando sua substituição.
+
+O resultado esperado é preservar apenas a nova capa e sua referência correspondente no PostgreSQL.
+
+**Nono cenário — callback de commit**
+
+O teste unitário:
+
+```java
+shouldDeleteCoverFileAfterRemovalCommit();
+```
+
+verifica que a remoção solicita a exclusão física da capa depois do commit.
+
+**Décimo cenário — callback de rollback**
+
+O teste unitário:
+
+```java
+shouldPreserveCoverFileAfterRemovalRollback();
+```
+
+verifica que a exclusão física não é solicitada quando a remoção sofre rollback.
+
+Depois desses cenários, a suíte completa foi executada com 258 testes aprovados.
+
 ## 6. Cobertura funcional
 
 Os testes estão distribuídos entre os domínios e responsabilidades da aplicação.
@@ -363,7 +552,15 @@ Os testes verificam:
 - compensação de uploads de capas após rollback;
 - remoção de capas anteriores após commit;
 - substituições concorrentes de capas;
-- concorrência entre atualizações de metadados e substituições de capas.
+- concorrência entre atualizações de metadados e substituições de capas;
+- remoção de capas pelo proprietário;
+- remoção idempotente de obras sem capa;
+- limpeza física após commit de remoção;
+- preservação de referências e arquivos após rollback de remoção;
+- rejeição de remoções não autorizadas;
+- proteção CSRF nas operações de remoção;
+- resposta `404 Not Found` para obras inexistentes;
+- concorrência entre remoção e substituição de capas.
 
 A integração com PostgreSQL verifica a persistência real dos dados e de suas associações.
 
@@ -440,17 +637,25 @@ Operações privadas exigem uma sessão autenticada.
 
 Os testes verificam respostas apropriadas quando o usuário não está autenticado.
 
+Na remoção de capas, uma requisição sem sessão autenticada recebe `401 Unauthorized`.
+
 ### 7.2. Autorização
 
 Operações administrativas sobre obras, installments, páginas e capas são restritas aos proprietários correspondentes.
 
 Os testes verificam que um usuário não pode modificar ou consultar indevidamente o conteúdo administrativo pertencente a outro usuário.
 
+Na remoção de capas, uma tentativa realizada por outro usuário autenticado deve retornar `403 Forbidden`, preservando os dados e o arquivo físico.
+
 ### 7.3. CSRF
 
 Operações protegidas que alteram estado exigem um token CSRF válido.
 
 Os testes verificam a proteção contra requisições que não atendem a essa exigência.
+
+O endpoint `DELETE /api/works/{workId}/cover` é protegido por CSRF.
+
+Uma tentativa de remoção autenticada sem o token exigido deve retornar `403 Forbidden`, sem modificar a capa.
 
 ### 7.4. Respostas HTTP
 
@@ -459,6 +664,9 @@ Os contratos utilizam códigos adequados para diferentes situações.
 Entre os códigos verificados estão:
 
 ```text
+200 OK
+201 Created
+204 No Content
 400 Bad Request
 401 Unauthorized
 403 Forbidden
@@ -467,6 +675,17 @@ Entre os códigos verificados estão:
 ```
 
 Os testes também verificam a preservação dos dados quando operações inválidas ou não autorizadas são rejeitadas.
+
+Para o endpoint de remoção de capas, os códigos esperados são:
+
+| Situação | Resposta |
+|----------|----------|
+| Proprietário remove capa existente | `204 No Content` |
+| Proprietário remove capa já ausente | `204 No Content` |
+| Usuário não autenticado | `401 Unauthorized` |
+| Usuário não é proprietário | `403 Forbidden` |
+| Token CSRF ausente ou inválido | `403 Forbidden` |
+| Obra inexistente | `404 Not Found` |
 
 ### 7.5. Visão pública e administrativa
 
@@ -479,6 +698,10 @@ Os testes verificam a separação entre:
 Installments não publicados não devem ficar disponíveis através dos endpoints públicos.
 
 O proprietário pode acessar conteúdos em draft através dos endpoints administrativos apropriados.
+
+A remoção da capa é uma operação administrativa e não depende da existência de installments publicados.
+
+Ela não altera o estado de publicação do conteúdo.
 
 ## 8. Testes de persistência
 
@@ -522,6 +745,25 @@ Quando uma operação envolve arquivos físicos, a validação também considera
 
 Na substituição de capas, os testes verificam especificamente que o rollback restaura a referência anterior no PostgreSQL e que o arquivo da nova capa é removido.
 
+Na remoção de capas, os testes verificam que o rollback preserva a referência anterior no PostgreSQL e mantém o arquivo original disponível.
+
+### 8.4. Persistência da remoção de capas
+
+A operação `CatalogService.removeCover()` altera a entidade `Work`, removendo os valores associados à capa.
+
+Os campos afetados são:
+
+```text
+cover_storage_key
+cover_content_type
+```
+
+Após um commit bem-sucedido, ambos devem permanecer nulos no PostgreSQL.
+
+Quando a transação sofre rollback, os valores anteriores devem permanecer persistidos.
+
+Os testes também verificam que a remoção da capa não implica a exclusão da obra.
+
 ## 9. Testes de armazenamento binário
 
 Arquivos de páginas e capas são armazenados fora do PostgreSQL.
@@ -557,6 +799,14 @@ Na substituição de capas, a limpeza física segue duas regras complementares:
 - a capa anterior é removida após o commit;
 - a capa recém-armazenada é removida após rollback.
 
+Na remoção explícita de capas:
+
+- a referência é removida no PostgreSQL;
+- o arquivo original é excluído somente após commit;
+- em caso de rollback, a referência e o arquivo original permanecem preservados.
+
+Os testes de integração verificam que a exclusão física não acontece antes da confirmação da transação.
+
 ### 9.4. Segurança dos caminhos
 
 A implementação de filesystem verifica a resolução dos caminhos em relação à raiz configurada.
@@ -567,7 +817,7 @@ Os testes incluem a proteção contra operações fora dessa raiz.
 
 O PostgreSQL e o filesystem não compartilham uma transação distribuída.
 
-Por esse motivo, o Metopa utiliza estratégias complementares para operações de criação, exclusão e substituição de arquivos.
+Por esse motivo, o Metopa utiliza estratégias complementares para operações de criação, exclusão, substituição e remoção de arquivos.
 
 Os testes de integração são importantes para verificar o comportamento dessas estratégias.
 
@@ -694,7 +944,7 @@ Comportamento esperado:
 
 No primeiro upload de uma obra, não existe arquivo anterior para remover após o commit.
 
-Essas garantias se referem às transações e aos callbacks que terminam normalmente. Falhas abruptas ou erros durante a limpeza física continuam sujeitos às limitações descritas na seção 10.8.
+Essas garantias se referem às transações e aos callbacks que terminam normalmente. Falhas abruptas ou erros durante a limpeza física continuam sujeitos às limitações descritas na seção 10.9.
 
 ### 10.6. Testes de regressão das capas
 
@@ -748,7 +998,168 @@ Depois da implementação de `afterCommit()`, o teste passou.
 
 Esses cenários validam os efeitos da operação sobre o PostgreSQL e o filesystem, e não somente os métodos chamados pela aplicação.
 
-### 10.7. Testes unitários dos callbacks
+### 10.7. Consistência transacional da remoção de capas
+
+A operação `CatalogService.removeCover()` permite remover a capa de uma obra pertencente ao usuário autenticado.
+
+A implementação utiliza bloqueio pessimista sobre a entidade `Work` antes de modificar os dados.
+
+Quando existe uma capa, o serviço:
+
+1. adquire o bloqueio da obra;
+2. valida a propriedade;
+3. captura o `storageKey` anterior;
+4. remove a referência e o `Content-Type` através de `Work.clearCover()`;
+5. registra um callback `afterCommit()` para excluir o arquivo original.
+
+A exclusão física não ocorre imediatamente.
+
+**Commit**
+
+Quando a transação é confirmada:
+
+- a referência da capa deixa de existir no PostgreSQL;
+- o `Content-Type` passa a ser `null`;
+- o arquivo físico anterior é removido através de `BinaryStorage`.
+
+**Rollback**
+
+Quando a transação é revertida:
+
+- o PostgreSQL preserva a referência original;
+- o `Content-Type` anterior permanece persistido;
+- o callback `afterCommit()` não é executado;
+- o arquivo físico original permanece disponível.
+
+Comportamento esperado:
+
+| Resultado | Referência no PostgreSQL | Arquivo original |
+|-----------|--------------------------|------------------|
+| Commit | Removida | Removido após commit |
+| Rollback | Preservada | Preservado |
+
+**Obra sem capa**
+
+Quando a obra existe, mas não possui capa, a operação retorna normalmente.
+
+Nenhum arquivo é excluído.
+
+A resposta HTTP permanece `204 No Content`.
+
+**Obra inexistente**
+
+Quando a obra não existe, a operação retorna `404 Not Found`.
+
+A idempotência aplica-se à ausência de capa em uma obra existente, não à ausência da própria obra.
+
+#### Testes de integração da remoção
+
+Os cenários são implementados em:
+
+```text
+WorkCoverIntegrationTests
+```
+
+**Remoção de capa existente**
+
+```java
+shouldRemoveExistingCoverForWorkOwner();
+```
+
+Verifica que:
+
+- o proprietário pode remover a capa;
+- a resposta HTTP é `204 No Content`;
+- a referência no PostgreSQL é removida;
+- o `Content-Type` é removido;
+- o arquivo físico anterior é excluído após commit.
+
+**Rollback da remoção**
+
+```java
+shouldPreserveCoverWhenRemovalRollsBack();
+```
+
+Utiliza `TransactionTemplate` para executar a operação dentro de uma transação real.
+
+O teste verifica:
+
+1. a capa original existe;
+2. a remoção é executada dentro da transação;
+3. o arquivo físico ainda existe antes do commit;
+4. a transação é revertida;
+5. a referência anterior permanece persistida;
+6. o arquivo original permanece disponível.
+
+**Remoção idempotente**
+
+```java
+shouldRemoveCoverIdempotentlyWhenWorkHasNoCover();
+```
+
+Verifica que chamadas repetidas à operação sobre uma obra sem capa retornam `204 No Content`.
+
+Os campos persistidos permanecem nulos e nenhum arquivo físico é criado ou removido indevidamente.
+
+**Usuário sem propriedade**
+
+```java
+shouldRejectCoverRemovalFromAnotherUser();
+```
+
+Verifica que outro usuário autenticado recebe `403 Forbidden`.
+
+A referência e o arquivo físico permanecem preservados.
+
+**Usuário não autenticado**
+
+```java
+shouldRejectUnauthenticatedCoverRemoval();
+```
+
+Verifica que uma requisição sem sessão autenticada recebe `401 Unauthorized`.
+
+A capa permanece inalterada.
+
+**Requisição sem CSRF**
+
+```java
+shouldRequireCsrfForCoverRemoval();
+```
+
+Verifica que uma requisição autenticada sem o token CSRF exigido recebe `403 Forbidden`.
+
+A referência e o arquivo permanecem preservados.
+
+**Obra inexistente**
+
+```java
+shouldReturnNotFoundWhenRemovingCoverFromNonexistentWork();
+```
+
+Verifica que uma tentativa de remoção para um `workId` inexistente retorna `404 Not Found`.
+
+O teste também protege contra regressões no tratamento HTTP de `WorkNotFoundException`.
+
+**Concorrência entre remoção e substituição**
+
+```java
+shouldPreserveReplacementWhenCoverRemovalCommitsConcurrently();
+```
+
+Verifica que uma remoção em transação aberta impede que uma substituição concorrente avance antes da liberação do bloqueio.
+
+Após a conclusão das duas operações:
+
+- o PostgreSQL referencia a nova capa;
+- o `Content-Type` corresponde ao novo conteúdo;
+- o conteúdo binário pode ser recuperado;
+- o arquivo anterior foi removido;
+- somente a nova capa permanece no filesystem.
+
+O teste utiliza transações independentes, `CountDownLatch`, `Future` e verificações do estado final persistido.
+
+### 10.8. Testes unitários dos callbacks
 
 Os serviços `PublicationService` e `CatalogService` possuem testes unitários relacionados às operações com arquivos.
 
@@ -773,7 +1184,7 @@ Para `STATUS_ROLLED_BACK`, executa `afterCompletion()` com o status corresponden
 
 O contexto de sincronização é limpo ao final do teste.
 
-Entre os testes relevantes estão:
+Entre os testes relevantes de definição e substituição de capas estão:
 
 ```java
 shouldSetCoverForWorkOwner();
@@ -782,13 +1193,33 @@ shouldDeletePreviousCoverAfterTransactionCommit();
 shouldRejectCoverFromUserWhoDoesNotOwnWork();
 ```
 
-Os testes verificam as interações com `BinaryStorage` e a utilização do repository apropriado.
+Para a remoção de capas, foram adicionados:
 
-Essa abordagem não substitui os testes de integração com PostgreSQL.
+```java
+shouldDeleteCoverFileAfterRemovalCommit();
+shouldPreserveCoverFileAfterRemovalRollback();
+```
 
-Ela complementa a verificação do comportamento do serviço isolado.
+O primeiro teste verifica que `CatalogService.removeCover()`:
 
-### 10.8. Limitações da cobertura transacional
+- utiliza `findByIdForUpdate()`;
+- remove os metadados da capa da entidade;
+- registra a exclusão física após commit;
+- solicita `BinaryStorage.delete()` quando o callback é executado.
+
+O segundo teste verifica que:
+
+- o serviço utiliza `findByIdForUpdate()`;
+- o callback de exclusão física não é executado no rollback;
+- `BinaryStorage.delete()` não é chamado para o arquivo original.
+
+Esses testes validam os callbacks simulados e as interações do serviço.
+
+Eles não demonstram a reversão real de uma entidade JPA em memória.
+
+A preservação da referência persistida após rollback é validada pelos testes de integração com PostgreSQL.
+
+### 10.9. Limitações da cobertura transacional
 
 Os testes atuais validam comportamentos em transações normais e cenários de rollback controlados.
 
@@ -804,9 +1235,11 @@ Entre as limitações conhecidas estão:
 
 A compensação de rollback está implementada nos fluxos de upload de páginas e de substituição de capas descritos neste documento.
 
+A remoção de capas utiliza uma estratégia complementar: preservar o arquivo original durante a transação e excluí-lo apenas após commit.
+
 Não se deve assumir que todos os fluxos de armazenamento possuem automaticamente a mesma proteção.
 
-Em particular, uma falha na exclusão da capa anterior durante `afterCommit()` pode deixar o arquivo antigo armazenado mesmo após a confirmação da nova referência no PostgreSQL.
+Em particular, uma falha na exclusão da capa anterior durante `afterCommit()` pode deixar o arquivo antigo armazenado mesmo após a confirmação da nova referência ou da remoção da referência no PostgreSQL.
 
 A suíte atual não representa uma garantia de atomicidade distribuída entre banco de dados e filesystem.
 
@@ -920,7 +1353,44 @@ Assim, `updateWork()` e `setCover()` utilizam o mesmo mecanismo de coordenação
 
 O teste passou após essa alteração.
 
-### 11.5. Por que utilizar PostgreSQL real?
+### 11.5. Concorrência entre remoção e substituição de capas
+
+O módulo `catalog` também utiliza o bloqueio pessimista na remoção de capas.
+
+As operações `removeCover()` e `setCover()` acessam a obra através de `findByIdForUpdate()`.
+
+O cenário de integração é:
+
+```java
+shouldPreserveReplacementWhenCoverRemovalCommitsConcurrently();
+```
+
+O teste utiliza duas transações independentes.
+
+A primeira remove a capa e mantém a transação aberta.
+
+A segunda tenta substituir a capa enquanto a primeira ainda possui o bloqueio da obra.
+
+A substituição não deve ser concluída antes da liberação do bloqueio.
+
+Durante esse período, o arquivo original permanece armazenado até o commit da remoção.
+
+Após a confirmação da primeira transação, a segunda pode prosseguir com a definição da nova capa.
+
+O teste verifica:
+
+- aquisição do bloqueio durante a remoção;
+- preservação do arquivo original antes do commit;
+- ausência de conclusão prematura da substituição;
+- persistência da referência da nova capa;
+- persistência do novo `Content-Type`;
+- leitura do conteúdo binário da nova capa;
+- exclusão física da capa original;
+- existência de somente uma capa no diretório ao final.
+
+Esse cenário protege contra inconsistências entre a referência persistida e o arquivo físico quando remoção e substituição acontecem concorrentemente.
+
+### 11.6. Por que utilizar PostgreSQL real?
 
 Mocks podem verificar chamadas a métodos, mas não reproduzem integralmente o comportamento de bloqueios e isolamento transacional do banco.
 
@@ -936,7 +1406,7 @@ Os testes unitários do `CatalogService` verificam a utilização de `findByIdFo
 
 Os testes de integração verificam o comportamento transacional efetivo.
 
-### 11.6. Limites dos testes
+### 11.7. Limites dos testes
 
 Os cenários de concorrência verificam situações específicas e conhecidas.
 
@@ -1029,6 +1499,8 @@ Verificar:
 - resultado da transação PostgreSQL;
 - correspondência entre referências persistidas e arquivos físicos.
 
+Na remoção de capas, verificar especialmente se o arquivo foi excluído antes ou depois do commit e se os metadados da entidade correspondem ao estado final do filesystem.
+
 ### 13.5. Falhas de concorrência
 
 Verificar:
@@ -1041,6 +1513,23 @@ Verificar:
 - restrições do PostgreSQL;
 - atualização de referências com valores anteriormente carregados;
 - existência de arquivos órfãos após operações concorrentes.
+
+Quando o cenário envolve remoção e substituição de capas, verificar se ambas as operações utilizam `findByIdForUpdate()` e se a referência final corresponde ao arquivo físico preservado.
+
+### 13.6. Falhas de tratamento HTTP
+
+Verificar:
+
+- existência do endpoint e método HTTP correto;
+- mapeamento do controller;
+- exceção lançada pelo serviço;
+- tratamento no `@RestControllerAdvice`;
+- resposta `ProblemDetail`;
+- código HTTP esperado.
+
+Na implementação de remoção de capas, o teste de obra inexistente identificou uma `WorkNotFoundException` não tratada adequadamente pela camada HTTP.
+
+A inclusão do tratamento em `CatalogExceptionHandler` corrigiu esse cenário, permitindo retornar `404 Not Found`.
 
 ## 14. Critérios de conclusão de uma alteração
 
