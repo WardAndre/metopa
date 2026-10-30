@@ -946,6 +946,90 @@ class CatalogServiceTests {
                 .delete(newStorageKey);
     }
 
+    @Test
+    void shouldDeleteCoverFileAfterRemovalCommit() {
+        UUID ownerId = UUID.randomUUID();
+
+        Work work = new Work(
+                ownerId,
+                "Covered Work",
+                null,
+                WorkType.COMIC,
+                ReadingDirection.LEFT_TO_RIGHT,
+                PresentationMode.SINGLE_PAGE
+        );
+
+        String storageKey =
+                "covers/" + work.getId() + "/original";
+
+        work.setCover(
+                storageKey,
+                "image/webp"
+        );
+
+        when(repository.findByIdForUpdate(work.getId()))
+                .thenReturn(Optional.of(work));
+
+        simulateTransactionCompletion(
+                () -> catalogService.removeCover(
+                        ownerId,
+                        work.getId()
+                ),
+                TransactionSynchronization.STATUS_COMMITTED
+        );
+
+        assertThat(work.getCoverStorageKey())
+                .isNull();
+
+        assertThat(work.getCoverContentType())
+                .isNull();
+
+        verify(repository)
+                .findByIdForUpdate(work.getId());
+
+        verify(binaryStorage)
+                .delete(storageKey);
+    }
+
+    @Test
+    void shouldPreserveCoverFileAfterRemovalRollback() {
+        UUID ownerId = UUID.randomUUID();
+
+        Work work = new Work(
+                ownerId,
+                "Covered Work",
+                null,
+                WorkType.COMIC,
+                ReadingDirection.LEFT_TO_RIGHT,
+                PresentationMode.SINGLE_PAGE
+        );
+
+        String storageKey =
+                "covers/" + work.getId() + "/original";
+
+        work.setCover(
+                storageKey,
+                "image/webp"
+        );
+
+        when(repository.findByIdForUpdate(work.getId()))
+                .thenReturn(Optional.of(work));
+
+        simulateTransactionCompletion(
+                () -> catalogService.removeCover(
+                        ownerId,
+                        work.getId()
+                ),
+                TransactionSynchronization.STATUS_ROLLED_BACK
+        );
+
+        verify(repository)
+                .findByIdForUpdate(work.getId());
+
+        verify(binaryStorage, never())
+                .delete(storageKey);
+    }
+
     private void simulateTransactionCompletion(
             Runnable operation,
             int completionStatus

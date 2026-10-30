@@ -165,6 +165,12 @@ public class Work {
         this.updatedAt = Instant.now();
     }
 
+    public void clearCover() {
+        this.coverStorageKey = null;
+        this.coverContentType = null;
+        this.updatedAt = Instant.now();
+    }
+
     public Set<Genre> getGenres() {
         return Set.copyOf(genres);
     }

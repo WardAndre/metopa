@@ -5,6 +5,7 @@ import metopa.identity.IdentityService;
 import metopa.identity.UserReference;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -53,6 +54,22 @@ class WorkCoverController {
                 workId,
                 file.getContentType(),
                 file.getBytes()
+        );
+    }
+
+    @DeleteMapping("/{workId}/cover")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void removeCover(
+            @PathVariable UUID workId,
+            Principal principal
+    ) {
+        var user = identityService.findByUsername(
+                principal.getName()
+        );
+
+        catalogService.removeCover(
+                user.id(),
+                workId
         );
     }
 }

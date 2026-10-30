@@ -1,4 +1,3 @@
-
 # Metopa — API HTTP
 
 Documentação dos endpoints HTTP disponíveis no MVP do Metopa.
@@ -285,6 +284,8 @@ Regras:
 
 O identificador da obra, o proprietário, a capa e a data de criação não são modificados.
 
+A atualização utiliza bloqueio pessimista sobre a obra para coordenar alterações concorrentes de metadados e capas.
+
 Resposta de sucesso:
 
 ```http
@@ -297,6 +298,7 @@ Possíveis respostas:
 400 → um ou mais metadados são inválidos
 401 → usuário não autenticado
 403 → token CSRF ausente ou inválido, ou usuário não é proprietário da obra
+404 → obra não encontrada
 ```
 
 ### 2.3. Listar obras do criador
@@ -411,6 +413,8 @@ O `storageKey` da capa não é exposto.
 
 A ordem dos gêneros não representa informação semântica.
 
+Quando uma capa é removida, `hasCover` passa a ser `false`.
+
 Possíveis respostas:
 
 ```text
@@ -457,13 +461,96 @@ O cliente não informa o caminho físico ou o `storageKey`.
 
 A chave de armazenamento é gerada internamente através do módulo `media`.
 
+Quando uma capa existente é substituída:
+
+1. o backend adquire um bloqueio pessimista na linha da obra;
+2. a propriedade da obra é validada;
+3. o novo arquivo é armazenado através de `BinaryStorage`;
+4. a nova referência é persistida no PostgreSQL;
+5. após o commit, o arquivo da capa anterior é removido.
+
+Se a transação sofrer rollback, a referência anterior permanece preservada e o novo arquivo é removido através de compensação transacional.
+
+Quando a obra ainda não possui capa, o novo arquivo é preservado após a confirmação da transação.
+
 Resposta de sucesso:
 
 ```http
 204 No Content
 ```
 
-### 2.6. Ler capa para o criador
+Possíveis respostas:
+
+```text
+401 → usuário não autenticado
+403 → token CSRF ausente ou inválido, ou usuário não é proprietário da obra
+404 → obra não encontrada
+```
+
+A coordenação transacional não representa uma transação distribuída entre PostgreSQL e filesystem.
+
+### 2.6. Remover capa da obra
+
+```http
+DELETE /api/works/{workId}/cover
+```
+
+Requer usuário autenticado e token CSRF válido.
+
+Somente o proprietário da obra pode remover sua capa.
+
+A operação remove a referência da capa no PostgreSQL e agenda a exclusão do arquivo físico para depois da confirmação da transação.
+
+O cliente não precisa informar o `storageKey` ou qualquer identificador do arquivo.
+
+Quando a obra possui uma capa:
+
+1. o backend localiza e bloqueia a obra utilizando `PESSIMISTIC_WRITE`;
+2. a propriedade da obra é validada;
+3. os campos `coverStorageKey` e `coverContentType` são removidos da entidade;
+4. a alteração é persistida na transação PostgreSQL;
+5. após o commit, o arquivo físico é excluído através de `BinaryStorage`.
+
+Se a transação sofrer rollback, a referência anterior e o arquivo físico permanecem preservados.
+
+A operação é **idempotente**.
+
+Quando a obra existe, mas não possui capa, a remoção continua sendo considerada bem-sucedida.
+
+Chamadas repetidas à operação retornam a mesma resposta de sucesso, desde que a obra continue existindo e o usuário tenha autorização.
+
+Resposta de sucesso:
+
+```http
+204 No Content
+```
+
+A resposta não possui corpo.
+
+Possíveis respostas:
+
+```text
+401 → usuário não autenticado
+403 → token CSRF ausente ou inválido, ou usuário não é proprietário da obra
+404 → obra não encontrada
+```
+
+A remoção da capa não exclui a obra, seus metadados, installments ou páginas.
+
+Após uma remoção confirmada:
+
+- a consulta administrativa da obra apresenta `hasCover: false`;
+- a leitura administrativa da capa deixa de disponibilizar o arquivo;
+- a leitura pública da capa deixa de disponibilizar o arquivo;
+- nas representações públicas que disponibilizam `coverUrl`, o valor passa a ser `null` para obras sem capa.
+
+A remoção é coordenada com substituições de capas e atualizações de metadados através do bloqueio pessimista da entidade `Work`.
+
+A exclusão física utiliza `TransactionSynchronization.afterCommit()`.
+
+Como PostgreSQL e filesystem não compartilham uma transação atômica, falhas na limpeza após o commit podem deixar arquivos órfãos.
+
+### 2.7. Ler capa para o criador
 
 ```http
 GET /api/me/works/{workId}/cover
@@ -496,7 +583,9 @@ Possíveis respostas:
 404 → obra ou capa não encontrada
 ```
 
-### 2.7. Ler capa publicamente
+Após a remoção da capa, este endpoint retorna `404` enquanto não existir uma nova capa.
+
+### 2.8. Ler capa publicamente
 
 ```http
 GET /api/works/{workId}/cover
@@ -525,6 +614,10 @@ Possível resposta:
 ```
 
 O `storageKey` não é exposto.
+
+A remoção da capa não altera o estado de publicação dos installments.
+
+Uma obra que continua possuindo conteúdo publicado permanece disponível publicamente, mesmo sem capa.
 
 ---
 
@@ -1123,6 +1216,8 @@ O exemplo acima ilustra o campo `genres`, não a resposta completa do endpoint.
 
 Quando a obra não possui capa, `coverUrl` é `null`.
 
+A remoção da capa não remove a obra da descoberta pública, desde que ela continue possuindo conteúdo publicado.
+
 A ordem dos gêneros não faz parte do contrato.
 
 Possível resposta:
@@ -1421,6 +1516,7 @@ POST   /api/auth/logout
 POST   /api/works
 PUT    /api/works/{workId}
 PUT    /api/works/{workId}/cover
+DELETE /api/works/{workId}/cover
 
 GET    /api/me/works
 GET    /api/me/works/{workId}
@@ -1453,6 +1549,8 @@ Operações administrativas sobre obras, installments, páginas e capas validam 
 
 O `ownerId` não é recebido diretamente pelo cliente.
 
+A remoção de capas verifica a propriedade antes de modificar a entidade ou registrar a exclusão do arquivo físico.
+
 ### Estados de publicação
 
 Installments em estado `DRAFT` podem ser gerenciados por seus proprietários.
@@ -1461,11 +1559,23 @@ Installments em estado `PUBLISHED` permanecem imutáveis no MVP.
 
 O conteúdo em draft não é disponibilizado pelos endpoints públicos.
 
+A definição, substituição ou remoção da capa não modifica o estado de publicação dos installments.
+
 ### Concorrência
 
 As operações de escrita sobre o mesmo installment utilizam bloqueio pessimista no PostgreSQL.
 
 Isso inclui criação, exclusão e reordenação de páginas, alteração de metadados, publicação e exclusão do installment.
+
+O módulo `catalog` também utiliza bloqueio pessimista sobre a entidade `Work` para coordenar:
+
+- atualização dos metadados da obra;
+- definição e substituição de capas;
+- remoção de capas.
+
+A estratégia utiliza `PESSIMISTIC_WRITE` através de `findByIdForUpdate()`.
+
+O bloqueio coordena operações concorrentes sobre a mesma obra, impedindo que alterações incompatíveis sejam aplicadas simultaneamente sem observar o estado confirmado pela transação anterior.
 
 ### Armazenamento binário
 
@@ -1477,7 +1587,18 @@ A remoção física de arquivos associada à exclusão de páginas ou installmen
 
 Uploads de páginas possuem compensação em caso de rollback.
 
+As operações de capas utilizam mecanismos complementares:
+
+- **Upload inicial:** preserva o arquivo quando a transação é confirmada e o remove em caso de rollback.
+- **Substituição:** remove a capa anterior após commit e remove a nova capa em caso de rollback.
+- **Remoção:** elimina a referência no PostgreSQL e exclui o arquivo físico somente após commit.
+- **Rollback de remoção:** preserva a referência anterior e o arquivo físico.
+
+A exclusão de arquivos utiliza callbacks transacionais do Spring, incluindo `afterCommit()` e `afterCompletion()`.
+
 Essas estratégias não constituem uma transação distribuída entre PostgreSQL e filesystem.
+
+Falhas abruptas da aplicação ou erros durante a limpeza física ainda podem produzir arquivos órfãos.
 
 ---
 

@@ -107,9 +107,11 @@ Principais funcionalidades:
 - direção de leitura e modo de apresentação;
 - descrição e título;
 - associação de gêneros;
-- definição, substituição e leitura de capas;
+- definição, substituição, remoção e leitura de capas;
+- remoção idempotente de capas;
 - compensação de arquivos de capas em commits e rollbacks;
-- coordenação de substituições de capas e atualizações de metadados por bloqueio pessimista;
+- exclusão física de capas somente após a confirmação de operações de remoção;
+- coordenação de substituições, remoções de capas e atualizações de metadados por bloqueio pessimista;
 - exposição de informações da obra para outros módulos através de APIs internas.
 
 A propriedade de uma obra pertence ao domínio `catalog`.
@@ -119,6 +121,8 @@ Outros módulos não devem modificar diretamente suas entidades ou acessar livre
 Quando o módulo `publication` precisa validar a propriedade de uma obra, utiliza uma API disponibilizada por `catalog`.
 
 Um exemplo dessa integração é a utilização de `CatalogService.findWork()`, que fornece uma referência da obra contendo as informações necessárias à operação.
+
+A coordenação das operações sobre capas pertence ao módulo `catalog`, enquanto o módulo `media` continua responsável pelo armazenamento físico dos arquivos.
 
 ### 3.3. Publication
 
@@ -346,7 +350,9 @@ V9__create_work_genre.sql
 
 A migration `V9__create_work_genre.sql` introduziu a persistência de múltiplos gêneros associados a uma obra.
 
-As operações de exclusão de installments, reordenação de páginas, compensação transacional de uploads e substituição de capas, bem como o bloqueio pessimista das escritas sobre obras, foram implementadas sem necessidade de novas migrations.
+As operações de exclusão de installments, reordenação de páginas, compensação transacional de uploads, substituição e remoção de capas, bem como o bloqueio pessimista das escritas sobre obras, foram implementadas sem necessidade de novas migrations.
+
+A remoção de capas reutiliza os campos existentes `cover_storage_key` e `cover_content_type`, definidos como opcionais no modelo de persistência.
 
 ### Política de evolução do schema
 
@@ -360,7 +366,7 @@ Mudanças posteriores devem utilizar novas migrations versionadas, preservando o
 
 Um installment pertence a uma obra e possui tipo, número, título opcional e estado de publicação.
 
-A combinação de tipo e número deve ser única dentro da mesma obra.
+A combinação de tipo e número deve ser única dentro da obra.
 
 Ao ser criado, um installment começa no estado `DRAFT`.
 
@@ -400,6 +406,8 @@ Após a publicação:
 
 O estado `PUBLISHED` é tratado como imutável.
 
+A imutabilidade dos installments publicados não impede que o proprietário altere ou remova a capa da obra, pois a capa pertence ao domínio `catalog`.
+
 ### 7.5. Visão pública e visão do criador
 
 O Metopa distingue duas perspectivas.
@@ -418,6 +426,10 @@ O Metopa distingue duas perspectivas.
 - apresenta obras ainda sem conteúdo publicado;
 - permite consultar installments `DRAFT` e `PUBLISHED`;
 - disponibiliza metadados e conteúdo binário para gerenciamento.
+
+Uma obra com conteúdo publicado permanece disponível publicamente após a remoção da capa.
+
+Nessa situação, a capa deixa de estar disponível, mas os installments e suas páginas permanecem acessíveis conforme as regras de publicação.
 
 Essa separação faz parte das regras de acesso do domínio e não depende apenas da interface utilizada pelo cliente.
 
@@ -438,19 +450,25 @@ No módulo `publication`, a estratégia se aplica às operações de escrita sob
 - publicação;
 - exclusão do installment.
 
+No módulo `catalog`, a estratégia coordena:
+
+- atualização dos metadados da obra;
+- definição e substituição de capas;
+- remoção de capas.
+
 ### Funcionamento
 
 ```text
 Transação A
     |
     v
-Obtém bloqueio do installment
+Obtém bloqueio da entidade
     |
     v
 Valida e modifica os dados
     |
     | Transação B tenta modificar
-    | o mesmo installment
+    | a mesma entidade
     |
     +----> Transação B aguarda
     |
@@ -467,7 +485,7 @@ Transação B continua
 Reavalia o estado persistido
 ```
 
-A coordenação evita que duas operações incompatíveis alterem simultaneamente o mesmo installment sem observar o estado consolidado da transação anterior.
+A coordenação evita que duas operações incompatíveis alterem simultaneamente a mesma entidade sem observar o estado consolidado da transação anterior.
 
 ### 8.1. Reordenação concorrente com publicação
 
@@ -487,7 +505,7 @@ Quando a publicação é confirmada antes de a exclusão prosseguir, a operaçã
 
 O conteúdo publicado e seus arquivos permanecem preservados.
 
-### 8.3. Limites da estratégia
+### 8.3. Limites da estratégia para installments
 
 O bloqueio pessimista coordena operações sobre a mesma linha do installment.
 
@@ -517,9 +535,40 @@ A coordenação impede que uma atualização de metadados baseada em uma entidad
 
 Esse cenário foi validado com transações independentes no PostgreSQL, preservando tanto os metadados atualizados quanto a referência e o conteúdo da capa substituta.
 
-### 8.6. Limites da coordenação
+### 8.6. Concorrência entre remoção e substituição de capas
 
-O bloqueio protege os fluxos que utilizam a mesma estratégia de acesso à linha. Ele não torna operações de filesystem transacionais, não elimina falhas de infraestrutura e não substitui as restrições relacionais do banco.
+A operação `CatalogService.removeCover()` também utiliza `WorkRepository.findByIdForUpdate()`.
+
+A mesma estratégia de bloqueio é aplicada às operações de remoção e substituição, permitindo coordenar alterações concorrentes sobre a mesma obra.
+
+Um cenário de integração verifica o seguinte fluxo:
+
+1. uma transação inicia a remoção da capa e adquire o bloqueio da obra;
+2. a referência da capa é removida da entidade, mas a transação permanece aberta;
+3. outra transação tenta substituir a capa da mesma obra;
+4. a substituição aguarda a liberação do bloqueio;
+5. a primeira transação confirma a remoção e executa a limpeza física após commit;
+6. a segunda transação prossegue, armazena a nova capa e confirma a nova referência.
+
+O estado final esperado é:
+
+- a referência no PostgreSQL aponta para a nova capa;
+- o `Content-Type` corresponde ao novo arquivo;
+- o conteúdo binário da nova capa pode ser recuperado;
+- o arquivo anterior foi removido;
+- somente o arquivo da nova capa permanece no diretório da obra.
+
+Esse cenário foi validado em `WorkCoverIntegrationTests.shouldPreserveReplacementWhenCoverRemovalCommitsConcurrently()`.
+
+O teste utiliza transações independentes, mecanismos de sincronização entre threads e verificações do estado final do PostgreSQL e do filesystem.
+
+### 8.7. Limites da coordenação
+
+O bloqueio protege os fluxos que utilizam a mesma estratégia de acesso à linha.
+
+Ele não torna operações de filesystem transacionais, não elimina falhas de infraestrutura e não substitui as restrições relacionais do banco.
+
+A coordenação também pressupõe que outros fluxos que modifiquem a mesma entidade respeitem os mecanismos de bloqueio definidos.
 
 Testes concorrentes baseados em sincronização de threads e janelas de tempo oferecem evidência de comportamento sob os cenários exercitados, mas não demonstram ausência de todas as condições de corrida possíveis.
 
@@ -565,11 +614,12 @@ O Metopa utiliza mecanismos compensatórios para reduzir as inconsistências nes
 
 ## 10. Consistência transacional entre PostgreSQL e filesystem
 
-A implementação atual diferencia três situações:
+A implementação atual diferencia quatro situações:
 
-1. exclusão de conteúdo que já existe;
+1. exclusão de páginas e installments existentes;
 2. upload de conteúdo que está sendo criado;
-3. substituição de uma capa existente por um novo arquivo.
+3. substituição de uma capa existente por um novo arquivo;
+4. remoção explícita de uma capa.
 
 Cada situação exige coordenação entre os registros do PostgreSQL e os arquivos administrados por `BinaryStorage`.
 
@@ -724,7 +774,111 @@ via afterCommit()
 
 Essa estratégia foi validada por testes de integração com PostgreSQL e filesystem local para substituições confirmadas, rollbacks e operações concorrentes sobre a mesma obra.
 
-### 10.5. Comparação das estratégias
+### 10.5. Remoção transacional de capas
+
+A operação `CatalogService.removeCover()` permite que o proprietário remova explicitamente a capa de uma obra.
+
+O endpoint HTTP correspondente é:
+
+```http
+DELETE /api/works/{workId}/cover
+```
+
+A operação reutiliza a mesma estratégia de bloqueio pessimista adotada para substituições de capas e atualizações de metadados.
+
+O fluxo é:
+
+1. localizar a obra utilizando `WorkRepository.findByIdForUpdate()`;
+2. validar que o usuário autenticado é proprietário da obra;
+3. capturar a referência da capa atual;
+4. retornar normalmente se a obra não possuir capa;
+5. remover `coverStorageKey` e `coverContentType` através de `Work.clearCover()`;
+6. atualizar `updatedAt` na entidade;
+7. registrar um callback `afterCommit()` para excluir o arquivo físico anterior;
+8. confirmar ou reverter a alteração através da transação PostgreSQL.
+
+O método de domínio `Work.clearCover()` modifica apenas os atributos associados à capa e a data de atualização.
+
+A entidade `Work` permanece persistida, assim como seus metadados e relacionamentos.
+
+**Quando há commit:**
+
+- a referência da capa é removida no PostgreSQL;
+- o `Content-Type` da capa passa a ser `null`;
+- o callback `afterCommit()` solicita a exclusão do arquivo anterior;
+- a obra permanece existente e pode receber uma nova capa posteriormente.
+
+**Quando há rollback:**
+
+- a referência anterior permanece persistida;
+- o `Content-Type` original é preservado;
+- o callback `afterCommit()` não é executado;
+- o arquivo físico original permanece disponível.
+
+Fluxo:
+
+```text
+Remoção de capa
+    |
+    v
+Bloquear obra com PESSIMISTIC_WRITE
+    |
+    v
+Validar proprietário
+    |
+    v
+Verificar existência de capa
+    |
+    +----> Sem capa
+    |      Retornar normalmente
+    |
+    v
+Capturar storageKey anterior
+    |
+    v
+Limpar referência e Content-Type em Work
+    |
+    v
+Registrar callback afterCommit()
+    |
+    +--------------------------------+
+    |                                |
+    v                                v
+ COMMIT                          ROLLBACK
+    |                                |
+    v                                v
+Referência removida             Referência preservada
+Arquivo excluído                Arquivo preservado
+após commit
+```
+
+#### Idempotência
+
+A remoção de capas é idempotente.
+
+Quando a obra existe, mas não possui capa, `removeCover()` retorna sem modificar seus atributos e sem registrar uma operação de exclusão física.
+
+Chamadas repetidas ao endpoint retornam `204 No Content`, desde que o usuário esteja autorizado e a obra continue existindo.
+
+A idempotência não elimina as validações de propriedade ou existência da obra.
+
+#### Obra inexistente
+
+Quando `findByIdForUpdate()` não encontra a obra, o serviço lança `WorkNotFoundException`.
+
+O `CatalogExceptionHandler` traduz essa exceção para uma resposta HTTP `404 Not Found`, utilizando `ProblemDetail`.
+
+Isso diferencia uma obra existente sem capa de uma obra inexistente.
+
+#### Limitação da exclusão após commit
+
+Assim como nas outras operações compensatórias, a exclusão física depende da execução bem-sucedida de `BinaryStorage.delete()` após a confirmação da transação.
+
+Se a exclusão física falhar, a referência já poderá estar removida do PostgreSQL enquanto o arquivo anterior permanece armazenado.
+
+Esse cenário exige mecanismos adicionais de reconciliação para uma garantia durável de limpeza, ainda não implementados no MVP.
+
+### 10.6. Comparação das estratégias
 
 | Operação | Momento da limpeza | Objetivo |
 |----------|--------------------|----------|
@@ -734,6 +888,9 @@ Essa estratégia foi validada por testes de integração com PostgreSQL e filesy
 | Primeiro upload de capa | Após rollback | Não manter capa nova se o registro não for confirmado |
 | Substituição de capa — commit | Após commit | Remover arquivo da capa anterior sem afetar a nova referência |
 | Substituição de capa — rollback | Após rollback | Remover arquivo recém-armazenado e preservar a capa anterior |
+| Remoção de capa — commit | Após commit | Excluir o arquivo somente depois de remover sua referência |
+| Remoção de capa — rollback | Nenhuma limpeza física | Preservar a referência anterior e o arquivo correspondente |
+| Remoção de obra sem capa | Nenhuma limpeza física | Manter a operação idempotente, sem arquivos a remover |
 
 As estratégias são complementares.
 
@@ -741,7 +898,7 @@ O armazenamento físico permanece encapsulado por `BinaryStorage`.
 
 A coordenação transacional pertence aos fluxos de negócio implementados nos módulos `publication` e `catalog`.
 
-### 10.6. Limitações conhecidas
+### 10.7. Limitações conhecidas
 
 Os callbacks transacionais não transformam PostgreSQL e filesystem em um sistema com transações distribuídas.
 
@@ -758,11 +915,13 @@ Situações que ainda podem produzir arquivos órfãos ou inconsistências inclu
 
 A compensação de rollback cobre o fluxo de `PublicationService.createPage()` e o fluxo de `CatalogService.setCover()` nos rollbacks observados pelo Spring.
 
+O fluxo de `CatalogService.removeCover()` preserva o arquivo original durante a transação e solicita sua exclusão apenas após o commit.
+
 Se `binaryStorage.delete()` falhar durante `afterCommit()`, a transação relacional já terá sido confirmada. A limpeza poderá ficar pendente e a exceção poderá ser propagada, sem desfazer o commit.
 
 Os callbacks atuais não persistem tarefas de limpeza para repetição após falha ou reinicialização da aplicação.
 
-### 10.7. Possíveis evoluções
+### 10.8. Possíveis evoluções
 
 Uma implementação futura poderá avaliar mecanismos de limpeza durável ou reconciliação de arquivos.
 
@@ -795,6 +954,10 @@ A proteção CSRF permanece habilitada.
 
 Operações protegidas que alteram estado exigem um token válido.
 
+A remoção de capas utiliza o método HTTP `DELETE` e exige um token CSRF válido.
+
+Uma requisição autenticada sem o token exigido recebe `403 Forbidden`.
+
 ### 11.3. Autorização por propriedade
 
 A autorização administrativa utiliza a identidade do usuário autenticado e a propriedade da obra.
@@ -803,11 +966,19 @@ O cliente não informa diretamente o `ownerId` nas operações de gerenciamento.
 
 A propriedade é verificada pela aplicação antes de permitir alterações ou leituras administrativas de conteúdo.
 
+Na remoção de capas, a validação de propriedade acontece antes de modificar a entidade ou registrar a limpeza física.
+
+Tentativas de remoção por usuários que não são proprietários recebem `403 Forbidden`, preservando a referência e o arquivo da capa.
+
 ### 11.4. Ordem das validações
 
 Na exclusão de installments, a validação de propriedade ocorre antes da verificação do estado `DRAFT` ou `PUBLISHED`.
 
 Isso evita revelar o estado de publicação para um usuário que não possui autorização para gerenciar a obra.
+
+Na remoção de capas, a propriedade também é validada antes de verificar se existe uma capa a remover.
+
+Assim, a idempotência da operação não permite que um usuário sem autorização modifique ou consulte indevidamente o estado administrativo da obra.
 
 ### 11.5. Separação de conteúdo público
 
@@ -816,6 +987,10 @@ Os endpoints públicos apresentam somente conteúdo que atende às regras de pub
 Drafts são tratados como indisponíveis nessas operações.
 
 As consultas administrativas possuem contratos específicos e exigem autorização.
+
+A remoção da capa não modifica os estados `DRAFT` ou `PUBLISHED` dos installments.
+
+Uma obra publicada continua disponível publicamente após a remoção de sua capa, mas o endpoint público da capa deixa de disponibilizar conteúdo até que uma nova seja definida.
 
 ### 11.6. Respostas HTTP
 
@@ -828,11 +1003,42 @@ Entre os códigos utilizados estão:
 - `404 Not Found`;
 - `409 Conflict`.
 
+A remoção de capas utiliza:
+
+- `204 No Content` para remoção bem-sucedida;
+- `204 No Content` quando a obra existe, mas não possui capa;
+- `401 Unauthorized` quando não existe sessão autenticada;
+- `403 Forbidden` quando o usuário não é proprietário ou o token CSRF é inválido;
+- `404 Not Found` quando a obra não existe.
+
+O tratamento de `WorkNotFoundException` é realizado em `CatalogExceptionHandler`, com resposta estruturada através de `ProblemDetail`.
+
 Os contratos específicos de cada endpoint são descritos em [API.md](API.md).
 
 ## 12. Testes de arquitetura e integração
 
-Na validação completa de 26/10/2026, a suíte automatizada executou **248 testes com sucesso**, sem falhas, erros ou testes ignorados (`./mvnw clean test`).
+Na validação completa de 29/10/2026, a suíte automatizada executou **258 testes com sucesso**, sem falhas, erros ou testes ignorados.
+
+Comando utilizado:
+
+```bash
+./mvnw clean test
+```
+
+Resultado:
+
+```text
+Tests run: 258
+Failures: 0
+Errors: 0
+Skipped: 0
+
+BUILD SUCCESS
+```
+
+A referência anterior era de 248 testes aprovados após a implementação da consistência transacional de capas.
+
+A feature de remoção de capas acrescentou dez testes à suíte.
 
 Entre os aspectos relacionados à arquitetura estão:
 
@@ -846,15 +1052,38 @@ Entre os aspectos relacionados à arquitetura estão:
 - exclusões transacionais;
 - compensação de upload em rollback para páginas e capas;
 - exclusão de capas anteriores após commit de substituição;
+- remoção física de capas após commit;
+- preservação de referências e arquivos após rollback de remoção;
+- idempotência na remoção de obras sem capa;
+- tratamento de obras inexistentes;
 - concorrência com transações independentes;
 - bloqueios pessimistas para installments e obras;
 - substituições concorrentes de capas;
 - concorrência entre atualização de metadados e substituição de capa;
-- preservação de registros e arquivos após rollback.
+- concorrência entre remoção e substituição de capas;
+- preservação de registros e arquivos após rollback;
+- validação unitária dos callbacks transacionais.
+
+### Testes específicos da remoção de capas
+
+A feature `creator-cover-removal` introduziu testes de integração e testes unitários para validar:
+
+1. remoção de capa existente após commit;
+2. preservação da capa quando a remoção sofre rollback;
+3. remoção idempotente de obra sem capa;
+4. rejeição de remoção por usuário que não é proprietário;
+5. rejeição de remoção sem autenticação;
+6. rejeição de remoção sem token CSRF;
+7. resposta `404 Not Found` para obra inexistente;
+8. concorrência entre remoção e substituição de capas;
+9. execução da exclusão física após commit em teste unitário;
+10. ausência de exclusão física após rollback em teste unitário.
+
+Os testes de integração exercitam transações reais, persistência no PostgreSQL e armazenamento no filesystem local.
+
+Os testes unitários complementam essa validação, verificando as interações com `WorkRepository`, `BinaryStorage` e os callbacks transacionais.
 
 O teste de modularidade ajuda a identificar dependências indevidas entre módulos.
-
-Os testes de integração exercitam o comportamento real da aplicação com PostgreSQL e, quando aplicável, filesystem local.
 
 A estratégia completa de testes é descrita em [TESTING.md](TESTING.md).
 
