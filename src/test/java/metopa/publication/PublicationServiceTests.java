@@ -69,7 +69,7 @@ class PublicationServiceTests {
                         "The Beginning"
                 );
 
-        when(catalogService.findWork(workId))
+        when(catalogService.findWorkForInstallmentCreation(workId))
                 .thenReturn(new WorkReference(workId, userId));
 
         when(
@@ -87,6 +87,9 @@ class PublicationServiceTests {
                 publicationService.createInstallment(userId, command);
 
         assertThat(installmentId).isNotNull();
+
+        verify(catalogService)
+                .findWorkForInstallmentCreation(workId);
 
         verify(installmentRepository)
                 .save(any(Installment.class));
@@ -106,7 +109,7 @@ class PublicationServiceTests {
                         null
                 );
 
-        when(catalogService.findWork(workId))
+        when(catalogService.findWorkForInstallmentCreation(workId))
                 .thenReturn(new WorkReference(workId, ownerId));
 
         assertThatThrownBy(() ->
@@ -116,7 +119,18 @@ class PublicationServiceTests {
                 )
         ).isInstanceOf(WorkAccessDeniedException.class);
 
-        verify(installmentRepository, never()).save(any());
+        verify(catalogService)
+                .findWorkForInstallmentCreation(workId);
+
+        verify(installmentRepository, never())
+                .existsByWorkIdAndTypeAndNumber(
+                        any(UUID.class),
+                        any(InstallmentType.class),
+                        anyInt()
+                );
+
+        verify(installmentRepository, never())
+                .save(any());
     }
 
     @Test
@@ -132,7 +146,7 @@ class PublicationServiceTests {
                         null
                 );
 
-        when(catalogService.findWork(workId))
+        when(catalogService.findWorkForInstallmentCreation(workId))
                 .thenReturn(new WorkReference(workId, userId));
 
         when(
@@ -147,7 +161,18 @@ class PublicationServiceTests {
                 publicationService.createInstallment(userId, command)
         ).isInstanceOf(InstallmentAlreadyExistsException.class);
 
-        verify(installmentRepository, never()).save(any());
+        verify(catalogService)
+                .findWorkForInstallmentCreation(workId);
+
+        verify(installmentRepository)
+                .existsByWorkIdAndTypeAndNumber(
+                        workId,
+                        InstallmentType.CHAPTER,
+                        1
+                );
+
+        verify(installmentRepository, never())
+                .save(any());
     }
 
     @Test

@@ -619,6 +619,101 @@ A remoção da capa não altera o estado de publicação dos installments.
 
 Uma obra que continua possuindo conteúdo publicado permanece disponível publicamente, mesmo sem capa.
 
+### 2.9. Excluir obra
+
+```http
+DELETE /api/works/{workId}
+```
+
+Requer sessão autenticada e token CSRF válido.
+
+Somente o proprietário pode excluir a obra. O cliente não informa `ownerId` nem referências de arquivos.
+
+A exclusão é permitida **somente quando a obra não possui installments**, independentemente de estarem em `DRAFT` ou `PUBLISHED`.
+
+Não existe exclusão em cascata de installments ou páginas por essa operação.
+
+Quando a operação é permitida:
+
+1. o backend localiza e bloqueia a obra utilizando `PESSIMISTIC_WRITE`;
+2. a propriedade da obra é validada antes de consultar os installments;
+3. o módulo `catalog` consulta o contrato `WorkDeletionGuard`, implementado pelo módulo `publication`, para verificar se existem installments associados;
+4. se houver qualquer installment, a operação é rejeitada sem excluir a obra;
+5. se não houver installments, o registro da obra é removido na transação PostgreSQL;
+6. o PostgreSQL remove as associações de gêneros, entradas de biblioteca e registros de progresso de leitura através das restrições de `ON DELETE CASCADE`;
+7. quando a obra possui capa, o arquivo físico é removido através de `BinaryStorage` somente após o commit da transação.
+
+Se a transação sofrer rollback, a obra, suas referências no PostgreSQL e o arquivo físico da capa permanecem preservados.
+
+**Restrições de negócio:**
+
+- obras sem installments podem ser excluídas;
+- obras com installments `DRAFT` não podem ser excluídas;
+- obras com installments `PUBLISHED` não podem ser excluídas;
+- a existência de uma capa não impede a exclusão;
+- a existência de gêneros associados não impede a exclusão;
+- o proprietário deve ser validado antes da consulta aos installments.
+
+A migration `V10__add_work_reference_constraints.sql` reforça essas regras diretamente no PostgreSQL.
+
+A relação `installment.work_id` utiliza `ON DELETE RESTRICT`, impedindo que uma obra com installments seja excluída mesmo por uma operação SQL que não passe pelos serviços da aplicação.
+
+As relações `library_entry.work_id` e `reading_progress.work_id` utilizam `ON DELETE CASCADE`. A associação `work_genre.work_id` já utiliza essa política desde a migration V9.
+
+**Resposta de sucesso:**
+
+```http
+204 No Content
+```
+
+A resposta não possui corpo.
+
+**Possíveis respostas:**
+
+```text
+401 → usuário não autenticado
+403 → token CSRF ausente ou inválido, ou usuário não é proprietário da obra
+404 → obra não encontrada
+409 → obra possui um ou mais installments, em DRAFT ou PUBLISHED
+```
+
+Quando a obra possui installments, a aplicação retorna `409 Conflict` com um erro `ProblemDetail`.
+
+Campos relevantes da resposta:
+
+```json
+{
+  "title": "Work cannot be deleted",
+  "detail": "A work with installments cannot be deleted."
+}
+```
+
+O exemplo apresenta os campos específicos desse conflito, não necessariamente todos os campos da resposta HTTP.
+
+A operação **não é idempotente em termos de resposta HTTP**.
+
+Após uma exclusão bem-sucedida, uma nova tentativa com o mesmo `workId` retorna `404 Not Found`, pois a obra não existe mais.
+
+**Concorrência:**
+
+A exclusão da obra e a criação de installments utilizam bloqueio pessimista sobre a mesma linha da entidade `Work`.
+
+A criação de installments ocorre dentro de uma transação e utiliza o método `findWorkForInstallmentCreation()`, que exige uma transação existente e adquire o bloqueio da obra.
+
+Isso estabelece os seguintes comportamentos:
+
+- se a exclusão da obra confirmar primeiro, a criação concorrente do installment não encontra mais a obra;
+- se a criação do installment confirmar primeiro, a exclusão concorrente encontra um installment e é rejeitada;
+- as duas operações não podem concluir simultaneamente produzindo uma obra excluída com um installment órfão.
+
+**Armazenamento binário:**
+
+A exclusão do registro da obra e a remoção do arquivo da capa não constituem uma transação distribuída.
+
+O registro é removido no PostgreSQL e, após a confirmação da transação, o arquivo físico é excluído por um callback `TransactionSynchronization.afterCommit()`.
+
+Uma falha na limpeza física posterior ao commit pode deixar o arquivo órfão, pois a transação do PostgreSQL já terá sido confirmada.
+
 ---
 
 ## 3. Publication — Installments
@@ -653,6 +748,13 @@ STRIP
 ```
 
 O installment é criado inicialmente com status `DRAFT`.
+
+A criação ocorre dentro de uma transação e adquire um bloqueio pessimista na linha da obra.
+
+Essa coordenação impede condições de corrida com a exclusão concorrente da mesma obra:
+
+- quando a exclusão da obra confirma primeiro, a criação não encontra mais a obra;
+- quando a criação do installment confirma primeiro, a exclusão da obra é rejeitada pela existência do installment.
 
 A combinação de tipo e número deve ser única dentro da obra.
 
@@ -1371,6 +1473,8 @@ Exemplo:
 
 As entradas são ordenadas das adicionadas mais recentemente para as mais antigas.
 
+Quando uma obra é excluída pelo proprietário, suas referências em `library_entry` são removidas pelo PostgreSQL através de `ON DELETE CASCADE`.
+
 Uma biblioteca vazia retorna:
 
 ```json
@@ -1486,6 +1590,10 @@ Quando não existe progresso para a obra:
 404 Not Found
 ```
 
+A exclusão de uma obra também remove referências de `reading_progress` associadas a ela através de `ON DELETE CASCADE`.
+
+Em condições normais de utilização, uma obra com progresso de leitura possui conteúdo publicado e, portanto, não pode ser excluída enquanto possuir installments.
+
 ---
 
 ## 8. Segurança e regras de acesso
@@ -1515,6 +1623,7 @@ POST   /api/auth/logout
 
 POST   /api/works
 PUT    /api/works/{workId}
+DELETE /api/works/{workId}
 PUT    /api/works/{workId}/cover
 DELETE /api/works/{workId}/cover
 
@@ -1551,6 +1660,10 @@ O `ownerId` não é recebido diretamente pelo cliente.
 
 A remoção de capas verifica a propriedade antes de modificar a entidade ou registrar a exclusão do arquivo físico.
 
+A exclusão de uma obra também verifica a propriedade antes de consultar a existência de installments.
+
+Obras com qualquer installment são preservadas, e a operação retorna `409 Conflict` para o proprietário autenticado.
+
 ### Estados de publicação
 
 Installments em estado `DRAFT` podem ser gerenciados por seus proprietários.
@@ -1560,6 +1673,8 @@ Installments em estado `PUBLISHED` permanecem imutáveis no MVP.
 O conteúdo em draft não é disponibilizado pelos endpoints públicos.
 
 A definição, substituição ou remoção da capa não modifica o estado de publicação dos installments.
+
+A exclusão de uma obra é permitida somente quando não existem installments associados, sejam `DRAFT` ou `PUBLISHED`.
 
 ### Concorrência
 
@@ -1571,11 +1686,26 @@ O módulo `catalog` também utiliza bloqueio pessimista sobre a entidade `Work` 
 
 - atualização dos metadados da obra;
 - definição e substituição de capas;
-- remoção de capas.
+- remoção de capas;
+- exclusão de obras;
+- criação de installments vinculados à obra.
 
 A estratégia utiliza `PESSIMISTIC_WRITE` através de `findByIdForUpdate()`.
 
+A criação de installments utiliza o método `CatalogService.findWorkForInstallmentCreation()`, que exige a existência de uma transação por meio de `Propagation.MANDATORY`.
+
+Isso garante que o bloqueio da obra seja adquirido dentro da transação de criação do installment.
+
+A exclusão de obras utiliza o mesmo bloqueio antes de verificar a existência de installments.
+
+Essa coordenação estabelece dois resultados possíveis:
+
+- **Exclusão confirma primeiro:** a criação concorrente do installment não encontra mais a obra.
+- **Criação confirma primeiro:** a exclusão concorrente identifica o installment e rejeita a operação.
+
 O bloqueio coordena operações concorrentes sobre a mesma obra, impedindo que alterações incompatíveis sejam aplicadas simultaneamente sem observar o estado confirmado pela transação anterior.
+
+O PostgreSQL também reforça a integridade referencial por meio da foreign key `fk_installment_work`, introduzida pela migration V10.
 
 ### Armazenamento binário
 
@@ -1593,12 +1723,25 @@ As operações de capas utilizam mecanismos complementares:
 - **Substituição:** remove a capa anterior após commit e remove a nova capa em caso de rollback.
 - **Remoção:** elimina a referência no PostgreSQL e exclui o arquivo físico somente após commit.
 - **Rollback de remoção:** preserva a referência anterior e o arquivo físico.
+- **Exclusão da obra:** remove o registro da obra no PostgreSQL e, se houver capa, exclui seu arquivo físico somente após o commit.
+- **Rollback de exclusão da obra:** preserva o registro, suas referências e o arquivo físico da capa.
 
 A exclusão de arquivos utiliza callbacks transacionais do Spring, incluindo `afterCommit()` e `afterCompletion()`.
 
 Essas estratégias não constituem uma transação distribuída entre PostgreSQL e filesystem.
 
 Falhas abruptas da aplicação ou erros durante a limpeza física ainda podem produzir arquivos órfãos.
+
+A migration V10 reforça a integridade referencial durante a exclusão de obras:
+
+| Relação | Restrição | Comportamento |
+|--------|-----------|---------------|
+| `installment.work_id` | `ON DELETE RESTRICT` | Impede excluir obras com installments |
+| `library_entry.work_id` | `ON DELETE CASCADE` | Remove entradas de biblioteca associadas à obra |
+| `reading_progress.work_id` | `ON DELETE CASCADE` | Remove registros de progresso associados à obra |
+| `work_genre.work_id` | `ON DELETE CASCADE` | Remove os gêneros associados à obra; restrição existente desde a V9 |
+
+A aplicação continua responsável pelas regras de domínio, autenticação e autorização. O PostgreSQL complementa essas validações garantindo a integridade referencial dos registros.
 
 ---
 

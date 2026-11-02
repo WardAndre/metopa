@@ -35,6 +35,9 @@ class CatalogServiceTests {
     @InjectMocks
     private CatalogService catalogService;
 
+    @Mock
+    private WorkDeletionGuard workDeletionGuard;
+
     @Test
     void shouldCreateWork() {
         UUID ownerId = UUID.randomUUID();

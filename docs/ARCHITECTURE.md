@@ -50,7 +50,7 @@ As dependências entre módulos são verificadas por testes utilizando Spring Mo
 
 Nesta fase, não existem requisitos demonstrados que justifiquem a complexidade operacional de múltiplos serviços independentes.
 
-Microsserviços acrescentariam preocupações como comunicação distribuída, observabilidade entre serviços, deployment individual, consistência eventual e infraestrutura adicional.
+Microsserviços acrescentariam preocupações como comunicação distribuída, observabilidade, deployment individual, consistência eventual e infraestrutura adicional.
 
 O monólito modular permite priorizar as regras de negócio e a estabilidade do MVP.
 
@@ -111,7 +111,10 @@ Principais funcionalidades:
 - remoção idempotente de capas;
 - compensação de arquivos de capas em commits e rollbacks;
 - exclusão física de capas somente após a confirmação de operações de remoção;
-- coordenação de substituições, remoções de capas e atualizações de metadados por bloqueio pessimista;
+- exclusão de obras que não possuem installments;
+- rejeição da exclusão de obras com installments `DRAFT` ou `PUBLISHED`;
+- coordenação de substituições, remoções de capas, atualizações de metadados e exclusões de obras por bloqueio pessimista;
+- coordenação da criação de installments com a exclusão de obras;
 - exposição de informações da obra para outros módulos através de APIs internas.
 
 A propriedade de uma obra pertence ao domínio `catalog`.
@@ -121,6 +124,16 @@ Outros módulos não devem modificar diretamente suas entidades ou acessar livre
 Quando o módulo `publication` precisa validar a propriedade de uma obra, utiliza uma API disponibilizada por `catalog`.
 
 Um exemplo dessa integração é a utilização de `CatalogService.findWork()`, que fornece uma referência da obra contendo as informações necessárias à operação.
+
+Para a criação de installments, o módulo `catalog` também disponibiliza `CatalogService.findWorkForInstallmentCreation()`, responsável por adquirir um bloqueio pessimista na obra dentro de uma transação existente.
+
+A exclusão de obras é coordenada pelo método `CatalogService.deleteWork()`.
+
+O módulo `catalog` define o contrato `WorkDeletionGuard`, utilizado para verificar se existem installments antes de permitir a exclusão.
+
+A implementação concreta desse contrato pertence ao módulo `publication`.
+
+Essa separação permite que o catálogo aplique sua regra de exclusão sem acessar diretamente os repositories internos de publicação.
 
 A coordenação das operações sobre capas pertence ao módulo `catalog`, enquanto o módulo `media` continua responsável pelo armazenamento físico dos arquivos.
 
@@ -157,11 +170,21 @@ Responsabilidades principais:
 - validação das regras de imutabilidade;
 - consulta administrativa para o proprietário;
 - leitura pública do conteúdo publicado;
-- coordenação das operações transacionais com arquivos binários.
+- coordenação das operações transacionais com arquivos binários;
+- implementação da consulta necessária para impedir a exclusão de obras que possuem installments;
+- utilização do bloqueio da obra durante a criação de installments.
 
 O módulo é responsável pelas regras que determinam quando uma página ou um installment pode ser modificado.
 
 Operações sobre conteúdos publicados não podem alterar seus metadados ou páginas no MVP.
+
+A classe `PublicationWorkDeletionGuard`, localizada em `publication.internal`, implementa o contrato público `WorkDeletionGuard`, definido pelo módulo `catalog`.
+
+Essa implementação consulta `InstallmentRepository.existsByWorkId()`.
+
+O repository permanece encapsulado em `publication.internal`.
+
+O módulo também utiliza `CatalogService.findWorkForInstallmentCreation()` durante a criação de installments, garantindo a coordenação transacional com a exclusão de obras.
 
 ### 3.4. Library
 
@@ -173,12 +196,18 @@ Principais funcionalidades:
 - prevenção de entradas duplicadas;
 - listagem das obras adicionadas;
 - isolamento por usuário;
-- remoção idempotente de obras;
+- remoção idempotente de entradas da biblioteca;
 - restrição das operações a obras com conteúdo publicado.
 
 A biblioteca não é responsável pela publicação do conteúdo.
 
 Sua responsabilidade é registrar a relação entre um usuário e as obras que ele adicionou à biblioteca.
+
+A migration V10 introduziu uma foreign key entre `library_entry.work_id` e `work.id`, utilizando `ON DELETE CASCADE`.
+
+Com isso, a exclusão de uma obra também remove automaticamente suas referências de biblioteca, sem exigir uma chamada direta de `CatalogService` ao módulo `library`.
+
+No fluxo normal da aplicação, apenas obras com conteúdo publicado podem ser adicionadas à biblioteca. Como obras com installments não podem ser excluídas, essa limpeza em cascata também atua como uma proteção de integridade referencial.
 
 ### 3.5. Reading
 
@@ -196,6 +225,16 @@ Principais funcionalidades:
 O progresso de leitura é independente da biblioteca pessoal.
 
 Uma obra não precisa estar adicionada à biblioteca para que seu progresso seja registrado.
+
+A migration V10 introduziu uma foreign key entre `reading_progress.work_id` e `work.id`, utilizando `ON DELETE CASCADE`.
+
+Essa restrição impede que referências de progresso permaneçam associadas a uma obra excluída.
+
+No fluxo normal, o progresso exige uma página publicada e, consequentemente, um installment associado à obra.
+
+Portanto, a exclusão de uma obra que possui progresso de leitura normalmente é impedida pela existência de installments.
+
+A regra de `ON DELETE CASCADE` funciona como uma proteção adicional para situações em que possam existir referências legadas ou inconsistentes.
 
 ### 3.6. Media
 
@@ -218,7 +257,11 @@ Páginas e capas compartilham essa abstração.
 
 O módulo `media` não decide se um installment pode ser publicado, se uma página pode ser excluída ou se um usuário é proprietário de determinada obra.
 
+Também não determina se uma obra pode ser excluída.
+
 Essas regras pertencem aos módulos de domínio.
+
+Quando uma obra é excluída, o módulo `catalog` coordena a remoção do registro e solicita ao `BinaryStorage` a exclusão da capa após o commit.
 
 ### 3.7. Moderation
 
@@ -268,13 +311,63 @@ O módulo `media` realiza o armazenamento físico.
 
 O PostgreSQL mantém o registro e a referência do arquivo.
 
+### Exemplo: exclusão de uma obra
+
+A exclusão de obras exige uma verificação que depende de informações pertencentes ao módulo `publication`.
+
+Entretanto, o módulo `catalog` não deve acessar diretamente as entidades e repositories internos de publicação.
+
+Para preservar essa separação, foi definido o contrato `WorkDeletionGuard`.
+
+```text
+Cliente HTTP
+    |
+    v
+WorkDeletionController
+    |
+    | identifica usuário autenticado
+    |
+    v
+CatalogService.deleteWork()
+    |
+    | bloqueia Work
+    | valida proprietário
+    |
+    v
+WorkDeletionGuard
+    ^
+    |
+PublicationWorkDeletionGuard
+    |
+    v
+InstallmentRepository
+    |
+    | existsByWorkId(workId)
+    |
+    v
+PostgreSQL
+```
+
+O contrato `WorkDeletionGuard` pertence ao módulo `catalog`.
+
+A implementação `PublicationWorkDeletionGuard` pertence ao módulo `publication`.
+
+O Spring injeta a implementação no serviço de catálogo através do contrato.
+
+Essa abordagem permite que o catálogo consulte a existência de installments sem introduzir uma dependência direta sobre os detalhes internos de persistência de publicação.
+
+A existência do contrato não significa que o módulo `catalog` passe a ser responsável pelo gerenciamento de installments.
+
 ### Benefícios dessa separação
 
 - regras de domínio permanecem próximas de seus responsáveis;
 - detalhes de armazenamento não contaminam os contratos HTTP;
 - alterações no filesystem não exigem modificar as regras de publicação;
 - relações entre módulos não dependem de associações JPA;
-- as fronteiras arquiteturais podem ser verificadas automaticamente.
+- as fronteiras arquiteturais podem ser verificadas automaticamente;
+- dependências entre módulos são expressas por contratos públicos;
+- repositories internos continuam encapsulados;
+- operações transacionais podem ser coordenadas sem duplicar regras de domínio.
 
 ## 5. Persistência
 
@@ -309,6 +402,12 @@ Por exemplo, um installment mantém a identificação da obra à qual pertence, 
 
 Essa estratégia preserva o encapsulamento dos módulos.
 
+Entretanto, evitar associações JPA entre módulos não significa que o PostgreSQL não possa possuir foreign keys entre suas tabelas.
+
+A partir da migration V10, o banco reforça os relacionamentos entre obras, installments, biblioteca e progresso de leitura.
+
+As foreign keys representam garantias de integridade referencial no banco, enquanto os contratos Java continuam definindo as responsabilidades e dependências entre os módulos.
+
 ### 5.3. Integridade dos dados
 
 O PostgreSQL é utilizado para reforçar regras de integridade.
@@ -318,9 +417,30 @@ Entre as restrições relevantes estão:
 - unicidade de combinações de tipo e número dos installments dentro da mesma obra;
 - unicidade do número de página dentro de um installment;
 - relacionamentos necessários para manter a consistência dos registros;
-- exclusão em cascata dos registros das páginas quando um installment é removido.
+- exclusão em cascata dos registros das páginas quando um installment é removido;
+- impedimento da exclusão de obras com installments;
+- exclusão em cascata de referências de biblioteca associadas a uma obra removida;
+- exclusão em cascata de registros de progresso de leitura associados a uma obra removida;
+- exclusão em cascata dos gêneros associados a uma obra removida.
+
+As restrições relacionadas à exclusão de obras são:
+
+| Tabela | Referência | Comportamento |
+|--------|------------|---------------|
+| `installment` | `work_id → work.id` | `ON DELETE RESTRICT` |
+| `library_entry` | `work_id → work.id` | `ON DELETE CASCADE` |
+| `reading_progress` | `work_id → work.id` | `ON DELETE CASCADE` |
+| `work_genre` | `work_id → work.id` | `ON DELETE CASCADE` |
+
+A restrição de `work_genre` foi introduzida na migration V9.
+
+As três primeiras foram adicionadas pela migration V10.
 
 A aplicação também valida regras de domínio antes de persistir alterações.
+
+No caso da exclusão de obras, `CatalogService.deleteWork()` verifica a existência de installments antes de remover a obra.
+
+A foreign key com `ON DELETE RESTRICT` oferece uma proteção adicional caso uma operação de exclusão contorne essa validação.
 
 Validações na aplicação e restrições no banco possuem responsabilidades complementares.
 
@@ -346,6 +466,7 @@ V6__create_library_entry.sql
 V7__create_reading_progress.sql
 V8__add_work_cover.sql
 V9__create_work_genre.sql
+V10__add_work_reference_constraints.sql
 ```
 
 A migration `V9__create_work_genre.sql` introduziu a persistência de múltiplos gêneros associados a uma obra.
@@ -354,11 +475,62 @@ As operações de exclusão de installments, reordenação de páginas, compensa
 
 A remoção de capas reutiliza os campos existentes `cover_storage_key` e `cover_content_type`, definidos como opcionais no modelo de persistência.
 
+### Migration V10 — Integridade referencial de obras
+
+A migration `V10__add_work_reference_constraints.sql` introduziu três foreign keys:
+
+```sql
+ALTER TABLE installment
+    ADD CONSTRAINT fk_installment_work
+    FOREIGN KEY (work_id)
+    REFERENCES work(id)
+    ON DELETE RESTRICT;
+
+ALTER TABLE library_entry
+    ADD CONSTRAINT fk_library_entry_work
+    FOREIGN KEY (work_id)
+    REFERENCES work(id)
+    ON DELETE CASCADE;
+
+ALTER TABLE reading_progress
+    ADD CONSTRAINT fk_reading_progress_work
+    FOREIGN KEY (work_id)
+    REFERENCES work(id)
+    ON DELETE CASCADE;
+```
+
+Essas restrições garantem que:
+
+1. uma obra não possa ser excluída enquanto possuir installments;
+2. referências da biblioteca sejam removidas quando sua obra for excluída;
+3. registros de progresso não permaneçam associados a obras inexistentes.
+
+A associação `work_genre` já utiliza `ON DELETE CASCADE` desde a migration V9.
+
+Antes da aplicação da V10 no ambiente local, foram identificados registros órfãos gerados durante testes anteriores.
+
+Esses registros foram analisados e tratados antes da criação das novas restrições, preservando a integridade do banco.
+
+Os testes de repositório também foram ajustados para criar obras válidas antes de persistir registros dependentes de `work`.
+
+A migration foi aplicada e validada pelo Flyway.
+
+A validação posterior confirmou:
+
+```text
+Successfully validated 10 migrations
+Current version of schema "public": 10
+Schema "public" is up to date.
+No migration necessary.
+```
+
 ### Política de evolução do schema
 
 Migrations já aplicadas não devem ser editadas.
 
 Mudanças posteriores devem utilizar novas migrations versionadas, preservando o histórico de evolução do banco.
+
+A adição de novas foreign keys exige considerar a existência de registros legados ou órfãos, pois restrições relacionais não podem ser adicionadas normalmente quando os dados existentes violam suas regras.
 
 ## 7. Modelo de publicação
 
@@ -369,6 +541,10 @@ Um installment pertence a uma obra e possui tipo, número, título opcional e es
 A combinação de tipo e número deve ser única dentro da obra.
 
 Ao ser criado, um installment começa no estado `DRAFT`.
+
+A partir da migration V10, `installment.work_id` possui uma foreign key para `work.id`.
+
+Isso impede a persistência de installments associados a obras inexistentes e protege contra a exclusão de obras que ainda possuem installments.
 
 ### 7.2. Páginas
 
@@ -433,6 +609,38 @@ Nessa situação, a capa deixa de estar disponível, mas os installments e suas 
 
 Essa separação faz parte das regras de acesso do domínio e não depende apenas da interface utilizada pelo cliente.
 
+### 7.6. Exclusão de obras
+
+O MVP permite excluir uma obra somente quando ela não possui installments.
+
+Essa restrição vale independentemente do estado de publicação:
+
+- obras sem installments podem ser excluídas;
+- obras com installments `DRAFT` não podem ser excluídas;
+- obras com installments `PUBLISHED` não podem ser excluídas.
+
+A exclusão da obra não utiliza uma política de remoção em cascata para installments e páginas.
+
+A operação é implementada no módulo `catalog` através de `CatalogService.deleteWork()`.
+
+A existência de installments é verificada por meio do contrato `WorkDeletionGuard`.
+
+Se a obra possuir installments, a aplicação lança `WorkHasInstallmentsException`, convertida em `409 Conflict` pelo `CatalogExceptionHandler`.
+
+Quando a exclusão é permitida:
+
+- o registro da obra é removido;
+- os gêneros associados são removidos;
+- referências de biblioteca associadas à obra são removidas;
+- registros de progresso de leitura associados à obra são removidos;
+- se houver uma capa, seu arquivo físico é removido após o commit.
+
+A exclusão não é idempotente quanto à resposta HTTP.
+
+Uma primeira operação válida retorna `204 No Content`.
+
+Após a exclusão, uma nova tentativa de remover a mesma obra retorna `404 Not Found`.
+
 ## 8. Concorrência e bloqueio pessimista
 
 O Metopa utiliza bloqueios pessimistas no PostgreSQL para coordenar operações de escrita concorrentes sobre o mesmo installment ou a mesma obra.
@@ -454,7 +662,11 @@ No módulo `catalog`, a estratégia coordena:
 
 - atualização dos metadados da obra;
 - definição e substituição de capas;
-- remoção de capas.
+- remoção de capas;
+- exclusão de obras;
+- criação de installments associados à mesma obra.
+
+A criação de installments é coordenada com a exclusão de obras porque ambas as operações adquirem bloqueio na linha de `Work`.
 
 ### Funcionamento
 
@@ -562,7 +774,70 @@ Esse cenário foi validado em `WorkCoverIntegrationTests.shouldPreserveReplaceme
 
 O teste utiliza transações independentes, mecanismos de sincronização entre threads e verificações do estado final do PostgreSQL e do filesystem.
 
-### 8.7. Limites da coordenação
+### 8.7. Exclusão concorrente de obra e criação de installment
+
+A exclusão de obras introduz um cenário de concorrência que envolve dois módulos diferentes:
+
+- `catalog`, responsável pela obra e sua exclusão;
+- `publication`, responsável pela criação de installments.
+
+Apenas consultar a existência de installments durante a exclusão não seria suficiente para impedir uma condição de corrida.
+
+Sem coordenação, uma transação poderia verificar que a obra não possui installments enquanto outra transação estivesse criando um novo installment.
+
+Para resolver esse problema, a criação e a exclusão utilizam o mesmo bloqueio pessimista sobre a linha da obra.
+
+**Exclusão da obra:**
+
+```java
+@Transactional
+public void deleteWork(UUID userId, UUID workId);
+```
+
+O método adquire o bloqueio por meio de `WorkRepository.findByIdForUpdate()`, valida a propriedade e consulta `WorkDeletionGuard.hasInstallments()` antes de remover a obra.
+
+**Criação de installment:**
+
+```java
+@Transactional(propagation = Propagation.MANDATORY)
+public WorkReference findWorkForInstallmentCreation(
+        UUID workId
+);
+```
+
+O método exige uma transação existente e também utiliza `WorkRepository.findByIdForUpdate()`.
+
+`PublicationService.createInstallment()` utiliza esse método antes de persistir o installment.
+
+A estratégia estabelece dois cenários.
+
+**Cenário A — exclusão confirma primeiro:**
+
+1. a transação de exclusão bloqueia a obra;
+2. verifica que não existem installments;
+3. remove a obra;
+4. a transação de criação aguarda a liberação do bloqueio;
+5. a exclusão confirma a transação;
+6. a criação prossegue, mas não encontra a obra;
+7. nenhum installment é persistido para a obra removida.
+
+**Cenário B — criação confirma primeiro:**
+
+1. a transação de criação bloqueia a obra;
+2. cria e persiste o installment;
+3. a transação de exclusão tenta bloquear a obra e aguarda;
+4. a criação confirma a transação;
+5. a exclusão prossegue e verifica a existência do installment;
+6. a exclusão é rejeitada;
+7. a obra e o installment permanecem preservados.
+
+Ambos os cenários foram validados em `WorkDeletionIntegrationTests`, utilizando transações independentes no PostgreSQL.
+
+A foreign key `fk_installment_work`, introduzida pela V10, complementa o bloqueio pessimista.
+
+Ela impede que operações SQL fora do fluxo de serviço removam uma obra que ainda possui installments.
+
+### 8.8. Limites da coordenação
 
 O bloqueio protege os fluxos que utilizam a mesma estratégia de acesso à linha.
 
@@ -571,6 +846,8 @@ Ele não torna operações de filesystem transacionais, não elimina falhas de i
 A coordenação também pressupõe que outros fluxos que modifiquem a mesma entidade respeitem os mecanismos de bloqueio definidos.
 
 Testes concorrentes baseados em sincronização de threads e janelas de tempo oferecem evidência de comportamento sob os cenários exercitados, mas não demonstram ausência de todas as condições de corrida possíveis.
+
+A integridade referencial da V10 fornece uma camada adicional de proteção, especialmente para operações que não utilizam diretamente os serviços de domínio.
 
 ## 9. Armazenamento binário
 
@@ -614,12 +891,13 @@ O Metopa utiliza mecanismos compensatórios para reduzir as inconsistências nes
 
 ## 10. Consistência transacional entre PostgreSQL e filesystem
 
-A implementação atual diferencia quatro situações:
+A implementação atual diferencia cinco situações:
 
 1. exclusão de páginas e installments existentes;
 2. upload de conteúdo que está sendo criado;
 3. substituição de uma capa existente por um novo arquivo;
-4. remoção explícita de uma capa.
+4. remoção explícita de uma capa;
+5. exclusão de uma obra que pode possuir uma capa.
 
 Cada situação exige coordenação entre os registros do PostgreSQL e os arquivos administrados por `BinaryStorage`.
 
@@ -878,7 +1156,143 @@ Se a exclusão física falhar, a referência já poderá estar removida do Postg
 
 Esse cenário exige mecanismos adicionais de reconciliação para uma garantia durável de limpeza, ainda não implementados no MVP.
 
-### 10.6. Comparação das estratégias
+### 10.6. Exclusão transacional de obras
+
+A operação `CatalogService.deleteWork()` permite que o proprietário exclua uma obra que não possui installments.
+
+O endpoint HTTP correspondente é:
+
+```http
+DELETE /api/works/{workId}
+```
+
+A exclusão utiliza uma transação PostgreSQL e bloqueio pessimista sobre a linha da obra.
+
+O método segue este fluxo:
+
+1. localizar a obra utilizando `WorkRepository.findByIdForUpdate()`;
+2. validar que o usuário é proprietário da obra;
+3. consultar `WorkDeletionGuard.hasInstallments(workId)`;
+4. rejeitar a operação se houver qualquer installment;
+5. capturar o `coverStorageKey` atual, caso exista;
+6. remover a entidade `Work` pelo repository;
+7. registrar um callback `afterCommit()` para remover o arquivo físico da capa, quando aplicável;
+8. confirmar ou reverter a transação PostgreSQL.
+
+A verificação de propriedade acontece antes da consulta aos installments.
+
+Isso impede que usuários sem autorização obtenham informações sobre a possibilidade de exclusão da obra.
+
+**Quando a obra possui installments:**
+
+- a operação lança `WorkHasInstallmentsException`;
+- o `CatalogExceptionHandler` retorna `409 Conflict`;
+- a obra permanece preservada;
+- os installments e páginas permanecem preservados;
+- a capa física não é removida.
+
+**Quando a obra não possui installments:**
+
+- a exclusão pode prosseguir;
+- os gêneros associados são removidos pelo relacionamento existente desde a V9;
+- referências de biblioteca e progresso de leitura são removidas pelas restrições da V10;
+- a remoção do arquivo físico da capa é condicionada ao commit.
+
+A operação não possui uma exclusão em cascata de installments.
+
+O PostgreSQL utiliza `ON DELETE RESTRICT` para impedir a remoção de obras que ainda possuem installments.
+
+#### Exclusão de obra sem capa
+
+Quando a obra não possui capa, a exclusão não registra uma operação de limpeza física.
+
+O registro da obra é removido normalmente, desde que não possua installments.
+
+A ausência de capa não torna a exclusão idempotente quanto à resposta HTTP.
+
+Após a exclusão, uma nova tentativa retorna `404 Not Found`.
+
+#### Exclusão de obra com capa
+
+Quando a obra possui capa, o serviço captura a chave de armazenamento antes de remover o registro.
+
+O arquivo não é excluído imediatamente.
+
+A limpeza é registrada em um callback `TransactionSynchronization.afterCommit()`.
+
+**Quando há commit:**
+
+- o registro da obra é removido do PostgreSQL;
+- as referências relacionadas abrangidas por `ON DELETE CASCADE` são removidas;
+- o callback solicita a exclusão física da capa através de `BinaryStorage`.
+
+**Quando há rollback:**
+
+- a obra permanece persistida;
+- seus metadados e referências são preservados;
+- o callback `afterCommit()` não é executado;
+- o arquivo físico da capa permanece disponível.
+
+Fluxo:
+
+```text
+Exclusão de obra
+    |
+    v
+Bloquear Work com PESSIMISTIC_WRITE
+    |
+    v
+Validar proprietário
+    |
+    v
+Verificar existência de installments
+    |
+    +----> Existem installments
+    |      Rejeitar com 409 Conflict
+    |
+    v
+Capturar coverStorageKey
+    |
+    v
+Remover Work na transação PostgreSQL
+    |
+    v
+Registrar afterCommit() se houver capa
+    |
+    +--------------------------------+
+    |                                |
+    v                                v
+ COMMIT                          ROLLBACK
+    |                                |
+    v                                v
+Obra removida                    Obra preservada
+Referências removidas            Referências preservadas
+Capa excluída após commit        Capa preservada
+```
+
+#### Coordenação com a criação de installments
+
+A exclusão de obras utiliza bloqueio pessimista para impedir condições de corrida com a criação de installments.
+
+A criação utiliza `CatalogService.findWorkForInstallmentCreation()`, enquanto a exclusão utiliza `CatalogService.deleteWork()`.
+
+Ambas adquirem o bloqueio da mesma linha de `Work`.
+
+A coordenação impede que a exclusão conclua baseada em uma verificação de installments desatualizada.
+
+Os dois possíveis ordenamentos de commit foram validados por testes de integração.
+
+#### Limitação da exclusão após commit
+
+A limpeza física da capa não faz parte da transação PostgreSQL.
+
+Se `BinaryStorage.delete()` falhar durante o callback `afterCommit()`, o registro da obra já terá sido excluído do banco.
+
+A falha poderá deixar um arquivo órfão e a exceção poderá ser propagada ao fluxo da requisição, sem desfazer a transação confirmada.
+
+O MVP ainda não possui uma fila persistente de limpeza ou mecanismo automático de reconciliação de arquivos órfãos.
+
+### 10.7. Comparação das estratégias
 
 | Operação | Momento da limpeza | Objetivo |
 |----------|--------------------|----------|
@@ -890,7 +1304,9 @@ Esse cenário exige mecanismos adicionais de reconciliação para uma garantia d
 | Substituição de capa — rollback | Após rollback | Remover arquivo recém-armazenado e preservar a capa anterior |
 | Remoção de capa — commit | Após commit | Excluir o arquivo somente depois de remover sua referência |
 | Remoção de capa — rollback | Nenhuma limpeza física | Preservar a referência anterior e o arquivo correspondente |
-| Remoção de obra sem capa | Nenhuma limpeza física | Manter a operação idempotente, sem arquivos a remover |
+| Exclusão de obra sem capa | Nenhuma limpeza física | Remover a obra sem tentar excluir arquivos inexistentes |
+| Exclusão de obra com capa — commit | Após commit | Remover o arquivo físico somente depois da exclusão confirmada da obra |
+| Exclusão de obra com capa — rollback | Nenhuma limpeza física | Preservar a obra, sua referência e o arquivo da capa |
 
 As estratégias são complementares.
 
@@ -898,7 +1314,7 @@ O armazenamento físico permanece encapsulado por `BinaryStorage`.
 
 A coordenação transacional pertence aos fluxos de negócio implementados nos módulos `publication` e `catalog`.
 
-### 10.7. Limitações conhecidas
+### 10.8. Limitações conhecidas
 
 Os callbacks transacionais não transformam PostgreSQL e filesystem em um sistema com transações distribuídas.
 
@@ -917,11 +1333,13 @@ A compensação de rollback cobre o fluxo de `PublicationService.createPage()` e
 
 O fluxo de `CatalogService.removeCover()` preserva o arquivo original durante a transação e solicita sua exclusão apenas após o commit.
 
+O fluxo de `CatalogService.deleteWork()` também preserva a capa durante a transação, removendo o arquivo somente após a confirmação da exclusão da obra.
+
 Se `binaryStorage.delete()` falhar durante `afterCommit()`, a transação relacional já terá sido confirmada. A limpeza poderá ficar pendente e a exceção poderá ser propagada, sem desfazer o commit.
 
 Os callbacks atuais não persistem tarefas de limpeza para repetição após falha ou reinicialização da aplicação.
 
-### 10.8. Possíveis evoluções
+### 10.9. Possíveis evoluções
 
 Uma implementação futura poderá avaliar mecanismos de limpeza durável ou reconciliação de arquivos.
 
@@ -956,6 +1374,8 @@ Operações protegidas que alteram estado exigem um token válido.
 
 A remoção de capas utiliza o método HTTP `DELETE` e exige um token CSRF válido.
 
+A exclusão de obras também utiliza `DELETE` e exige autenticação e proteção CSRF.
+
 Uma requisição autenticada sem o token exigido recebe `403 Forbidden`.
 
 ### 11.3. Autorização por propriedade
@@ -970,6 +1390,10 @@ Na remoção de capas, a validação de propriedade acontece antes de modificar 
 
 Tentativas de remoção por usuários que não são proprietários recebem `403 Forbidden`, preservando a referência e o arquivo da capa.
 
+Na exclusão de obras, a validação de propriedade ocorre antes da consulta aos installments.
+
+Usuários que não são proprietários não podem excluir a obra, independentemente de ela possuir ou não installments.
+
 ### 11.4. Ordem das validações
 
 Na exclusão de installments, a validação de propriedade ocorre antes da verificação do estado `DRAFT` ou `PUBLISHED`.
@@ -979,6 +1403,15 @@ Isso evita revelar o estado de publicação para um usuário que não possui aut
 Na remoção de capas, a propriedade também é validada antes de verificar se existe uma capa a remover.
 
 Assim, a idempotência da operação não permite que um usuário sem autorização modifique ou consulte indevidamente o estado administrativo da obra.
+
+Na exclusão de obras, a ordem das validações é:
+
+1. localizar e bloquear a obra;
+2. verificar se o usuário é proprietário;
+3. consultar a existência de installments;
+4. excluir a obra somente quando não existirem installments.
+
+Essa ordem impede que usuários não autorizados descubram se determinada obra possui installments através da tentativa de exclusão.
 
 ### 11.5. Separação de conteúdo público
 
@@ -991,6 +1424,8 @@ As consultas administrativas possuem contratos específicos e exigem autorizaç�
 A remoção da capa não modifica os estados `DRAFT` ou `PUBLISHED` dos installments.
 
 Uma obra publicada continua disponível publicamente após a remoção de sua capa, mas o endpoint público da capa deixa de disponibilizar conteúdo até que uma nova seja definida.
+
+A exclusão de uma obra publicada não é permitida no MVP enquanto existirem installments associados.
 
 ### 11.6. Respostas HTTP
 
@@ -1011,13 +1446,28 @@ A remoção de capas utiliza:
 - `403 Forbidden` quando o usuário não é proprietário ou o token CSRF é inválido;
 - `404 Not Found` quando a obra não existe.
 
-O tratamento de `WorkNotFoundException` é realizado em `CatalogExceptionHandler`, com resposta estruturada através de `ProblemDetail`.
+A exclusão de obras utiliza:
+
+- `204 No Content` quando uma obra sem installments é excluída;
+- `401 Unauthorized` quando não existe sessão autenticada;
+- `403 Forbidden` quando o usuário não é proprietário ou o token CSRF é inválido;
+- `404 Not Found` quando a obra não existe;
+- `409 Conflict` quando a obra possui installments `DRAFT` ou `PUBLISHED`.
+
+O tratamento de `WorkNotFoundException` e `WorkHasInstallmentsException` é realizado em `CatalogExceptionHandler`, com respostas estruturadas através de `ProblemDetail`.
+
+Para o conflito de exclusão de obras, são utilizados:
+
+```text
+Title:  Work cannot be deleted
+Detail: A work with installments cannot be deleted.
+```
 
 Os contratos específicos de cada endpoint são descritos em [API.md](API.md).
 
 ## 12. Testes de arquitetura e integração
 
-Na validação completa de 29/10/2026, a suíte automatizada executou **258 testes com sucesso**, sem falhas, erros ou testes ignorados.
+Na validação completa de 02/11/2026, a suíte automatizada executou **273 testes com sucesso**, sem falhas, erros ou testes ignorados.
 
 Comando utilizado:
 
@@ -1028,7 +1478,7 @@ Comando utilizado:
 Resultado:
 
 ```text
-Tests run: 258
+Tests run: 273
 Failures: 0
 Errors: 0
 Skipped: 0
@@ -1036,9 +1486,9 @@ Skipped: 0
 BUILD SUCCESS
 ```
 
-A referência anterior era de 248 testes aprovados após a implementação da consistência transacional de capas.
+A validação anterior, realizada em 29/10/2026, havia executado 258 testes aprovados após a implementação da remoção de capas.
 
-A feature de remoção de capas acrescentou dez testes à suíte.
+A feature de exclusão de obras acrescentou 15 cenários de integração à suíte.
 
 Entre os aspectos relacionados à arquitetura estão:
 
@@ -1054,13 +1504,21 @@ Entre os aspectos relacionados à arquitetura estão:
 - exclusão de capas anteriores após commit de substituição;
 - remoção física de capas após commit;
 - preservação de referências e arquivos após rollback de remoção;
-- idempotência na remoção de obras sem capa;
+- idempotência na remoção de capas de obras sem capa;
 - tratamento de obras inexistentes;
 - concorrência com transações independentes;
 - bloqueios pessimistas para installments e obras;
 - substituições concorrentes de capas;
 - concorrência entre atualização de metadados e substituição de capa;
 - concorrência entre remoção e substituição de capas;
+- exclusão de obras sem installments;
+- rejeição da exclusão de obras com installments `DRAFT` e `PUBLISHED`;
+- preservação de obras e capas após rollback de exclusão;
+- concorrência entre exclusão de obras e criação de installments;
+- integridade referencial introduzida pela migration V10;
+- remoção de referências de biblioteca e progresso de leitura;
+- proteção contra exclusão direta no PostgreSQL;
+- remoção de gêneros associados à obra;
 - preservação de registros e arquivos após rollback;
 - validação unitária dos callbacks transacionais.
 
@@ -1070,7 +1528,7 @@ A feature `creator-cover-removal` introduziu testes de integração e testes uni
 
 1. remoção de capa existente após commit;
 2. preservação da capa quando a remoção sofre rollback;
-3. remoção idempotente de obra sem capa;
+3. remoção idempotente de capa de uma obra sem capa;
 4. rejeição de remoção por usuário que não é proprietário;
 5. rejeição de remoção sem autenticação;
 6. rejeição de remoção sem token CSRF;
@@ -1082,6 +1540,43 @@ A feature `creator-cover-removal` introduziu testes de integração e testes uni
 Os testes de integração exercitam transações reais, persistência no PostgreSQL e armazenamento no filesystem local.
 
 Os testes unitários complementam essa validação, verificando as interações com `WorkRepository`, `BinaryStorage` e os callbacks transacionais.
+
+### Testes específicos da exclusão de obras
+
+A feature `creator-work-deletion` introduziu a classe `WorkDeletionIntegrationTests`, responsável pela validação dos seguintes cenários:
+
+1. exclusão de obra sem installments pelo proprietário;
+2. rejeição da exclusão de obra com installment `DRAFT`;
+3. rejeição da exclusão de obra com installment `PUBLISHED`;
+4. remoção física da capa após a exclusão confirmada da obra;
+5. preservação da obra e da capa quando a transação sofre rollback;
+6. rejeição da exclusão por usuário que não é proprietário;
+7. rejeição da exclusão sem autenticação;
+8. rejeição da exclusão sem token CSRF;
+9. resposta `404 Not Found` para obra inexistente;
+10. rejeição da criação de installment quando a exclusão da obra confirma primeiro;
+11. rejeição da exclusão da obra quando a criação de installment confirma primeiro;
+12. remoção de entradas de biblioteca associadas a uma obra excluída;
+13. remoção de registros de progresso de leitura associados a uma obra excluída;
+14. proteção da foreign key `fk_installment_work` contra exclusão direta de obras com installments;
+15. remoção dos gêneros associados à obra excluída.
+
+Os cenários de concorrência utilizam transações independentes e sincronização entre threads.
+
+Os cenários transacionais verificam o estado real do PostgreSQL e, quando aplicável, os arquivos físicos administrados por `BinaryStorage`.
+
+Os cenários de integridade referencial verificam as restrições introduzidas pela migration V10.
+
+Os testes de repositório de installments, páginas, biblioteca e progresso de leitura foram ajustados para criar registros válidos de obras antes de persistir entidades dependentes.
+
+Essas alterações preservam o propósito original dos testes e respeitam as novas foreign keys.
+
+A validação completa confirmou:
+
+```text
+Tests run: 273, Failures: 0, Errors: 0, Skipped: 0
+BUILD SUCCESS
+```
 
 O teste de modularidade ajuda a identificar dependências indevidas entre módulos.
 
