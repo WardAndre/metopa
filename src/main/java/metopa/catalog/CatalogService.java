@@ -6,6 +6,7 @@ import metopa.catalog.internal.WorkRepository;
 import metopa.media.BinaryStorage;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.validation.annotation.Validated;
@@ -21,12 +22,16 @@ public class CatalogService {
 
     private final BinaryStorage binaryStorage;
 
+    private final WorkDeletionGuard workDeletionGuard;
+
     public CatalogService(
             WorkRepository repository,
-            BinaryStorage binaryStorage
+            BinaryStorage binaryStorage,
+            WorkDeletionGuard workDeletionGuard
     ) {
         this.repository = repository;
         this.binaryStorage = binaryStorage;
+        this.workDeletionGuard = workDeletionGuard;
     }
 
     @Transactional
@@ -308,6 +313,60 @@ public class CatalogService {
                         binaryStorage.delete(storageKey);
                     }
                 }
+        );
+    }
+
+    @Transactional
+    public void deleteWork(
+            UUID userId,
+            UUID workId
+    ) {
+        Work work = repository.findByIdForUpdate(workId)
+                .orElseThrow(() ->
+                        new WorkNotFoundException(workId)
+                );
+
+        if (!work.getOwnerId().equals(userId)) {
+            throw new WorkAccessDeniedException();
+        }
+
+        if (workDeletionGuard.hasInstallments(workId)) {
+            throw new WorkHasInstallmentsException();
+        }
+
+        String coverStorageKey =
+                work.getCoverStorageKey();
+
+        repository.delete(work);
+
+        if (coverStorageKey != null) {
+            TransactionSynchronizationManager
+                    .registerSynchronization(
+                            new TransactionSynchronization() {
+
+                                @Override
+                                public void afterCommit() {
+                                    binaryStorage.delete(
+                                            coverStorageKey
+                                    );
+                                }
+                            }
+                    );
+        }
+    }
+
+    @Transactional(propagation = Propagation.MANDATORY)
+    public WorkReference findWorkForInstallmentCreation(
+            UUID workId
+    ) {
+        Work work = repository.findByIdForUpdate(workId)
+                .orElseThrow(() ->
+                        new WorkNotFoundException(workId)
+                );
+
+        return new WorkReference(
+                work.getId(),
+                work.getOwnerId()
         );
     }
 }

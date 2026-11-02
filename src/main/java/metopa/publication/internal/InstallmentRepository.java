@@ -15,6 +15,8 @@ import java.util.UUID;
 public interface InstallmentRepository
         extends JpaRepository<Installment, UUID> {
 
+    boolean existsByWorkId(UUID workId);
+
     boolean existsByWorkIdAndTypeAndNumber(
             UUID workId,
             InstallmentType type,

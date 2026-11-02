@@ -51,7 +51,7 @@ public class PublicationService {
             @Valid CreateInstallmentCommand command
     ) {
         WorkReference work =
-                catalogService.findWork(command.workId());
+                catalogService.findWorkForInstallmentCreation(command.workId());
 
         if (!work.ownerId().equals(userId)) {
             throw new WorkAccessDeniedException();

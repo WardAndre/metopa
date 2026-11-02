@@ -2,6 +2,7 @@ package metopa.catalog.web;
 
 import metopa.catalog.WorkAccessDeniedException;
 import metopa.catalog.WorkNotFoundException;
+import metopa.catalog.WorkHasInstallmentsException;
 
 import jakarta.validation.ConstraintViolationException;
 import org.springframework.http.HttpStatus;
@@ -64,6 +65,21 @@ class CatalogExceptionHandler {
         problem.setDetail(
                 "The requested work does not exist."
         );
+
+        return problem;
+    }
+
+    @ExceptionHandler(WorkHasInstallmentsException.class)
+    ProblemDetail handleWorkHasInstallments(
+            WorkHasInstallmentsException exception
+    ) {
+        ProblemDetail problem =
+                ProblemDetail.forStatus(
+                        HttpStatus.CONFLICT
+                );
+
+        problem.setTitle("Work cannot be deleted");
+        problem.setDetail(exception.getMessage());
 
         return problem;
     }
