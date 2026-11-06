@@ -1,12 +1,14 @@
 package metopa.publication.internal;
 
+import jakarta.persistence.LockModeType;
 import metopa.publication.InstallmentType;
 import metopa.publication.PublicationStatus;
-import jakarta.persistence.LockModeType;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
-import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
 import java.util.Optional;
@@ -39,6 +41,57 @@ public interface InstallmentRepository
 
     List<Installment> findByStatusOrderByUpdatedAtDesc(
             PublicationStatus status
+    );
+
+    @Query(
+            value = """
+                    SELECT i.work_id
+                    FROM installment i
+                    WHERE i.status = 'PUBLISHED'
+                    GROUP BY i.work_id
+                    ORDER BY MAX(i.updated_at) DESC, i.work_id ASC
+                    """,
+            countQuery = """
+                    SELECT COUNT(DISTINCT i.work_id)
+                    FROM installment i
+                    WHERE i.status = 'PUBLISHED'
+                    """,
+            nativeQuery = true
+    )
+    Page<UUID> findPublishedWorkIds(
+            Pageable pageable
+    );
+
+    @Query(
+            value = """
+                    SELECT i.work_id
+                    FROM installment i
+                    WHERE i.status = 'PUBLISHED'
+                      AND EXISTS (
+                          SELECT 1
+                          FROM work_genre wg
+                          WHERE wg.work_id = i.work_id
+                            AND wg.genre = :genre
+                      )
+                    GROUP BY i.work_id
+                    ORDER BY MAX(i.updated_at) DESC, i.work_id ASC
+                    """,
+            countQuery = """
+                    SELECT COUNT(DISTINCT i.work_id)
+                    FROM installment i
+                    WHERE i.status = 'PUBLISHED'
+                      AND EXISTS (
+                          SELECT 1
+                          FROM work_genre wg
+                          WHERE wg.work_id = i.work_id
+                            AND wg.genre = :genre
+                      )
+                    """,
+            nativeQuery = true
+    )
+    Page<UUID> findPublishedWorkIdsByGenre(
+            @Param("genre") String genre,
+            Pageable pageable
     );
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)

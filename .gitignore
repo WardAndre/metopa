@@ -35,3 +35,4 @@ build/
 .env
 cookies.txt
 /storage/
+.DS_Store

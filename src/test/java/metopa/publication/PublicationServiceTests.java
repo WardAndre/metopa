@@ -22,6 +22,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 
 import java.util.List;
 import java.util.Optional;
@@ -1827,5 +1829,120 @@ class PublicationServiceTests {
 
         verify(binaryStorage, never())
                 .delete(any(String.class));
+    }
+
+    @Test
+    void shouldReturnPagedPublishedWorks() {
+        UUID workId = UUID.randomUUID();
+        PageRequest pageable = PageRequest.of(0, 1);
+
+        when(installmentRepository.findPublishedWorkIds(pageable))
+                .thenReturn(
+                        new PageImpl<>(
+                                List.of(workId),
+                                pageable,
+                                2
+                        )
+                );
+
+        when(catalogService.findWorkSummary(workId))
+                .thenReturn(
+                        new WorkSummary(
+                                workId,
+                                "Metopa Origins",
+                                WorkType.GRAPHIC_NOVEL,
+                                Set.of(Genre.SCI_FI),
+                                true
+                        )
+                );
+
+        org.springframework.data.domain.Page<PublishedWorkSummary> result =
+                publicationService.findPublishedWorks(
+                        null,
+                        pageable
+                );
+
+        assertThat(result.getContent()).hasSize(1);
+        assertThat(result.getContent().getFirst().id())
+                .isEqualTo(workId);
+        assertThat(result.getContent().getFirst().title())
+                .isEqualTo("Metopa Origins");
+        assertThat(result.getContent().getFirst().hasCover())
+                .isTrue();
+
+        assertThat(result.getNumber()).isZero();
+        assertThat(result.getSize()).isEqualTo(1);
+        assertThat(result.getTotalElements()).isEqualTo(2);
+        assertThat(result.getTotalPages()).isEqualTo(2);
+
+        verify(installmentRepository)
+                .findPublishedWorkIds(pageable);
+
+        verify(catalogService)
+                .findWorkSummary(workId);
+    }
+
+    @Test
+    void shouldReturnPagedPublishedWorksFilteredByGenre() {
+        UUID workId = UUID.randomUUID();
+        PageRequest pageable = PageRequest.of(1, 2);
+
+        when(
+                installmentRepository.findPublishedWorkIdsByGenre(
+                        Genre.SCI_FI.name(),
+                        pageable
+                )
+        ).thenReturn(
+                new PageImpl<>(
+                        List.of(workId),
+                        pageable,
+                        3
+                )
+        );
+
+        when(catalogService.findWorkSummary(workId))
+                .thenReturn(
+                        new WorkSummary(
+                                workId,
+                                "Metopa Origins",
+                                WorkType.GRAPHIC_NOVEL,
+                                Set.of(
+                                        Genre.SCI_FI,
+                                        Genre.ADVENTURE
+                                ),
+                                true
+                        )
+                );
+
+        org.springframework.data.domain.Page<PublishedWorkSummary> result =
+                publicationService.findPublishedWorks(
+                        Genre.SCI_FI,
+                        pageable
+                );
+
+        assertThat(result.getContent()).hasSize(1);
+        assertThat(result.getContent().getFirst().id())
+                .isEqualTo(workId);
+        assertThat(result.getContent().getFirst().title())
+                .isEqualTo("Metopa Origins");
+        assertThat(result.getContent().getFirst().genres())
+                .containsExactlyInAnyOrder(
+                        Genre.SCI_FI,
+                        Genre.ADVENTURE
+                );
+
+        assertThat(result.getNumber()).isEqualTo(1);
+        assertThat(result.getSize()).isEqualTo(2);
+        assertThat(result.getTotalElements()).isEqualTo(3);
+        assertThat(result.getTotalPages()).isEqualTo(2);
+
+        verify(installmentRepository)
+                .findPublishedWorkIdsByGenre(
+                        Genre.SCI_FI.name(),
+                        pageable
+                );
+
+        verify(catalogService)
+                .findWorkSummary(workId);
     }
 }
