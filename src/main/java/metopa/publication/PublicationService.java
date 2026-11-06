@@ -17,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.validation.annotation.Validated;
+import org.springframework.data.domain.Pageable;
 
 import java.util.HashMap;
 import java.util.HashSet;
@@ -540,6 +541,35 @@ public class PublicationService {
                 cover.contentType(),
                 cover.content()
         );
+    }
+
+    @Transactional(readOnly = true)
+    public org.springframework.data.domain.Page<PublishedWorkSummary>
+    findPublishedWorks(
+            Genre genre,
+            Pageable pageable
+    ) {
+        org.springframework.data.domain.Page<UUID> workIds =
+                genre == null
+                        ? installmentRepository.findPublishedWorkIds(
+                        pageable
+                )
+                        : installmentRepository.findPublishedWorkIdsByGenre(
+                        genre.name(),
+                        pageable
+                );
+
+        return workIds.map(workId -> {
+            var work = catalogService.findWorkSummary(workId);
+
+            return new PublishedWorkSummary(
+                    work.id(),
+                    work.title(),
+                    work.type(),
+                    work.genres(),
+                    work.hasCover()
+            );
+        });
     }
 
     @Transactional
