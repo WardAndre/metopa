@@ -36,6 +36,7 @@ jobs:
       SPRING_DATASOURCE_USERNAME: metopa
       SPRING_DATASOURCE_PASSWORD: metopa_test
       SPRING_DOCKER_COMPOSE_ENABLED: 'false'
+      SPRING_TEST_DATABASE_REPLACE: 'NONE'
 
     steps:
       - name: Checkout repository
