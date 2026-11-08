@@ -296,6 +296,7 @@ class PublishedWorkControllerTests {
         verify(publicationService)
                 .findPublishedWorks(
                         null,
+                        null,
                         PageRequest.of(0, 20)
                 );
     }
@@ -376,6 +377,7 @@ class PublishedWorkControllerTests {
 
         verify(publicationService)
                 .findPublishedWorks(
+                        null,
                         Genre.SCI_FI,
                         PageRequest.of(0, 20)
                 );
@@ -450,6 +452,7 @@ class PublishedWorkControllerTests {
         verify(publicationService)
                 .findPublishedWorks(
                         null,
+                        null,
                         PageRequest.of(0, 1)
                 );
     }
@@ -508,6 +511,7 @@ class PublishedWorkControllerTests {
         verify(publicationService)
                 .findPublishedWorks(
                         null,
+                        null,
                         PageRequest.of(1, 1)
                 );
     }
@@ -553,6 +557,7 @@ class PublishedWorkControllerTests {
         verify(publicationService)
                 .findPublishedWorks(
                         null,
+                        null,
                         PageRequest.of(2, 1)
                 );
     }
@@ -587,6 +592,7 @@ class PublishedWorkControllerTests {
 
         when(
                 publicationService.findPublishedWorks(
+                        null,
                         Genre.SCI_FI,
                         pageable
                 )
@@ -640,9 +646,166 @@ class PublishedWorkControllerTests {
 
         verify(publicationService)
                 .findPublishedWorks(
+                        null,
                         Genre.SCI_FI,
                         pageable
                 );
+    }
+
+    @Test
+    void shouldReturnPublishedWorksFilteredByTitle() throws Exception {
+        UUID workId = UUID.randomUUID();
+        String title = "  dragon  ";
+
+        stubPublishedWorks(
+                title,
+                null,
+                0,
+                10,
+                1,
+                new PublishedWorkSummary(
+                        workId,
+                        "Dragon Chronicles",
+                        WorkType.COMIC,
+                        Set.of(Genre.ADVENTURE),
+                        true
+                )
+        );
+
+        mockMvc.perform(
+                        get("/api/works")
+                                .queryParam("title", title)
+                                .queryParam("page", "0")
+                                .queryParam("size", "10")
+                )
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.content[0].id")
+                        .value(workId.toString()))
+                .andExpect(jsonPath("$.content[0].title")
+                        .value("Dragon Chronicles"))
+                .andExpect(jsonPath("$.content[0].coverUrl")
+                        .value("/api/works/" + workId + "/cover"))
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.size").value(10))
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.totalPages").value(1));
+
+        verify(publicationService)
+                .findPublishedWorks(title, null, PageRequest.of(0, 10));
+    }
+
+    @Test
+    void shouldReturnPublishedWorksFilteredByTitleAndGenre()
+            throws Exception {
+        UUID workId = UUID.randomUUID();
+        PageRequest pageable = PageRequest.of(1, 1);
+
+        stubPublishedWorks(
+                "dragon",
+                Genre.SCI_FI,
+                1,
+                1,
+                2,
+                new PublishedWorkSummary(
+                        workId,
+                        "Dragon Galaxy",
+                        WorkType.GRAPHIC_NOVEL,
+                        Set.of(Genre.SCI_FI, Genre.ADVENTURE),
+                        false
+                )
+        );
+
+        mockMvc.perform(
+                        get("/api/works")
+                                .queryParam("title", "dragon")
+                                .queryParam("genre", "SCI_FI")
+                                .queryParam("page", "1")
+                                .queryParam("size", "1")
+                )
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.content[0].id")
+                        .value(workId.toString()))
+                .andExpect(jsonPath("$.content[0].title")
+                        .value("Dragon Galaxy"))
+                .andExpect(jsonPath("$.content[0].genres")
+                        .value(containsInAnyOrder("SCI_FI", "ADVENTURE")))
+                .andExpect(jsonPath("$.content[0].coverUrl")
+                        .value(nullValue()))
+                .andExpect(jsonPath("$.page").value(1))
+                .andExpect(jsonPath("$.size").value(1))
+                .andExpect(jsonPath("$.totalElements").value(2))
+                .andExpect(jsonPath("$.totalPages").value(2));
+
+        verify(publicationService)
+                .findPublishedWorks("dragon", Genre.SCI_FI, pageable);
+    }
+
+    @Test
+    void shouldForwardBlankTitleWithoutChangingIt() throws Exception {
+        String blankTitle = "   ";
+
+        stubPublishedWorks(blankTitle, Genre.SCI_FI, 0, 20, 0);
+
+        mockMvc.perform(
+                        get("/api/works")
+                                .queryParam("title", blankTitle)
+                                .queryParam("genre", "SCI_FI")
+                )
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content").isEmpty())
+                .andExpect(jsonPath("$.totalElements").value(0))
+                .andExpect(jsonPath("$.totalPages").value(0));
+
+        verify(publicationService)
+                .findPublishedWorks(
+                        blankTitle,
+                        Genre.SCI_FI,
+                        PageRequest.of(0, 20)
+                );
+    }
+
+    @Test
+    void shouldForwardSpecialCharactersInTitle() throws Exception {
+        String title = "100%_!";
+
+        stubPublishedWorks(title, null, 0, 20, 0);
+
+        mockMvc.perform(
+                        get("/api/works")
+                                .queryParam("title", title)
+                )
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content").isEmpty())
+                .andExpect(jsonPath("$.totalElements").value(0));
+
+        verify(publicationService)
+                .findPublishedWorks(title, null, PageRequest.of(0, 20));
+    }
+
+    @Test
+    void shouldReturnEmptyContentWhenTitleHasNoMatches()
+            throws Exception {
+        String title = "not-found";
+
+        stubPublishedWorks(title, null, 0, 10, 0);
+
+        mockMvc.perform(
+                        get("/api/works")
+                                .queryParam("title", title)
+                                .queryParam("page", "0")
+                                .queryParam("size", "10")
+                )
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content").isEmpty())
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.size").value(10))
+                .andExpect(jsonPath("$.totalElements").value(0))
+                .andExpect(jsonPath("$.totalPages").value(0));
+
+        verify(publicationService)
+                .findPublishedWorks(title, null, PageRequest.of(0, 10));
     }
 
     private void stubPublishedWorks(
@@ -652,9 +815,20 @@ class PublishedWorkControllerTests {
             long totalElements,
             PublishedWorkSummary... works
     ) {
+        stubPublishedWorks(null, genre, page, size, totalElements, works);
+    }
+
+    private void stubPublishedWorks(
+            String title,
+            Genre genre,
+            int page,
+            int size,
+            long totalElements,
+            PublishedWorkSummary... works
+    ) {
         PageRequest pageable = PageRequest.of(page, size);
 
-        when(publicationService.findPublishedWorks(genre, pageable))
+        when(publicationService.findPublishedWorks(title, genre, pageable))
                 .thenReturn(
                         new PageImpl<>(
                                 List.of(works),

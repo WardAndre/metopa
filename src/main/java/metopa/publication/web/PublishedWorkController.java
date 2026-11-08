@@ -42,6 +42,7 @@ class PublishedWorkController {
 
     @GetMapping
     PublishedWorksPageResponse findPublishedWorks(
+            @RequestParam(required = false) String title,
             @RequestParam(required = false) Genre genre,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size
@@ -55,6 +56,7 @@ class PublishedWorkController {
 
         Page<PublishedWorkSummary> works =
                 publicationService.findPublishedWorks(
+                        title,
                         genre,
                         PageRequest.of(page, size)
                 );

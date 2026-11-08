@@ -11,6 +11,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -158,23 +159,9 @@ class InstallmentRepositoryTests {
         insertTestWork(dramaWorkId);
         insertTestWork(draftOnlyWorkId);
 
-        jdbcTemplate.update(
-                "INSERT INTO work_genre (work_id, genre) VALUES (?, ?)",
-                scienceFictionWorkId,
-                genre
-        );
-
-        jdbcTemplate.update(
-                "INSERT INTO work_genre (work_id, genre) VALUES (?, ?)",
-                dramaWorkId,
-                "DRAMA"
-        );
-
-        jdbcTemplate.update(
-                "INSERT INTO work_genre (work_id, genre) VALUES (?, ?)",
-                draftOnlyWorkId,
-                genre
-        );
+        insertTestGenre(scienceFictionWorkId, genre);
+        insertTestGenre(dramaWorkId, "DRAMA");
+        insertTestGenre(draftOnlyWorkId, genre);
 
         insertPublishedInstallment(scienceFictionWorkId, 1);
         insertPublishedInstallment(scienceFictionWorkId, 2);
@@ -224,6 +211,264 @@ class InstallmentRepositoryTests {
         assertThat(matchingGenres).isEqualTo(1);
     }
 
+    @Test
+    void shouldFindPublishedWorksByPartialTitleIgnoringCase() {
+        String marker = "dragon-" + UUID.randomUUID();
+
+        UUID firstWorkId = UUID.randomUUID();
+        UUID secondWorkId = UUID.randomUUID();
+        UUID differentWorkId = UUID.randomUUID();
+        UUID draftOnlyWorkId = UUID.randomUUID();
+
+        insertTestWork(
+                firstWorkId,
+                "The " + marker + " Chronicles"
+        );
+
+        insertTestWork(
+                secondWorkId,
+                "Legends of " + marker
+        );
+
+        insertTestWork(
+                differentWorkId,
+                "An Unrelated Story"
+        );
+
+        insertTestWork(
+                draftOnlyWorkId,
+                "Unpublished " + marker
+        );
+
+        insertPublishedInstallment(firstWorkId, 1);
+        insertPublishedInstallment(secondWorkId, 1);
+        insertPublishedInstallment(differentWorkId, 1);
+
+        repository.saveAndFlush(
+                new Installment(
+                        draftOnlyWorkId,
+                        InstallmentType.CHAPTER,
+                        1,
+                        "Draft Chapter"
+                )
+        );
+
+        Page<UUID> result =
+                repository.findPublishedWorkIdsByTitle(
+                        "%" + marker.toUpperCase(Locale.ROOT) + "%",
+                        PageRequest.of(0, 10)
+                );
+
+        assertThat(result.getContent())
+                .containsExactlyInAnyOrder(
+                        firstWorkId,
+                        secondWorkId
+                );
+
+        assertThat(result.getTotalElements()).isEqualTo(2);
+        assertThat(result.getTotalPages()).isEqualTo(1);
+
+        assertThat(result.getContent())
+                .doesNotContain(
+                        differentWorkId,
+                        draftOnlyWorkId
+                );
+    }
+
+    @Test
+    void shouldPageDistinctTitleMatchesInDeterministicOrder() {
+        String marker = "chronicles-" + UUID.randomUUID();
+
+        UUID olderWorkId = UUID.randomUUID();
+        UUID newerWorkId = UUID.randomUUID();
+
+        insertTestWork(
+                olderWorkId,
+                "Ancient " + marker
+        );
+
+        insertTestWork(
+                newerWorkId,
+                "Modern " + marker
+        );
+
+        insertPublishedInstallment(olderWorkId, 1);
+        insertPublishedInstallment(olderWorkId, 2);
+        insertPublishedInstallment(newerWorkId, 1);
+
+        jdbcTemplate.update(
+                """
+                UPDATE installment
+                SET updated_at = CURRENT_TIMESTAMP - INTERVAL '2 days'
+                WHERE work_id = ?
+                """,
+                olderWorkId
+        );
+
+        jdbcTemplate.update(
+                """
+                UPDATE installment
+                SET updated_at = CURRENT_TIMESTAMP - INTERVAL '1 day'
+                WHERE work_id = ?
+                """,
+                newerWorkId
+        );
+
+        String titlePattern = "%" + marker + "%";
+
+        Page<UUID> firstPage =
+                repository.findPublishedWorkIdsByTitle(
+                        titlePattern,
+                        PageRequest.of(0, 1)
+                );
+
+        Page<UUID> secondPage =
+                repository.findPublishedWorkIdsByTitle(
+                        titlePattern,
+                        PageRequest.of(1, 1)
+                );
+
+        assertThat(firstPage.getContent())
+                .containsExactly(newerWorkId);
+
+        assertThat(secondPage.getContent())
+                .containsExactly(olderWorkId);
+
+        assertThat(firstPage.getTotalElements()).isEqualTo(2);
+        assertThat(secondPage.getTotalElements()).isEqualTo(2);
+
+        assertThat(firstPage.getTotalPages()).isEqualTo(2);
+        assertThat(secondPage.getTotalPages()).isEqualTo(2);
+    }
+
+    @Test
+    void shouldFilterPublishedWorksByTitleAndGenreBeforePagination() {
+        String marker = "expedition-" + UUID.randomUUID();
+        String genre = "SCI_FI";
+
+        UUID firstMatchingWorkId = UUID.randomUUID();
+        UUID secondMatchingWorkId = UUID.randomUUID();
+        UUID wrongGenreWorkId = UUID.randomUUID();
+        UUID wrongTitleWorkId = UUID.randomUUID();
+        UUID draftOnlyWorkId = UUID.randomUUID();
+
+        insertTestWork(
+                firstMatchingWorkId,
+                "First " + marker
+        );
+
+        insertTestWork(
+                secondMatchingWorkId,
+                "Second " + marker
+        );
+
+        insertTestWork(
+                wrongGenreWorkId,
+                "Drama " + marker
+        );
+
+        insertTestWork(
+                wrongTitleWorkId,
+                "An Unrelated Journey"
+        );
+
+        insertTestWork(
+                draftOnlyWorkId,
+                "Draft " + marker
+        );
+
+        insertTestGenre(firstMatchingWorkId, genre);
+        insertTestGenre(secondMatchingWorkId, genre);
+        insertTestGenre(wrongGenreWorkId, "DRAMA");
+        insertTestGenre(wrongTitleWorkId, genre);
+        insertTestGenre(draftOnlyWorkId, genre);
+
+        insertPublishedInstallment(firstMatchingWorkId, 1);
+        insertPublishedInstallment(firstMatchingWorkId, 2);
+        insertPublishedInstallment(secondMatchingWorkId, 1);
+        insertPublishedInstallment(wrongGenreWorkId, 1);
+        insertPublishedInstallment(wrongTitleWorkId, 1);
+
+        repository.saveAndFlush(
+                new Installment(
+                        draftOnlyWorkId,
+                        InstallmentType.CHAPTER,
+                        1,
+                        "Draft Chapter"
+                )
+        );
+
+        String titlePattern = "%" + marker + "%";
+
+        Page<UUID> firstPage =
+                repository.findPublishedWorkIdsByTitleAndGenre(
+                        titlePattern,
+                        genre,
+                        PageRequest.of(0, 1)
+                );
+
+        Page<UUID> secondPage =
+                repository.findPublishedWorkIdsByTitleAndGenre(
+                        titlePattern,
+                        genre,
+                        PageRequest.of(1, 1)
+                );
+
+        assertThat(firstPage.getContent()).hasSize(1);
+        assertThat(secondPage.getContent()).hasSize(1);
+
+        assertThat(
+                List.of(
+                        firstPage.getContent().getFirst(),
+                        secondPage.getContent().getFirst()
+                )
+        ).containsExactlyInAnyOrder(
+                firstMatchingWorkId,
+                secondMatchingWorkId
+        );
+
+        assertThat(firstPage.getTotalElements()).isEqualTo(2);
+        assertThat(secondPage.getTotalElements()).isEqualTo(2);
+
+        assertThat(firstPage.getTotalPages()).isEqualTo(2);
+        assertThat(secondPage.getTotalPages()).isEqualTo(2);
+    }
+
+    @Test
+    void shouldTreatTitleWildcardsAsLiteralCharacters() {
+        String marker = UUID.randomUUID().toString();
+
+        UUID matchingWorkId = UUID.randomUUID();
+        UUID differentWorkId = UUID.randomUUID();
+
+        insertTestWork(
+                matchingWorkId,
+                "The 100%_! Tale " + marker
+        );
+
+        insertTestWork(
+                differentWorkId,
+                "The 100AB! Tale " + marker
+        );
+
+        insertPublishedInstallment(matchingWorkId, 1);
+        insertPublishedInstallment(differentWorkId, 1);
+
+        String titlePattern =
+                "%100!%!_!! Tale " + marker + "%";
+
+        Page<UUID> result =
+                repository.findPublishedWorkIdsByTitle(
+                        titlePattern,
+                        PageRequest.of(0, 10)
+                );
+
+        assertThat(result.getContent())
+                .containsExactly(matchingWorkId);
+
+        assertThat(result.getTotalElements()).isEqualTo(1);
+    }
+
     private void insertPublishedInstallment(
             UUID workId,
             int number
@@ -240,7 +485,31 @@ class InstallmentRepositoryTests {
         repository.saveAndFlush(installment);
     }
 
+    private void insertTestGenre(
+            UUID workId,
+            String genre
+    ) {
+        jdbcTemplate.update(
+                """
+                INSERT INTO work_genre (work_id, genre)
+                VALUES (?, ?)
+                """,
+                workId,
+                genre
+        );
+    }
+
     private void insertTestWork(UUID workId) {
+        insertTestWork(
+                workId,
+                "Repository Test Work"
+        );
+    }
+
+    private void insertTestWork(
+            UUID workId,
+            String title
+    ) {
         jdbcTemplate.update(
                 """
                 INSERT INTO work (
@@ -262,7 +531,7 @@ class InstallmentRepositoryTests {
                 """,
                 workId,
                 UUID.randomUUID(),
-                "Repository Test Work",
+                title,
                 "A work created for persistence testing.",
                 "COMIC",
                 "LEFT_TO_RIGHT",
