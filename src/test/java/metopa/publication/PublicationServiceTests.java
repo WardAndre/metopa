@@ -1945,4 +1945,282 @@ class PublicationServiceTests {
         verify(catalogService)
                 .findWorkSummary(workId);
     }
+
+    @Test
+    void shouldReturnPagedPublishedWorksFilteredByTitle() {
+        UUID workId = UUID.randomUUID();
+        PageRequest pageable = PageRequest.of(0, 1);
+
+        when(
+                installmentRepository.findPublishedWorkIdsByTitle(
+                        "%DRAGÃO%",
+                        pageable
+                )
+        ).thenReturn(
+                new PageImpl<>(
+                        List.of(workId),
+                        pageable,
+                        2
+                )
+        );
+
+        when(catalogService.findWorkSummary(workId))
+                .thenReturn(
+                        new WorkSummary(
+                                workId,
+                                "A Lenda do Dragão",
+                                WorkType.COMIC,
+                                Set.of(Genre.ADVENTURE),
+                                true
+                        )
+                );
+
+        org.springframework.data.domain.Page<PublishedWorkSummary> result =
+                publicationService.findPublishedWorks(
+                        "  DRAGÃO  ",
+                        null,
+                        pageable
+                );
+
+        assertThat(result.getContent()).hasSize(1);
+
+        PublishedWorkSummary summary =
+                result.getContent().getFirst();
+
+        assertThat(summary.id()).isEqualTo(workId);
+        assertThat(summary.title())
+                .isEqualTo("A Lenda do Dragão");
+        assertThat(summary.type()).isEqualTo(WorkType.COMIC);
+        assertThat(summary.genres())
+                .containsExactly(Genre.ADVENTURE);
+        assertThat(summary.hasCover()).isTrue();
+
+        assertThat(result.getNumber()).isZero();
+        assertThat(result.getSize()).isEqualTo(1);
+        assertThat(result.getTotalElements()).isEqualTo(2);
+        assertThat(result.getTotalPages()).isEqualTo(2);
+
+        verify(installmentRepository)
+                .findPublishedWorkIdsByTitle(
+                        "%DRAGÃO%",
+                        pageable
+                );
+
+        verify(catalogService).findWorkSummary(workId);
+    }
+
+    @Test
+    void shouldReturnPagedPublishedWorksFilteredByTitleAndGenre() {
+        UUID workId = UUID.randomUUID();
+        PageRequest pageable = PageRequest.of(1, 1);
+
+        when(
+                installmentRepository.findPublishedWorkIdsByTitleAndGenre(
+                        "%dragon%",
+                        Genre.SCI_FI.name(),
+                        pageable
+                )
+        ).thenReturn(
+                new PageImpl<>(
+                        List.of(workId),
+                        pageable,
+                        2
+                )
+        );
+
+        when(catalogService.findWorkSummary(workId))
+                .thenReturn(
+                        new WorkSummary(
+                                workId,
+                                "Dragon Galaxy",
+                                WorkType.GRAPHIC_NOVEL,
+                                Set.of(
+                                        Genre.SCI_FI,
+                                        Genre.ADVENTURE
+                                ),
+                                false
+                        )
+                );
+
+        org.springframework.data.domain.Page<PublishedWorkSummary> result =
+                publicationService.findPublishedWorks(
+                        "  dragon  ",
+                        Genre.SCI_FI,
+                        pageable
+                );
+
+        assertThat(result.getContent()).hasSize(1);
+
+        PublishedWorkSummary summary =
+                result.getContent().getFirst();
+
+        assertThat(summary.id()).isEqualTo(workId);
+        assertThat(summary.title()).isEqualTo("Dragon Galaxy");
+        assertThat(summary.genres())
+                .containsExactlyInAnyOrder(
+                        Genre.SCI_FI,
+                        Genre.ADVENTURE
+                );
+        assertThat(summary.hasCover()).isFalse();
+
+        assertThat(result.getNumber()).isEqualTo(1);
+        assertThat(result.getSize()).isEqualTo(1);
+        assertThat(result.getTotalElements()).isEqualTo(2);
+        assertThat(result.getTotalPages()).isEqualTo(2);
+
+        verify(installmentRepository)
+                .findPublishedWorkIdsByTitleAndGenre(
+                        "%dragon%",
+                        Genre.SCI_FI.name(),
+                        pageable
+                );
+
+        verify(catalogService).findWorkSummary(workId);
+    }
+
+    @Test
+    void shouldIgnoreNullTitleWhenDiscoveringPublishedWorks() {
+        PageRequest pageable = PageRequest.of(0, 20);
+
+        when(installmentRepository.findPublishedWorkIds(pageable))
+                .thenReturn(
+                        new PageImpl<>(
+                                List.of(),
+                                pageable,
+                                0
+                        )
+                );
+
+        org.springframework.data.domain.Page<PublishedWorkSummary> result =
+                publicationService.findPublishedWorks(
+                        null,
+                        null,
+                        pageable
+                );
+
+        assertThat(result.getContent()).isEmpty();
+        assertThat(result.getTotalElements()).isZero();
+        assertThat(result.getTotalPages()).isZero();
+
+        verify(installmentRepository)
+                .findPublishedWorkIds(pageable);
+
+        verify(catalogService, never())
+                .findWorkSummary(any(UUID.class));
+    }
+
+    @Test
+    void shouldIgnoreBlankTitleAndPreserveGenreFilter() {
+        PageRequest pageable = PageRequest.of(0, 20);
+
+        when(
+                installmentRepository.findPublishedWorkIdsByGenre(
+                        Genre.SCI_FI.name(),
+                        pageable
+                )
+        ).thenReturn(
+                new PageImpl<>(
+                        List.of(),
+                        pageable,
+                        0
+                )
+        );
+
+        org.springframework.data.domain.Page<PublishedWorkSummary> result =
+                publicationService.findPublishedWorks(
+                        "  \t  ",
+                        Genre.SCI_FI,
+                        pageable
+                );
+
+        assertThat(result.getContent()).isEmpty();
+        assertThat(result.getTotalElements()).isZero();
+
+        verify(installmentRepository)
+                .findPublishedWorkIdsByGenre(
+                        Genre.SCI_FI.name(),
+                        pageable
+                );
+
+        verify(catalogService, never())
+                .findWorkSummary(any(UUID.class));
+    }
+
+    @Test
+    void shouldEscapeSpecialCharactersInTitleSearch() {
+        PageRequest pageable = PageRequest.of(0, 20);
+
+        String expectedPattern = "%100!%!_!!%";
+
+        when(
+                installmentRepository.findPublishedWorkIdsByTitle(
+                        expectedPattern,
+                        pageable
+                )
+        ).thenReturn(
+                new PageImpl<>(
+                        List.of(),
+                        pageable,
+                        0
+                )
+        );
+
+        org.springframework.data.domain.Page<PublishedWorkSummary> result =
+                publicationService.findPublishedWorks(
+                        "  100%_!  ",
+                        null,
+                        pageable
+                );
+
+        assertThat(result.getContent()).isEmpty();
+
+        verify(installmentRepository)
+                .findPublishedWorkIdsByTitle(
+                        expectedPattern,
+                        pageable
+                );
+
+        verify(catalogService, never())
+                .findWorkSummary(any(UUID.class));
+    }
+
+    @Test
+    void shouldReturnEmptyPageWhenTitleHasNoMatches() {
+        PageRequest pageable = PageRequest.of(0, 10);
+
+        when(
+                installmentRepository.findPublishedWorkIdsByTitle(
+                        "%not-found%",
+                        pageable
+                )
+        ).thenReturn(
+                new PageImpl<>(
+                        List.of(),
+                        pageable,
+                        0
+                )
+        );
+
+        org.springframework.data.domain.Page<PublishedWorkSummary> result =
+                publicationService.findPublishedWorks(
+                        "not-found",
+                        null,
+                        pageable
+                );
+
+        assertThat(result.getContent()).isEmpty();
+        assertThat(result.getNumber()).isZero();
+        assertThat(result.getSize()).isEqualTo(10);
+        assertThat(result.getTotalElements()).isZero();
+        assertThat(result.getTotalPages()).isZero();
+
+        verify(installmentRepository)
+                .findPublishedWorkIdsByTitle(
+                        "%not-found%",
+                        pageable
+                );
+
+        verify(catalogService, never())
+                .findWorkSummary(any(UUID.class));
+    }
 }

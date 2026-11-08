@@ -1,14 +1,14 @@
 # Metopa — Arquitetura
 
-Documentação da arquitetura do backend do Metopa, incluindo organização modular, responsabilidades dos módulos, persistência, segurança, concorrência e consistência entre PostgreSQL e filesystem.
+Documentação da arquitetura do backend do Metopa, incluindo organização modular, responsabilidades dos módulos, comunicação entre domínios, persistência, descoberta pública, segurança, concorrência e consistência entre PostgreSQL e filesystem.
 
-O documento descreve as decisões adotadas durante o desenvolvimento do MVP e as limitações conhecidas da implementação atual.
+O documento descreve as decisões adotadas durante o desenvolvimento do MVP, as garantias oferecidas pela implementação atual e suas limitações conhecidas.
 
 ## 1. Visão geral
 
 O Metopa é uma plataforma para publicação, descoberta e leitura de quadrinhos, mangás, graphic novels, webtoons e outros formatos de narrativa visual.
 
-O backend é implementado em Java 25 com Spring Boot 4.1 e Spring Modulith.
+O backend é implementado em Java 25 com Spring Boot 4.1.1 e Spring Modulith.
 
 A arquitetura utiliza um **monólito modular**: uma única aplicação executável, organizada em módulos com responsabilidades e fronteiras explícitas.
 
@@ -18,16 +18,17 @@ A infraestrutura do MVP é executada localmente, sem dependência obrigatória d
 
 | Componente | Tecnologia | Responsabilidade |
 |------------|------------|------------------|
-| Aplicação | Java 25 / Spring Boot 4.1 | Execução do backend |
+| Aplicação | Java 25 / Spring Boot 4.1.1 | Execução do backend |
 | Modularidade | Spring Modulith | Organização e verificação das fronteiras entre módulos |
 | HTTP | Spring Web MVC | Exposição dos endpoints |
 | Segurança | Spring Security | Sessões, autenticação, autorização e CSRF |
 | Persistência | Spring Data JPA / Hibernate | Mapeamento e acesso aos dados relacionais |
-| Banco de dados | PostgreSQL 18 | Persistência de dados estruturados |
+| Banco de dados | PostgreSQL 18 | Persistência de dados estruturados e consultas públicas |
 | Migrações | Flyway | Evolução versionada do schema |
 | Armazenamento binário | Filesystem local | Armazenamento físico de páginas e capas |
 | Infraestrutura local | Docker Compose | Execução do PostgreSQL |
-| Build | Maven Wrapper | Compilação, execução e testes |
+| Build | Maven Wrapper | Compilação, execução, testes e empacotamento |
+| Integração contínua | GitHub Actions | Validação automatizada do backend |
 
 ## 2. Decisão arquitetural: monólito modular
 
@@ -44,7 +45,7 @@ Essa escolha permite:
 
 O uso de um monólito modular não elimina a necessidade de definir fronteiras arquiteturais.
 
-As dependências entre módulos são verificadas por testes utilizando Spring Modulith.
+As dependências entre módulos Java são verificadas por testes utilizando Spring Modulith.
 
 ### Por que não microsserviços?
 
@@ -139,7 +140,7 @@ A coordenação das operações sobre capas pertence ao módulo `catalog`, enqua
 
 ### 3.3. Publication
 
-Responsável pelo conteúdo publicado nas obras.
+Responsável pelo conteúdo publicado nas obras e pela descoberta pública de obras disponíveis para leitura.
 
 O módulo administra installments e páginas.
 
@@ -170,6 +171,11 @@ Responsabilidades principais:
 - validação das regras de imutabilidade;
 - consulta administrativa para o proprietário;
 - leitura pública do conteúdo publicado;
+- descoberta pública de obras com conteúdo publicado;
+- busca parcial de obras por título;
+- filtragem da descoberta por gênero;
+- combinação de filtros de título e gênero;
+- paginação, contagem e ordenação da descoberta pública;
 - coordenação das operações transacionais com arquivos binários;
 - implementação da consulta necessária para impedir a exclusão de obras que possuem installments;
 - utilização do bloqueio da obra durante a criação de installments.
@@ -185,6 +191,22 @@ Essa implementação consulta `InstallmentRepository.existsByWorkId()`.
 O repository permanece encapsulado em `publication.internal`.
 
 O módulo também utiliza `CatalogService.findWorkForInstallmentCreation()` durante a criação de installments, garantindo a coordenação transacional com a exclusão de obras.
+
+#### Responsabilidade pela descoberta pública
+
+A descoberta pública é coordenada pelo módulo `publication` porque a disponibilidade de uma obra depende da existência de pelo menos um installment publicado.
+
+O `PublicationService` utiliza o `InstallmentRepository` para identificar as obras elegíveis para descoberta.
+
+Após a seleção dos identificadores, o serviço utiliza `CatalogService.findWorkSummary()` para recuperar os metadados necessários à resposta pública.
+
+Essa estratégia mantém as entidades Java dos módulos separadas:
+
+- `publication` determina quais obras possuem conteúdo publicado;
+- `catalog` fornece os metadados das obras;
+- o controller expõe os resultados através do contrato HTTP.
+
+A implementação da descoberta utiliza consultas SQL nativas que acessam tabelas relacionadas aos dois módulos. Essa decisão e suas limitações são documentadas nas seções 4 e 5.4.
 
 ### 3.4. Library
 
@@ -358,22 +380,127 @@ Essa abordagem permite que o catálogo consulte a existência de installments se
 
 A existência do contrato não significa que o módulo `catalog` passe a ser responsável pelo gerenciamento de installments.
 
-### Benefícios dessa separação
+### Exemplo: descoberta pública paginada
+
+A descoberta pública é disponibilizada pelo endpoint:
+
+```http
+GET /api/works
+```
+
+O endpoint aceita os parâmetros opcionais `title`, `genre`, `page` e `size`.
+
+O fluxo de consulta é:
+
+```text
+Cliente HTTP
+    |
+    v
+PublishedWorkController
+    |
+    | recebe filtros
+    | valida page e size
+    v
+PublicationService
+    |
+    | normaliza title
+    | escapa caracteres especiais
+    | seleciona a consulta adequada
+    v
+InstallmentRepository
+    |
+    | executa SQL nativo
+    | filtra installments publicados
+    | aplica filtros de obra
+    | agrupa por work_id
+    | ordena e pagina os resultados
+    v
+PostgreSQL
+    |
+    | retorna Page<UUID>
+    v
+PublicationService
+    |
+    | consulta CatalogService
+    | recupera WorkSummary
+    | monta PublishedWorkSummary
+    v
+PublishedWorkController
+    |
+    | converte os resultados
+    | preserva metadados de paginação
+    v
+PublishedWorksPageResponse
+```
+
+O `InstallmentRepository` identifica quais obras atendem aos critérios de publicação e descoberta.
+
+O `PublicationService` mantém a responsabilidade de orquestrar a consulta e construir os resumos públicos.
+
+O `CatalogService` disponibiliza os metadados necessários sem expor diretamente suas entidades JPA.
+
+A paginação é aplicada no PostgreSQL antes da recuperação dos resumos das obras.
+
+O serviço não carrega todas as obras publicadas para depois paginar a coleção em memória.
+
+### Dependência SQL entre módulos
+
+A descoberta pública introduz uma decisão arquitetural específica.
+
+As consultas SQL nativas são executadas pelo `InstallmentRepository`, pertencente ao módulo `publication`, mas acessam tabelas relacionadas a dois domínios:
+
+| Tabela | Domínio responsável | Utilização |
+|--------|---------------------|------------|
+| `installment` | `publication` | Estado de publicação e ordenação |
+| `work` | `catalog` | Identificação e título da obra |
+| `work_genre` | `catalog` | Filtragem por gênero |
+
+A consulta utiliza identificadores UUID para relacionar as tabelas.
+
+Não existe uma associação JPA direta entre as entidades `Installment` e `Work`.
+
+Entretanto, **a ausência de relacionamentos JPA entre módulos não significa ausência de acoplamento no esquema relacional**.
+
+As consultas SQL da descoberta conhecem nomes de tabelas e colunas mantidas por `catalog`.
+
+O Spring Modulith verifica as dependências estruturais entre módulos Java, mas não valida automaticamente as dependências de uma consulta SQL sobre tabelas de outros módulos.
+
+Essa dependência é aceita conscientemente no MVP porque:
+
+- a aplicação utiliza um único PostgreSQL;
+- a consulta precisa combinar estado de publicação e metadados da obra;
+- os filtros devem ser aplicados antes da paginação;
+- a solução evita carregar todas as obras em memória;
+- não exige novos serviços, índices de pesquisa ou infraestrutura externa.
+
+A decisão deverá ser reavaliada caso a evolução dos módulos torne o acoplamento inadequado.
+
+Alternativas futuras podem incluir um modelo de leitura próprio para descoberta, consultas especializadas ou mecanismos de projeção.
+
+Essas alternativas não fazem parte da implementação atual.
+
+### Benefícios e limites dessa separação
+
+A arquitetura mantém os seguintes benefícios:
 
 - regras de domínio permanecem próximas de seus responsáveis;
 - detalhes de armazenamento não contaminam os contratos HTTP;
 - alterações no filesystem não exigem modificar as regras de publicação;
-- relações entre módulos não dependem de associações JPA;
+- relações entre módulos Java não dependem de associações JPA;
 - as fronteiras arquiteturais podem ser verificadas automaticamente;
 - dependências entre módulos são expressas por contratos públicos;
 - repositories internos continuam encapsulados;
 - operações transacionais podem ser coordenadas sem duplicar regras de domínio.
 
+A descoberta pública constitui um caso específico de dependência SQL de leitura entre tabelas de módulos distintos.
+
+Esse acoplamento deve permanecer documentado e ser considerado quando o schema evoluir.
+
 ## 5. Persistência
 
 O Metopa utiliza PostgreSQL 18 como banco de dados relacional.
 
-O acesso aos dados é realizado através de Spring Data JPA e Hibernate.
+O acesso aos dados é realizado através de Spring Data JPA e Hibernate, complementado por consultas SQL nativas quando necessário.
 
 As entidades possuem identificadores UUID definidos no domínio.
 
@@ -394,19 +521,23 @@ Entre eles:
 
 O conteúdo binário das imagens não é armazenado diretamente no banco.
 
+O PostgreSQL também executa as consultas de filtragem, contagem, ordenação e paginação da descoberta pública.
+
 ### 5.2. Relacionamentos entre módulos
 
 Os relacionamentos que atravessam as fronteiras dos módulos são representados por identificadores e contratos internos.
 
 Por exemplo, um installment mantém a identificação da obra à qual pertence, mas o módulo `publication` não precisa manipular diretamente uma entidade JPA do módulo `catalog`.
 
-Essa estratégia preserva o encapsulamento dos módulos.
+Essa estratégia preserva o encapsulamento dos módulos Java.
 
 Entretanto, evitar associações JPA entre módulos não significa que o PostgreSQL não possa possuir foreign keys entre suas tabelas.
 
 A partir da migration V10, o banco reforça os relacionamentos entre obras, installments, biblioteca e progresso de leitura.
 
 As foreign keys representam garantias de integridade referencial no banco, enquanto os contratos Java continuam definindo as responsabilidades e dependências entre os módulos.
+
+A descoberta pública também utiliza relacionamentos entre tabelas através de SQL nativo, conforme documentado na seção 5.4.
 
 ### 5.3. Integridade dos dados
 
@@ -444,6 +575,180 @@ A foreign key com `ON DELETE RESTRICT` oferece uma proteção adicional caso uma
 
 Validações na aplicação e restrições no banco possuem responsabilidades complementares.
 
+### 5.4. Descoberta pública e consultas paginadas
+
+A descoberta pública utiliza consultas SQL nativas executadas pelo `InstallmentRepository`, com paginação fornecida pelo Spring Data.
+
+O endpoint correspondente é:
+
+```http
+GET /api/works
+```
+
+A implementação permite:
+
+- consultar obras com conteúdo publicado;
+- filtrar por gênero;
+- pesquisar títulos parcialmente;
+- combinar título e gênero;
+- solicitar páginas específicas;
+- controlar a quantidade de resultados por página.
+
+#### Visibilidade das obras
+
+Uma obra somente participa da descoberta quando possui pelo menos um installment com status `PUBLISHED`.
+
+Obras sem installments ou com apenas installments `DRAFT` não são retornadas.
+
+Como uma obra pode possuir vários installments publicados, as consultas agrupam os resultados por `work_id`.
+
+Dessa forma, cada obra aparece uma única vez.
+
+#### Paginação
+
+A descoberta utiliza `Pageable` e retorna `Page<UUID>` na camada de repository.
+
+Os parâmetros HTTP são:
+
+| Parâmetro | Padrão | Restrição |
+|-----------|--------|-----------|
+| `page` | `0` | Maior ou igual a zero |
+| `size` | `20` | Entre 1 e 50 |
+
+O controller valida esses parâmetros antes de criar o `PageRequest`.
+
+A paginação ocorre no PostgreSQL, após a aplicação dos filtros e da ordenação.
+
+A contagem utiliza consultas específicas com `COUNT(DISTINCT i.work_id)`, evitando contabilizar vários installments da mesma obra como resultados independentes.
+
+A resposta pública contém:
+
+```text
+content
+page
+size
+totalElements
+totalPages
+```
+
+Uma página sem resultados possui `content` vazio, mantendo os metadados de paginação correspondentes.
+
+Uma página fora do intervalo disponível também retorna uma coleção vazia, preservando a contagem total dos resultados filtrados.
+
+#### Ordenação
+
+As obras são ordenadas pela atualização mais recente entre seus installments publicados.
+
+A consulta utiliza:
+
+```sql
+ORDER BY MAX(i.updated_at) DESC, i.work_id ASC
+```
+
+O identificador UUID da obra fornece o desempate determinístico.
+
+Essa ordenação não utiliza a data de atualização dos metadados da obra nem uma pontuação de relevância textual.
+
+O timestamp considerado é o maior `updated_at` entre os installments publicados de cada obra.
+
+#### Busca parcial por título
+
+O filtro `title` permite pesquisar qualquer trecho do título da obra, sem diferenciar maiúsculas e minúsculas.
+
+A implementação utiliza o operador `ILIKE`, específico do PostgreSQL.
+
+Exemplo da condição SQL:
+
+```sql
+w.title ILIKE :titlePattern ESCAPE '!'
+```
+
+O `PublicationService` prepara o valor de `title` antes de chamar o repository.
+
+O processamento inclui:
+
+1. tratar `null` e textos compostos somente por espaços como ausência de filtro;
+2. remover espaços em branco das extremidades com `strip()`;
+3. escapar o caractere `!`;
+4. escapar os metacaracteres `%` e `_`;
+5. adicionar `%` às extremidades para realizar correspondência parcial.
+
+O caractere `!` é utilizado como escape explícito nas consultas SQL.
+
+Com isso, `%` e `_` informados pelo usuário são interpretados literalmente, e não como curingas de busca.
+
+A implementação não oferece normalização específica de acentos, ordenação por relevância ou recursos de busca textual avançada.
+
+O uso de `ILIKE` não implica equivalência garantida entre termos acentuados e não acentuados.
+
+#### Combinação dos filtros
+
+O repository disponibiliza quatro caminhos de consulta:
+
+| Filtros | Método |
+|---------|--------|
+| Nenhum | `findPublishedWorkIds` |
+| Apenas gênero | `findPublishedWorkIdsByGenre` |
+| Apenas título | `findPublishedWorkIdsByTitle` |
+| Título e gênero | `findPublishedWorkIdsByTitleAndGenre` |
+
+Quando título e gênero são informados, os filtros são combinados por `AND`.
+
+A associação de gêneros é verificada por `EXISTS`, evitando que múltiplas associações produzam duplicações na consulta principal.
+
+Exemplo da consulta de título e gênero:
+
+```sql
+SELECT i.work_id
+FROM installment i
+JOIN work w ON w.id = i.work_id
+WHERE i.status = 'PUBLISHED'
+  AND w.title ILIKE :titlePattern ESCAPE '!'
+  AND EXISTS (
+      SELECT 1
+      FROM work_genre wg
+      WHERE wg.work_id = i.work_id
+        AND wg.genre = :genre
+  )
+GROUP BY i.work_id
+ORDER BY MAX(i.updated_at) DESC, i.work_id ASC
+```
+
+A consulta de contagem aplica os mesmos filtros e utiliza `COUNT(DISTINCT i.work_id)`.
+
+O Spring Data utiliza a consulta de conteúdo e sua respectiva consulta de contagem para construir os metadados da página. Conforme a situação, pode otimizar a obtenção da contagem.
+
+#### Recuperação dos metadados
+
+Depois de receber a página de identificadores do repository, o `PublicationService` consulta `CatalogService.findWorkSummary()` para cada obra retornada.
+
+Os dados são convertidos para `PublishedWorkSummary`, preservando a ordem e os metadados da página.
+
+Essa estratégia limita a recuperação dos resumos às obras selecionadas na página, mas realiza chamadas individuais ao catálogo para cada identificador.
+
+Esse padrão pode produzir múltiplas consultas de leitura por página, conhecido como problema potencial de consultas N+1.
+
+O limite de `size` reduz a quantidade máxima de resumos recuperados por requisição, mas não elimina o custo dessas chamadas.
+
+O desempenho deverá ser observado conforme o volume de dados e acessos aumentar.
+
+#### Decisões para o MVP
+
+A implementação utiliza exclusivamente o PostgreSQL existente.
+
+Não foram introduzidos:
+
+- Elasticsearch ou mecanismos externos de pesquisa;
+- infraestrutura adicional de indexação;
+- novas migrations Flyway para a busca por título;
+- índices específicos para otimização de consultas `ILIKE`.
+
+A pesquisa com correspondência parcial nas duas extremidades do termo poderá exigir otimizações à medida que a quantidade de obras aumentar.
+
+Uma evolução possível é avaliar índices utilizando `pg_trgm`, conforme medições de desempenho e planos de execução reais.
+
+A decisão atual prioriza simplicidade operacional, correção dos resultados e reaproveitamento da infraestrutura existente.
+
 ## 6. Migrations
 
 O Flyway é responsável pelo versionamento do schema do PostgreSQL.
@@ -472,6 +777,8 @@ V10__add_work_reference_constraints.sql
 A migration `V9__create_work_genre.sql` introduziu a persistência de múltiplos gêneros associados a uma obra.
 
 As operações de exclusão de installments, reordenação de páginas, compensação transacional de uploads, substituição e remoção de capas, bem como o bloqueio pessimista das escritas sobre obras, foram implementadas sem necessidade de novas migrations.
+
+A paginação da descoberta pública e a busca parcial por título também reutilizam o schema existente.
 
 A remoção de capas reutiliza os campos existentes `cover_storage_key` e `cover_content_type`, definidos como opcionais no modelo de persistência.
 
@@ -531,6 +838,8 @@ Migrations já aplicadas não devem ser editadas.
 Mudanças posteriores devem utilizar novas migrations versionadas, preservando o histórico de evolução do banco.
 
 A adição de novas foreign keys exige considerar a existência de registros legados ou órfãos, pois restrições relacionais não podem ser adicionadas normalmente quando os dados existentes violam suas regras.
+
+O uso de consultas nativas entre tabelas de módulos diferentes também deve ser considerado durante alterações futuras no schema.
 
 ## 7. Modelo de publicação
 
@@ -593,7 +902,9 @@ O Metopa distingue duas perspectivas.
 - apresenta somente obras com conteúdo publicado;
 - apresenta somente installments `PUBLISHED`;
 - não expõe drafts;
-- disponibiliza capas e páginas conforme as regras de publicação.
+- disponibiliza capas e páginas conforme as regras de publicação;
+- permite descobrir obras por título e gênero;
+- disponibiliza listagem paginada de obras publicadas.
 
 **Visão do criador:**
 
@@ -1427,12 +1738,20 @@ Uma obra publicada continua disponível publicamente após a remoção de sua ca
 
 A exclusão de uma obra publicada não é permitida no MVP enquanto existirem installments associados.
 
+A descoberta pública também respeita essas regras:
+
+- somente obras com installments publicados são retornadas;
+- filtros de título e gênero não alteram a condição de publicação;
+- a paginação não expõe obras em `DRAFT`;
+- os resultados públicos não revelam informações administrativas.
+
 ### 11.6. Respostas HTTP
 
 O projeto utiliza respostas HTTP adequadas para representar falhas de autenticação, autorização e regras de negócio.
 
 Entre os códigos utilizados estão:
 
+- `400 Bad Request`;
 - `401 Unauthorized`;
 - `403 Forbidden`;
 - `404 Not Found`;
@@ -1463,22 +1782,27 @@ Title:  Work cannot be deleted
 Detail: A work with installments cannot be deleted.
 ```
 
+A descoberta pública utiliza:
+
+- `200 OK` para consultas bem-sucedidas, inclusive quando não existem resultados;
+- `400 Bad Request` para parâmetros inválidos de gênero ou paginação.
+
 Os contratos específicos de cada endpoint são descritos em [API.md](API.md).
 
 ## 12. Testes de arquitetura e integração
 
-Na validação completa de 02/11/2026, a suíte automatizada executou **273 testes com sucesso**, sem falhas, erros ou testes ignorados.
+Na validação completa de **07/11/2026**, a suíte automatizada executou **304 testes com sucesso**, sem falhas, erros ou testes ignorados.
 
 Comando utilizado:
 
 ```bash
-./mvnw clean test
+./mvnw clean verify
 ```
 
 Resultado:
 
 ```text
-Tests run: 273
+Tests run: 304
 Failures: 0
 Errors: 0
 Skipped: 0
@@ -1486,13 +1810,17 @@ Skipped: 0
 BUILD SUCCESS
 ```
 
-A validação anterior, realizada em 29/10/2026, havia executado 258 testes aprovados após a implementação da remoção de capas.
+Além da execução dos testes automatizados, o Maven concluiu o empacotamento do backend como um JAR executável do Spring Boot.
 
-A feature de exclusão de obras acrescentou 15 cenários de integração à suíte.
+A validação anterior, realizada em 02/11/2026, havia executado 273 testes aprovados após a implementação da exclusão de obras.
 
-Entre os aspectos relacionados à arquitetura estão:
+Posteriormente, foram implementadas a paginação da descoberta pública, a integração contínua do backend e a busca parcial por título, elevando a cobertura automatizada para 304 testes.
 
-- validação das fronteiras entre módulos com Spring Modulith;
+### Cobertura arquitetural
+
+Entre os aspectos validados estão:
+
+- verificação das fronteiras entre módulos com Spring Modulith;
 - regras de domínio;
 - persistência real no PostgreSQL;
 - autenticação e autorização;
@@ -1520,7 +1848,15 @@ Entre os aspectos relacionados à arquitetura estão:
 - proteção contra exclusão direta no PostgreSQL;
 - remoção de gêneros associados à obra;
 - preservação de registros e arquivos após rollback;
-- validação unitária dos callbacks transacionais.
+- validação unitária dos callbacks transacionais;
+- descoberta pública de obras com conteúdo publicado;
+- filtragem de obras por gênero;
+- busca parcial por título e normalização dos parâmetros;
+- proteção de caracteres especiais nas consultas SQL;
+- combinação de filtros de título e gênero;
+- paginação e contagem de obras distintas no PostgreSQL;
+- ordenação determinística de resultados publicados;
+- validação dos contratos HTTP de descoberta pública.
 
 ### Testes específicos da remoção de capas
 
@@ -1571,14 +1907,106 @@ Os testes de repositório de installments, páginas, biblioteca e progresso de l
 
 Essas alterações preservam o propósito original dos testes e respeitam as novas foreign keys.
 
-A validação completa confirmou:
+### Testes específicos da descoberta pública
+
+A descoberta pública possui cobertura em diferentes camadas.
+
+**Repository — `InstallmentRepositoryTests`**
+
+A classe valida:
+
+- persistência de installments;
+- paginação de identificadores distintos;
+- filtragem por gênero;
+- busca parcial por título;
+- correspondência sem diferenciar maiúsculas e minúsculas;
+- combinação dos filtros de título e gênero;
+- ordenação e contagem dos resultados paginados;
+- tratamento literal de caracteres especiais.
+
+**Service — `PublicationServiceTests`**
+
+A classe valida:
+
+- seleção da consulta adequada conforme os filtros;
+- normalização de títulos;
+- preservação dos filtros quando `title` é ausente ou está em branco;
+- escape de `%`, `_` e `!`;
+- conversão dos identificadores para resumos públicos;
+- preservação dos metadados de paginação;
+- comportamento de páginas vazias.
+
+**HTTP — `PublishedWorkControllerTests`**
+
+A classe valida:
+
+- recebimento dos parâmetros de busca;
+- encaminhamento de título e gênero ao serviço;
+- paginação e formato das respostas;
+- validação dos parâmetros HTTP;
+- preservação do contrato de listagem pública;
+- respostas sem resultados.
+
+**Integração — `PublishedWorkDiscoveryIntegrationTests`**
+
+A classe valida:
+
+- consulta de obras publicadas através do endpoint HTTP;
+- exclusão de conteúdo em `DRAFT`;
+- prevenção de obras duplicadas;
+- filtragem por gênero;
+- busca parcial por título;
+- combinação de título e gênero;
+- ordenação e paginação;
+- contagem correta de obras distintas;
+- tratamento literal de caracteres especiais.
+
+Os testes de repository e integração exercitam o PostgreSQL real.
+
+Os testes de service utilizam Mockito para verificar a seleção das consultas e a transformação dos resultados.
+
+Os testes do controller validam o contrato HTTP utilizando Spring MVC e MockMvc.
+
+### Integração contínua do backend
+
+O projeto possui um workflow de GitHub Actions para validar o backend automaticamente.
+
+O fluxo de CI utiliza:
+
+- Java 25;
+- PostgreSQL 18.6;
+- Maven Wrapper;
+- execução da suíte automatizada;
+- empacotamento da aplicação.
+
+O comando de validação é:
+
+```bash
+./mvnw -B -ntp clean verify
+```
+
+O ambiente de CI utiliza um serviço PostgreSQL próprio, em vez de depender do Docker Compose local da aplicação.
+
+A configuração dos testes impede a substituição automática do PostgreSQL por um banco embarcado.
+
+O workflow permite validar o backend durante o processo de integração de alterações por Pull Request.
+
+A execução local de `./mvnw clean verify` continua recomendada antes da abertura de Pull Requests.
+
+A validação local não substitui a verificação realizada pelo GitHub Actions.
+
+O resultado da CI de cada Pull Request deve ser confirmado antes do merge.
+
+### Validação completa
+
+A última execução local completa confirmou:
 
 ```text
-Tests run: 273, Failures: 0, Errors: 0, Skipped: 0
+Tests run: 304, Failures: 0, Errors: 0, Skipped: 0
 BUILD SUCCESS
 ```
 
-O teste de modularidade ajuda a identificar dependências indevidas entre módulos.
+O teste de modularidade ajuda a identificar dependências indevidas entre módulos Java.
 
 A estratégia completa de testes é descrita em [TESTING.md](TESTING.md).
 
@@ -1596,7 +2024,11 @@ A evolução do Metopa segue algumas diretrizes:
 - introduzir abstrações quando exista uma necessidade concreta;
 - desenvolver funcionalidades em incrementos pequenos;
 - validar alterações por testes automatizados;
-- registrar decisões e limitações arquiteturais relevantes.
+- registrar decisões e limitações arquiteturais relevantes;
+- priorizar consultas paginadas no banco para listagens públicas;
+- registrar acoplamentos de leitura entre esquemas dos módulos;
+- avaliar otimizações de consultas com base em medições reais;
+- utilizar CI na integração de alterações.
 
 ### Evoluções futuras possíveis
 
@@ -1607,9 +2039,15 @@ Algumas necessidades poderão ser avaliadas em etapas posteriores:
 - reconciliação de arquivos órfãos;
 - mecanismos duráveis para operações de limpeza;
 - observabilidade e requisitos adicionais de operação;
-- revisão das estratégias de consistência conforme o volume de dados e usuários aumentar.
+- revisão das estratégias de consistência conforme o volume de dados e usuários aumentar;
+- otimização da busca parcial por título, incluindo avaliação de índices PostgreSQL `pg_trgm`;
+- revisão do acoplamento SQL entre `publication` e `catalog`;
+- otimização da recuperação dos resumos das obras para reduzir consultas individuais ao catálogo, caso o volume justifique;
+- avaliação de estratégias adicionais de descoberta e pesquisa, quando os requisitos do produto exigirem.
 
 Essas possibilidades não constituem funcionalidades já implementadas.
+
+A adoção de novas tecnologias deve ser orientada por necessidades concretas, medições e evidências obtidas durante a evolução do MVP.
 
 ## Documentação relacionada
 

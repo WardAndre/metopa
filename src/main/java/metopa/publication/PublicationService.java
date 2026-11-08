@@ -549,15 +549,41 @@ public class PublicationService {
             Genre genre,
             Pageable pageable
     ) {
-        org.springframework.data.domain.Page<UUID> workIds =
-                genre == null
-                        ? installmentRepository.findPublishedWorkIds(
-                        pageable
-                )
-                        : installmentRepository.findPublishedWorkIdsByGenre(
-                        genre.name(),
-                        pageable
-                );
+        return findPublishedWorks(null, genre, pageable);
+    }
+
+    @Transactional(readOnly = true)
+    public org.springframework.data.domain.Page<PublishedWorkSummary>
+    findPublishedWorks(
+            String title,
+            Genre genre,
+            Pageable pageable
+    ) {
+        String titlePattern = buildTitlePattern(title);
+
+        org.springframework.data.domain.Page<UUID> workIds;
+
+        if (titlePattern == null) {
+            workIds = genre == null
+                    ? installmentRepository.findPublishedWorkIds(
+                    pageable
+            )
+                    : installmentRepository.findPublishedWorkIdsByGenre(
+                    genre.name(),
+                    pageable
+            );
+        } else {
+            workIds = genre == null
+                    ? installmentRepository.findPublishedWorkIdsByTitle(
+                    titlePattern,
+                    pageable
+            )
+                    : installmentRepository.findPublishedWorkIdsByTitleAndGenre(
+                    titlePattern,
+                    genre.name(),
+                    pageable
+            );
+        }
 
         return workIds.map(workId -> {
             var work = catalogService.findWorkSummary(workId);
@@ -571,6 +597,20 @@ public class PublicationService {
             );
         });
     }
+
+    private String buildTitlePattern(String title) {
+        if (title == null || title.isBlank()) {
+            return null;
+        }
+
+        String escapedTitle = title.strip()
+                .replace("!", "!!")
+                .replace("%", "!%")
+                .replace("_", "!_");
+
+        return "%" + escapedTitle + "%";
+    }
+
 
     @Transactional
     public void updateInstallment(

@@ -1,4 +1,3 @@
-
 # Metopa
 
 Metopa é uma plataforma para publicação, descoberta e leitura de quadrinhos, mangás, graphic novels, webtoons e outros formatos de narrativa visual.
@@ -11,14 +10,16 @@ O projeto busca oferecer um ambiente onde criadores possam publicar e gerenciar 
 
 A primeira fase do Metopa utiliza infraestrutura local, sem dependência de serviços cloud pagos.
 
-O backend possui atualmente **242 testes automatizados aprovados**, cobrindo regras de domínio, persistência, segurança, APIs HTTP, armazenamento de arquivos, transações e concorrência.
+O backend possui atualmente **304 testes automatizados aprovados na última validação local**, cobrindo regras de domínio, persistência, segurança, APIs HTTP, armazenamento de arquivos, transações, concorrência e descoberta pública de obras.
+
+O projeto também possui integração contínua com GitHub Actions para validar automaticamente alterações propostas por Pull Requests.
 
 ## Tecnologias
 
 ### Backend
 
 - Java 25
-- Spring Boot 4.1
+- Spring Boot 4.1.1
 - Spring Modulith
 - Spring Web MVC
 - Spring Data JPA / Hibernate
@@ -38,6 +39,7 @@ O backend possui atualmente **242 testes automatizados aprovados**, cobrindo reg
 - JUnit
 - Mockito
 - Testes unitários e de integração
+- GitHub Actions (CI)
 
 ## Arquitetura
 
@@ -62,7 +64,7 @@ metopa
 |--------|------------------|
 | `identity` | Contas de usuário, autenticação e sessões |
 | `catalog` | Obras, metadados, gêneros e capas |
-| `publication` | Installments, páginas, publicação e leitura de conteúdo |
+| `publication` | Installments, páginas, publicação, leitura de conteúdo e descoberta pública |
 | `library` | Biblioteca pessoal dos leitores |
 | `reading` | Registro e consulta do progresso de leitura |
 | `media` | Abstração para armazenamento de arquivos binários |
@@ -73,6 +75,8 @@ O Spring Modulith é utilizado para verificar os limites e as dependências entr
 Os dados estruturados são persistidos no PostgreSQL. Arquivos binários, como páginas e capas, são armazenados separadamente através da abstração `BinaryStorage`.
 
 O identificador interno de armazenamento (`storageKey`) não é exposto pelos endpoints públicos.
+
+A descoberta pública utiliza consultas paginadas no PostgreSQL, com filtros aplicados antes da paginação. Os resultados são ordenados pela atualização mais recente de um installment publicado.
 
 Para informações detalhadas, consulte [Arquitetura](docs/ARCHITECTURE.md).
 
@@ -96,6 +100,11 @@ Para informações detalhadas, consulte [Arquitetura](docs/ARCHITECTURE.md).
 - Consulta e gerenciamento das obras do criador.
 - Descoberta pública de obras com conteúdo publicado.
 - Filtragem da descoberta pública por gênero.
+- Busca parcial de obras por título, sem diferenciar maiúsculas e minúsculas.
+- Combinação dos filtros de título e gênero.
+- Paginação da descoberta pública com tamanho configurável.
+- Ordenação por atualização mais recente de installment publicado.
+- Exclusão de obras sem conteúdo publicado e prevenção de resultados duplicados.
 
 ### Publicação de conteúdo
 
@@ -128,6 +137,7 @@ Para informações detalhadas, consulte [Arquitetura](docs/ARCHITECTURE.md).
 - Exclusão física de arquivos somente após commit nas operações de remoção.
 - Compensação de uploads de páginas em caso de rollback.
 - Preservação de registros e arquivos em transações revertidas.
+- Consultas SQL paginadas para descoberta pública, com filtros e contagem de resultados no banco de dados.
 
 ## Requisitos
 
@@ -183,7 +193,7 @@ Esse comando encerra os containers sem remover o volume persistente do PostgreSQ
 
 O Metopa expõe uma API REST para gerenciamento de contas, obras, publicações, bibliotecas e progresso de leitura.
 
-Exemplos de endpoints públicos:
+### Endpoints públicos
 
 ```http
 POST /api/users
@@ -193,7 +203,55 @@ GET  /api/installments/{installmentId}
 GET  /api/pages/{pageId}/content
 ```
 
-Exemplos de endpoints autenticados:
+### Descoberta pública de obras
+
+O endpoint `GET /api/works` permite descobrir obras com pelo menos um installment publicado.
+
+A descoberta oferece busca por título, filtragem por gênero e paginação. Todos os parâmetros são opcionais e podem ser combinados.
+
+| Parâmetro | Descrição | Padrão |
+|-----------|-----------|--------|
+| `title` | Busca parcial pelo título, sem diferenciar maiúsculas e minúsculas | Sem filtro |
+| `genre` | Filtra obras pelo gênero informado | Sem filtro |
+| `page` | Índice da página, começando em zero | `0` |
+| `size` | Quantidade de obras por página, entre 1 e 50 | `20` |
+
+Exemplos:
+
+```http
+GET /api/works
+GET /api/works?page=0&size=10
+GET /api/works?genre=SCI_FI
+GET /api/works?title=dragon
+GET /api/works?title=dragon&genre=SCI_FI
+GET /api/works?title=dragon&genre=SCI_FI&page=0&size=10
+```
+
+Regras da descoberta pública:
+
+- Somente obras com pelo menos um installment `PUBLISHED` são retornadas.
+- Uma obra aparece apenas uma vez, mesmo que possua vários installments publicados.
+- A busca por título corresponde a qualquer trecho do texto informado.
+- Espaços no início e no final do título pesquisado são ignorados.
+- Títulos de busca ausentes ou em branco não aplicam filtro textual.
+- Os caracteres `%` e `_` são tratados literalmente, não como curingas SQL.
+- Os filtros são aplicados no PostgreSQL antes da paginação.
+- Os resultados são ordenados pela data de atualização mais recente de um installment publicado, em ordem decrescente, com desempate pelo identificador da obra.
+- Parâmetros de paginação inválidos retornam HTTP `400 Bad Request`.
+
+A resposta mantém os seguintes campos de paginação:
+
+| Campo | Descrição |
+|-------|-----------|
+| `content` | Lista de obras da página solicitada |
+| `page` | Índice da página retornada |
+| `size` | Tamanho configurado da página |
+| `totalElements` | Quantidade total de obras que correspondem aos filtros |
+| `totalPages` | Quantidade total de páginas |
+
+A consulta utiliza PostgreSQL `ILIKE` para busca textual, sem dependência de mecanismos externos de busca.
+
+### Endpoints autenticados
 
 ```http
 GET    /api/me/works
@@ -216,21 +274,41 @@ Contratos completos, payloads, autenticação e respostas HTTP estão documentad
 
 ## Testes
 
-O Metopa utiliza testes unitários e de integração para validar regras de negócio e o comportamento da aplicação.
+O Metopa utiliza testes unitários e de integração para validar regras de negócio, persistência, contratos HTTP e comportamento da aplicação.
 
-Para executar a suíte completa:
+### Executando os testes
+
+Durante o desenvolvimento, para executar a suíte de testes:
 
 ```bash
 ./mvnw clean test
 ```
 
-Resultado da última execução completa reportada:
+Para executar uma classe específica:
+
+```bash
+./mvnw -Dtest=PublicationServiceTests test
+```
+
+Antes de abrir um Pull Request, a validação completa recomendada é:
+
+```bash
+./mvnw clean verify
+```
+
+Esse comando executa as fases do Maven até `verify`, incluindo testes e empacotamento da aplicação.
+
+### Última validação local
+
+Resultado de `./mvnw clean verify` em 7 de novembro de 2026:
 
 ```text
-Tests run: 242
+Tests run: 304
 Failures: 0
 Errors: 0
 Skipped: 0
+
+BUILD SUCCESS
 ```
 
 A suíte cobre:
@@ -243,9 +321,27 @@ A suíte cobre:
 - Operações de upload, exclusão e reordenação.
 - Rollback e compensação de operações com arquivos.
 - Concorrência utilizando transações independentes e bloqueios pessimistas.
+- Descoberta pública de obras, filtros combinados, busca textual e paginação.
 - Verificação da modularidade com Spring Modulith.
 
 Os testes de integração que dependem do banco exigem o PostgreSQL disponível.
+
+### Integração contínua
+
+O backend possui um workflow de CI configurado no GitHub Actions.
+
+A validação automática é executada em Pull Requests direcionados à `main` e em alterações enviadas à branch principal, além de permitir execução manual.
+
+O workflow utiliza:
+
+- Java 25.
+- PostgreSQL 18.6 como serviço de teste.
+- Maven Wrapper.
+- Execução de `./mvnw -B -ntp clean verify`.
+
+O workflow valida os testes automatizados e o empacotamento do backend em um ambiente de integração contínua.
+
+A branch `main` possui proteção por regras do GitHub, exigindo Pull Request e aprovação da verificação automatizada do backend antes da integração das alterações.
 
 Para informações detalhadas, consulte [Testes](docs/TESTING.md).
 
@@ -283,9 +379,9 @@ A documentação técnica detalhada é organizada nos seguintes arquivos:
 
 | Documento | Conteúdo |
 |-----------|----------|
-| [API](docs/API.md) | Endpoints, payloads, autenticação, respostas HTTP e regras de acesso |
-| [Arquitetura](docs/ARCHITECTURE.md) | Módulos, decisões arquiteturais, persistência, armazenamento e transações |
-| [Testes](docs/TESTING.md) | Estratégia de testes, cobertura funcional, integração, rollback e concorrência |
+| [API](docs/API.md) | Endpoints, payloads, autenticação, filtros, paginação, respostas HTTP e regras de acesso |
+| [Arquitetura](docs/ARCHITECTURE.md) | Módulos, decisões arquiteturais, persistência, descoberta pública, armazenamento e transações |
+| [Testes](docs/TESTING.md) | Estratégia de testes, cobertura funcional, integração, descoberta pública, rollback, concorrência e CI |
 
 ## Desenvolvimento
 
@@ -304,9 +400,11 @@ push
   ↓
 pull request
   ↓
+CI
+  ↓
 merge
 ```
 
-As alterações são integradas à `main` por meio de Pull Requests.
+As alterações são integradas à `main` por meio de Pull Requests, após a validação dos checks obrigatórios no GitHub Actions.
 
 O desenvolvimento prioriza incrementos pequenos, testes automatizados, clareza das responsabilidades e preservação dos limites entre módulos.

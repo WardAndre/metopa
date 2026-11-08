@@ -94,6 +94,67 @@ public interface InstallmentRepository
             Pageable pageable
     );
 
+    @Query(
+            value = """
+                SELECT i.work_id
+                FROM installment i
+                JOIN work w ON w.id = i.work_id
+                WHERE i.status = 'PUBLISHED'
+                  AND w.title ILIKE :titlePattern ESCAPE '!'
+                GROUP BY i.work_id
+                ORDER BY MAX(i.updated_at) DESC, i.work_id ASC
+                """,
+            countQuery = """
+                SELECT COUNT(DISTINCT i.work_id)
+                FROM installment i
+                JOIN work w ON w.id = i.work_id
+                WHERE i.status = 'PUBLISHED'
+                  AND w.title ILIKE :titlePattern ESCAPE '!'
+                """,
+            nativeQuery = true
+    )
+    Page<UUID> findPublishedWorkIdsByTitle(
+            @Param("titlePattern") String titlePattern,
+            Pageable pageable
+    );
+
+    @Query(
+            value = """
+                SELECT i.work_id
+                FROM installment i
+                JOIN work w ON w.id = i.work_id
+                WHERE i.status = 'PUBLISHED'
+                  AND w.title ILIKE :titlePattern ESCAPE '!'
+                  AND EXISTS (
+                      SELECT 1
+                      FROM work_genre wg
+                      WHERE wg.work_id = i.work_id
+                        AND wg.genre = :genre
+                  )
+                GROUP BY i.work_id
+                ORDER BY MAX(i.updated_at) DESC, i.work_id ASC
+                """,
+            countQuery = """
+                SELECT COUNT(DISTINCT i.work_id)
+                FROM installment i
+                JOIN work w ON w.id = i.work_id
+                WHERE i.status = 'PUBLISHED'
+                  AND w.title ILIKE :titlePattern ESCAPE '!'
+                  AND EXISTS (
+                      SELECT 1
+                      FROM work_genre wg
+                      WHERE wg.work_id = i.work_id
+                        AND wg.genre = :genre
+                  )
+                """,
+            nativeQuery = true
+    )
+    Page<UUID> findPublishedWorkIdsByTitleAndGenre(
+            @Param("titlePattern") String titlePattern,
+            @Param("genre") String genre,
+            Pageable pageable
+    );
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT i FROM Installment i WHERE i.id = :id")
     Optional<Installment> findByIdForUpdate(

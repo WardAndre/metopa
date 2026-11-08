@@ -1336,9 +1336,152 @@ GET /api/works
 
 Endpoint público.
 
-Retorna as obras que possuem pelo menos um installment publicado.
+Retorna uma página de obras que possuem pelo menos um installment publicado.
 
 Cada obra aparece somente uma vez, independentemente da quantidade de installments publicados.
+
+A listagem permite filtrar por título e gênero, além de controlar a paginação. Todos os parâmetros são opcionais.
+
+Parâmetros disponíveis:
+
+| Parâmetro | Tipo | Padrão | Descrição |
+|-----------|------|--------|-----------|
+| `title` | `String` | Ausente | Busca parcial pelo título da obra |
+| `genre` | `Genre` | Ausente | Filtra obras pelo gênero informado |
+| `page` | `int` | `0` | Índice da página, começando em zero |
+| `size` | `int` | `20` | Quantidade de obras por página, entre 1 e 50 |
+
+Exemplos:
+
+```http
+GET /api/works
+GET /api/works?page=0&size=10
+GET /api/works?genre=SCI_FI
+GET /api/works?title=dragon
+GET /api/works?title=dragon&genre=SCI_FI&page=0&size=10
+```
+
+Resposta de sucesso:
+
+```http
+200 OK
+```
+
+Exemplo de resposta:
+
+```json
+{
+  "content": [
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "title": "Metopa Origins",
+      "type": "GRAPHIC_NOVEL",
+      "genres": [
+        "SCI_FI",
+        "ADVENTURE"
+      ],
+      "coverUrl": "/api/works/550e8400-e29b-41d4-a716-446655440000/cover"
+    }
+  ],
+  "page": 0,
+  "size": 20,
+  "totalElements": 1,
+  "totalPages": 1
+}
+```
+
+Os campos da resposta são:
+
+| Campo | Descrição |
+|-------|-----------|
+| `content` | Obras retornadas na página solicitada |
+| `page` | Índice da página solicitada |
+| `size` | Tamanho configurado da página |
+| `totalElements` | Quantidade total de obras que correspondem aos filtros |
+| `totalPages` | Quantidade total de páginas calculadas |
+
+Cada elemento de `content` contém:
+
+| Campo | Descrição |
+|-------|-----------|
+| `id` | Identificador UUID da obra |
+| `title` | Título da obra |
+| `type` | Formato da obra |
+| `genres` | Gêneros associados à obra |
+| `coverUrl` | URL pública da capa ou `null`, quando não existe capa |
+
+A ordem dos elementos de `genres` não faz parte do contrato da API.
+
+Quando nenhuma obra corresponde aos filtros, a resposta continua sendo `200 OK`:
+
+```json
+{
+  "content": [],
+  "page": 0,
+  "size": 20,
+  "totalElements": 0,
+  "totalPages": 0
+}
+```
+
+Uma página fora do intervalo de resultados também retorna uma coleção vazia, preservando a quantidade total de elementos e páginas.
+
+Por exemplo, quando existe apenas uma página de resultados e o cliente solicita `page=2&size=20`:
+
+```json
+{
+  "content": [],
+  "page": 2,
+  "size": 20,
+  "totalElements": 1,
+  "totalPages": 1
+}
+```
+
+**Regras de publicação e visibilidade:**
+
+- Somente obras com pelo menos um installment `PUBLISHED` são retornadas.
+- Obras sem installments publicados não aparecem na descoberta pública.
+- Obras com apenas installments `DRAFT` permanecem invisíveis.
+- Uma obra é retornada uma única vez, mesmo quando possui vários installments publicados.
+- A ausência de capa não impede a descoberta de uma obra publicada.
+- Filtros são aplicados antes da paginação.
+- A quantidade total de elementos representa obras distintas, não installments.
+
+**Ordenação:**
+
+Os resultados são ordenados pela data de atualização mais recente entre os installments publicados de cada obra.
+
+A ordenação utiliza:
+
+1. `MAX(installment.updated_at)` em ordem decrescente.
+2. Identificador UUID da obra em ordem crescente, para desempate determinístico.
+
+A ordenação considera o histórico de publicação, não a data de atualização dos metadados da obra.
+
+**Validação da paginação:**
+
+- `page` deve ser maior ou igual a `0`.
+- `size` deve estar entre `1` e `50`, inclusive.
+- Valores inválidos retornam `400 Bad Request`.
+- Valores não numéricos para `page` ou `size` também são rejeitados.
+
+Exemplos inválidos:
+
+```http
+GET /api/works?page=-1
+GET /api/works?size=0
+GET /api/works?size=51
+GET /api/works?page=invalid
+```
+
+Resposta:
+
+```http
+400 Bad Request
+```
+
+A paginação e a contagem dos resultados são realizadas por consultas ao PostgreSQL.
 
 ### 5.3. Filtrar obras por gênero
 
@@ -1366,40 +1509,162 @@ SLICE_OF_LIFE
 THRILLER
 ```
 
+O parâmetro utiliza os valores do enum `Genre`.
+
+Exemplos:
+
+```http
+GET /api/works?genre=SCI_FI
+GET /api/works?genre=ADVENTURE&page=0&size=10
+```
+
+A filtragem por gênero ocorre no PostgreSQL antes da paginação.
+
+Uma obra que possui múltiplos gêneros continua sendo retornada uma única vez.
+
+Obras que possuem o gênero informado, mas nenhum installment publicado, permanecem invisíveis.
+
+Quando o parâmetro `genre` é omitido, não é aplicado filtro por gênero.
+
 Valores desconhecidos são rejeitados:
+
+```http
+GET /api/works?genre=INVALID
+```
+
+Resposta:
 
 ```http
 400 Bad Request
 ```
 
-Exemplo de resposta:
+A resposta segue o mesmo contrato paginado descrito na seção 5.2.
 
-```json
-[
-  {
-    "id": "550e8400-e29b-41d4-a716-446655440000",
-    "title": "Metopa Origins",
-    "type": "GRAPHIC_NOVEL",
-    "genres": [
-      "SCI_FI",
-      "ADVENTURE"
-    ],
-    "coverUrl": "/api/works/550e8400-e29b-41d4-a716-446655440000/cover"
-  }
-]
+A ordem dos gêneros associados a cada obra não representa informação semântica.
+
+### 5.4. Buscar obras por título
+
+```http
+GET /api/works?title=dragon
 ```
 
-Sem o parâmetro, todas as obras publicadas são consideradas.
+O filtro `title` é opcional.
 
-Obras que possuem o gênero, mas nenhum installment publicado, continuam invisíveis.
+Permite descobrir obras publicadas pelo título, utilizando correspondência parcial de texto.
 
-Quando nenhuma obra corresponde ao filtro:
+A busca é **case-insensitive**, ou seja, não diferencia letras maiúsculas e minúsculas.
 
-```json
-[]
+Exemplos:
+
+```http
+GET /api/works?title=dragon
+GET /api/works?title=DRAGON
+GET /api/works?title=Dragon
 ```
 
-A ordem dos gêneros não representa informação semântica.
+As três consultas utilizam a mesma regra de correspondência textual.
+
+**Normalização do parâmetro:**
+
+- Espaços em branco no início e no final são removidos.
+- Um título ausente não aplica filtro textual.
+- Um título vazio ou composto apenas por espaços em branco também não aplica filtro textual.
+- O texto pesquisado não precisa corresponder ao título completo da obra.
+
+Por exemplo, uma busca por `dragon` pode retornar títulos como:
+
+```text
+Dragon Chronicles
+The Last Dragon
+Legends of the Dragon
+```
+
+Os títulos acima são ilustrativos.
+
+**Caracteres especiais:**
+
+A busca trata os caracteres `%`, `_` e `!` como caracteres literais.
+
+O usuário não pode utilizar `%` ou `_` para ampliar a pesquisa como curingas SQL.
+
+O backend prepara o padrão textual e escapa os caracteres especiais antes de encaminhar a consulta ao repository.
+
+A busca utiliza o operador `ILIKE` do PostgreSQL, com escape explícito para proteger esses caracteres.
+
+Não existe normalização específica de acentos implementada para a descoberta textual. Portanto, não há garantia de equivalência entre versões acentuadas e não acentuadas de uma palavra.
+
+**Regras de visibilidade:**
+
+- A pesquisa considera apenas obras com conteúdo publicado.
+- Obras com apenas installments `DRAFT` não aparecem nos resultados.
+- Uma obra com vários installments publicados aparece uma única vez.
+- A ordenação e os metadados de paginação seguem as mesmas regras da seção 5.2.
+
+Quando não existe correspondência, a API retorna `200 OK` com `content` vazio.
+
+### 5.5. Combinar título, gênero e paginação
+
+Os filtros `title` e `genre` podem ser utilizados simultaneamente.
+
+Exemplo:
+
+```http
+GET /api/works?title=dragon&genre=SCI_FI
+```
+
+Essa consulta retorna apenas obras que:
+
+1. Possuem pelo menos um installment publicado.
+2. Contêm `dragon` no título, sem diferenciar maiúsculas e minúsculas.
+3. Estão associadas ao gênero `SCI_FI`.
+
+Os filtros são combinados utilizando a condição lógica `AND`.
+
+Também é possível especificar a página e o tamanho:
+
+```http
+GET /api/works?title=dragon&genre=SCI_FI&page=0&size=10
+```
+
+A consulta aplica os filtros no PostgreSQL antes de selecionar a página solicitada.
+
+A resposta mantém o mesmo formato paginado:
+
+```json
+{
+  "content": [
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "title": "Dragon Galaxy",
+      "type": "GRAPHIC_NOVEL",
+      "genres": [
+        "SCI_FI",
+        "ADVENTURE"
+      ],
+      "coverUrl": null
+    }
+  ],
+  "page": 0,
+  "size": 10,
+  "totalElements": 1,
+  "totalPages": 1
+}
+```
+
+Os resultados não são ordenados por relevância textual.
+
+A ordenação permanece baseada na atualização mais recente de um installment publicado, com desempate pelo identificador da obra.
+
+O endpoint mantém o mesmo contrato de resposta, independentemente de os filtros estarem presentes ou ausentes.
+
+**Possíveis respostas:**
+
+```text
+200 → consulta executada com sucesso, inclusive quando não há resultados
+400 → parâmetro de gênero ou paginação inválido
+```
+
+A descoberta pública não exige sessão autenticada.
 
 ---
 

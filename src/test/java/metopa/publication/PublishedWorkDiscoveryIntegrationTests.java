@@ -18,6 +18,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
 
@@ -257,72 +258,400 @@ class PublishedWorkDiscoveryIntegrationTests {
                 .andExpect(status().isNotFound());
     }
 
+    @Test
+    void shouldFindPublishedWorksByPartialTitleIgnoringCase()
+            throws Exception {
+
+        UUID ownerId = createUser("title-discovery-user");
+
+        String marker = "dragon-" + UUID.randomUUID();
+
+        UUID firstWorkId =
+                createPublishedWork(
+                        ownerId,
+                        "The " + marker + " Chronicles",
+                        2
+                );
+
+        UUID secondWorkId =
+                createPublishedWork(
+                        ownerId,
+                        "Legends of " + marker,
+                        1
+                );
+
+        UUID draftWorkId =
+                createDraftWork(
+                        ownerId,
+                        "Unpublished " + marker
+                );
+
+        String response = findPublishedWorks(
+                "  " + marker.toUpperCase(Locale.ROOT) + "  ",
+                null,
+                0,
+                PAGE_SIZE
+        );
+
+        List<String> workIds = JsonPath.read(
+                response,
+                "$.content[*].id"
+        );
+
+        assertThat(workIds)
+                .containsExactlyInAnyOrder(
+                        firstWorkId.toString(),
+                        secondWorkId.toString()
+                );
+
+        assertThat(workIds)
+                .doesNotContain(draftWorkId.toString());
+
+        assertThat(totalElements(response)).isEqualTo(2);
+        assertThat(totalPages(response)).isEqualTo(1);
+    }
+
+    @Test
+    void shouldFilterPublishedWorksByTitleAndGenre()
+            throws Exception {
+
+        UUID ownerId = createUser("title-genre-user");
+
+        String marker = "expedition-" + UUID.randomUUID();
+
+        UUID matchingWorkId =
+                createPublishedWork(
+                        ownerId,
+                        "The " + marker + " Journey",
+                        2,
+                        Set.of(
+                                Genre.SCI_FI,
+                                Genre.ADVENTURE
+                        )
+                );
+
+        UUID wrongGenreWorkId =
+                createPublishedWork(
+                        ownerId,
+                        "Drama " + marker,
+                        1,
+                        Set.of(Genre.DRAMA)
+                );
+
+        UUID wrongTitleWorkId =
+                createPublishedWork(
+                        ownerId,
+                        "An Unrelated Story",
+                        1,
+                        Set.of(Genre.SCI_FI)
+                );
+
+        UUID draftWorkId =
+                createDraftWork(
+                        ownerId,
+                        "Draft " + marker,
+                        Set.of(Genre.SCI_FI)
+                );
+
+        String response = findPublishedWorks(
+                marker,
+                Genre.SCI_FI,
+                0,
+                PAGE_SIZE
+        );
+
+        List<String> workIds = JsonPath.read(
+                response,
+                "$.content[*].id"
+        );
+
+        assertThat(workIds)
+                .containsExactly(matchingWorkId.toString());
+
+        assertThat(workIds).doesNotContain(
+                wrongGenreWorkId.toString(),
+                wrongTitleWorkId.toString(),
+                draftWorkId.toString()
+        );
+
+        List<List<String>> genres = JsonPath.read(
+                response,
+                workFieldPath(matchingWorkId, "genres")
+        );
+
+        assertThat(genres).hasSize(1);
+
+        assertThat(genres.getFirst())
+                .contains(
+                        "SCI_FI",
+                        "ADVENTURE"
+                );
+
+        assertThat(totalElements(response)).isEqualTo(1);
+        assertThat(totalPages(response)).isEqualTo(1);
+    }
+
+    @Test
+    void shouldPaginateTitleSearchByLatestPublishedInstallment()
+            throws Exception {
+
+        UUID ownerId = createUser("title-page-user");
+
+        String marker = "chronicles-" + UUID.randomUUID();
+
+        UUID oldestWorkId =
+                createPublishedWork(
+                        ownerId,
+                        "Oldest " + marker,
+                        2
+                );
+
+        UUID middleWorkId =
+                createPublishedWork(
+                        ownerId,
+                        "Middle " + marker,
+                        1
+                );
+
+        UUID newestWorkId =
+                createPublishedWork(
+                        ownerId,
+                        "Newest " + marker,
+                        1
+                );
+
+        jdbcTemplate.update(
+                """
+                UPDATE installment
+                SET updated_at =
+                    CURRENT_TIMESTAMP - INTERVAL '3 days'
+                WHERE work_id = ?
+                """,
+                oldestWorkId
+        );
+
+        jdbcTemplate.update(
+                """
+                UPDATE installment
+                SET updated_at =
+                    CURRENT_TIMESTAMP - INTERVAL '2 days'
+                WHERE work_id = ?
+                """,
+                middleWorkId
+        );
+
+        jdbcTemplate.update(
+                """
+                UPDATE installment
+                SET updated_at =
+                    CURRENT_TIMESTAMP - INTERVAL '1 day'
+                WHERE work_id = ?
+                """,
+                newestWorkId
+        );
+
+        String firstPage = findPublishedWorks(
+                marker,
+                null,
+                0,
+                1
+        );
+
+        String secondPage = findPublishedWorks(
+                marker,
+                null,
+                1,
+                1
+        );
+
+        String thirdPage = findPublishedWorks(
+                marker,
+                null,
+                2,
+                1
+        );
+
+        String outOfRangePage = findPublishedWorks(
+                marker,
+                null,
+                3,
+                1
+        );
+
+        assertThat(
+                JsonPath.<List<String>>read(
+                        firstPage,
+                        "$.content[*].id"
+                )
+        ).containsExactly(newestWorkId.toString());
+
+        assertThat(
+                JsonPath.<List<String>>read(
+                        secondPage,
+                        "$.content[*].id"
+                )
+        ).containsExactly(middleWorkId.toString());
+
+        assertThat(
+                JsonPath.<List<String>>read(
+                        thirdPage,
+                        "$.content[*].id"
+                )
+        ).containsExactly(oldestWorkId.toString());
+
+        assertThat(
+                JsonPath.<List<String>>read(
+                        outOfRangePage,
+                        "$.content[*].id"
+                )
+        ).isEmpty();
+
+        assertThat(totalElements(firstPage)).isEqualTo(3);
+        assertThat(totalElements(secondPage)).isEqualTo(3);
+        assertThat(totalElements(thirdPage)).isEqualTo(3);
+        assertThat(totalElements(outOfRangePage)).isEqualTo(3);
+
+        assertThat(totalPages(firstPage)).isEqualTo(3);
+        assertThat(totalPages(secondPage)).isEqualTo(3);
+        assertThat(totalPages(thirdPage)).isEqualTo(3);
+        assertThat(totalPages(outOfRangePage)).isEqualTo(3);
+    }
+
+    @Test
+    void shouldTreatTitleWildcardsAsLiteralCharacters()
+            throws Exception {
+
+        UUID ownerId = createUser("title-escape-user");
+
+        String marker = UUID.randomUUID().toString();
+
+        String literalTitle = "100%_!-" + marker;
+
+        UUID matchingWorkId =
+                createPublishedWork(
+                        ownerId,
+                        "The " + literalTitle + " Tale",
+                        1
+                );
+
+        UUID wildcardDecoyWorkId =
+                createPublishedWork(
+                        ownerId,
+                        "The 100AB!-" + marker + " Tale",
+                        1
+                );
+
+        UUID draftWorkId =
+                createDraftWork(
+                        ownerId,
+                        "Draft " + literalTitle
+                );
+
+        String response = findPublishedWorks(
+                literalTitle,
+                null,
+                0,
+                PAGE_SIZE
+        );
+
+        List<String> workIds = JsonPath.read(
+                response,
+                "$.content[*].id"
+        );
+
+        assertThat(workIds)
+                .containsExactly(matchingWorkId.toString());
+
+        assertThat(workIds).doesNotContain(
+                wildcardDecoyWorkId.toString(),
+                draftWorkId.toString()
+        );
+
+        assertThat(totalElements(response)).isEqualTo(1);
+        assertThat(totalPages(response)).isEqualTo(1);
+    }
+
     private String findPageContainingWork(
             UUID workId,
             Genre genre
     ) throws Exception {
 
         for (int page = 0; ; page++) {
-            var request =
-                    get("/api/works")
-                            .queryParam(
-                                    "page",
-                                    String.valueOf(page)
-                            )
-                            .queryParam(
-                                    "size",
-                                    String.valueOf(PAGE_SIZE)
-                            );
 
-            if (genre != null) {
-                request.queryParam(
-                        "genre",
-                        genre.name()
-                );
-            }
+            String response = findPublishedWorks(
+                    null,
+                    genre,
+                    page,
+                    PAGE_SIZE
+            );
 
-            String response =
-                    mockMvc.perform(request)
-                            .andExpect(status().isOk())
-                            .andExpect(
-                                    jsonPath("$.page")
-                                            .value(page)
-                            )
-                            .andExpect(
-                                    jsonPath("$.size")
-                                            .value(PAGE_SIZE)
-                            )
-                            .andExpect(
-                                    jsonPath("$.content")
-                                            .isArray()
-                            )
-                            .andReturn()
-                            .getResponse()
-                            .getContentAsString();
-
-            List<String> workIds =
-                    JsonPath.read(
-                            response,
-                            "$.content[*].id"
-                    );
+            List<String> workIds = JsonPath.read(
+                    response,
+                    "$.content[*].id"
+            );
 
             if (workIds.contains(workId.toString())) {
                 return response;
             }
 
-            int totalPages =
-                    ((Number) JsonPath.read(
-                            response,
-                            "$.totalPages"
-                    )).intValue();
-
-            if (page + 1 >= totalPages) {
+            if (page + 1 >= totalPages(response)) {
                 throw new AssertionError(
                         "Published work not found in discovery: "
                                 + workId
                 );
             }
         }
+    }
+
+    private String findPublishedWorks(
+            String title,
+            Genre genre,
+            int page,
+            int size
+    ) throws Exception {
+
+        var request =
+                get("/api/works")
+                        .queryParam(
+                                "page",
+                                String.valueOf(page)
+                        )
+                        .queryParam(
+                                "size",
+                                String.valueOf(size)
+                        );
+
+        if (title != null) {
+            request.queryParam(
+                    "title",
+                    title
+            );
+        }
+
+        if (genre != null) {
+            request.queryParam(
+                    "genre",
+                    genre.name()
+            );
+        }
+
+        return mockMvc.perform(request)
+                .andExpect(status().isOk())
+                .andExpect(
+                        jsonPath("$.page")
+                                .value(page)
+                )
+                .andExpect(
+                        jsonPath("$.size")
+                                .value(size)
+                )
+                .andExpect(
+                        jsonPath("$.content")
+                                .isArray()
+                )
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
     }
 
     private String workFieldPath(
@@ -340,6 +669,13 @@ class PublishedWorkDiscoveryIntegrationTests {
                 response,
                 "$.totalElements"
         )).longValue();
+    }
+
+    private int totalPages(String response) {
+        return ((Number) JsonPath.read(
+                response,
+                "$.totalPages"
+        )).intValue();
     }
 
     private long countPublishedWorks(Genre genre) {

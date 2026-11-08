@@ -2,16 +2,16 @@
 
 Documentação da estratégia de testes automatizados do backend do Metopa.
 
-Os testes são utilizados para validar regras de domínio, persistência, autenticação, autorização, contratos HTTP, modularidade, armazenamento binário, consistência transacional e concorrência.
+Os testes são utilizados para validar regras de domínio, persistência, autenticação, autorização, contratos HTTP, modularidade, descoberta pública, armazenamento binário, consistência transacional e concorrência.
 
-O projeto utiliza Java 25, Spring Boot 4.1, JUnit, Mockito, Spring Test e PostgreSQL.
+O projeto utiliza Java 25, Spring Boot 4.1.1, JUnit, Mockito, Spring Test e PostgreSQL 18.
 
 ## 1. Estado atual
 
-A última execução completa reportada da suíte apresentou:
+A última execução local completa da suíte apresentou:
 
 ```text
-Tests run: 273
+Tests run: 304
 Failures: 0
 Errors: 0
 Skipped: 0
@@ -19,26 +19,32 @@ Skipped: 0
 BUILD SUCCESS
 ```
 
-A execução foi realizada em **2 de novembro de 2026**, através do comando:
+A execução foi realizada em **7 de novembro de 2026**, através do comando:
 
 ```bash
-./mvnw clean test
+./mvnw clean verify
 ```
 
-O tempo total registrado foi de aproximadamente 3 minutos e 24 segundos.
+O tempo total registrado foi de aproximadamente 2 minutos e 46 segundos.
 
-A referência anterior era de 258 testes aprovados, estabelecida em 29 de outubro de 2026, após a implementação da `feature/creator-cover-removal`.
+Além dos testes automatizados, o Maven concluiu o empacotamento da aplicação como um JAR executável do Spring Boot.
 
-A execução atual contempla os 15 testes de integração introduzidos durante o desenvolvimento da `feature/creator-work-deletion`.
+### Histórico de validações
 
-Entre os novos comportamentos validados estão:
+| Data | Testes aprovados | Contexto |
+|------|------------------|----------|
+| 29/10/2026 | 258 | Remoção de capas |
+| 02/11/2026 | 273 | Exclusão de obras e integridade referencial |
+| 07/11/2026 | 304 | Descoberta pública paginada, busca por título e validação final |
+
+A implementação da exclusão de obras introduziu 15 cenários de integração, incluindo:
 
 - exclusão de obras sem installments;
 - rejeição da exclusão de obras com installments `DRAFT`;
 - rejeição da exclusão de obras com installments `PUBLISHED`;
-- exclusão física da capa após o commit;
+- exclusão física da capa após commit;
 - preservação da obra e da capa após rollback;
-- autorização por propriedade da obra;
+- autorização baseada na propriedade da obra;
 - rejeição de operações sem autenticação;
 - proteção CSRF;
 - tratamento de obras inexistentes com HTTP `404`;
@@ -48,7 +54,23 @@ Entre os novos comportamentos validados estão:
 - proteção contra exclusão direta de obras com installments no PostgreSQL;
 - exclusão dos gêneros associados à obra.
 
-A suíte também preserva os testes introduzidos nas features anteriores de consistência transacional e remoção de capas, incluindo:
+Posteriormente, a descoberta pública passou a oferecer paginação, busca parcial por título e combinação com o filtro de gênero.
+
+Os testes adicionais verificam:
+
+- listagem paginada de obras publicadas;
+- exclusão de obras sem conteúdo publicado;
+- prevenção de resultados duplicados;
+- contagem de obras distintas;
+- ordenação determinística;
+- busca parcial por título;
+- correspondência sem diferenciar maiúsculas e minúsculas;
+- combinação de título e gênero;
+- tratamento literal de `%`, `_` e `!`;
+- validação dos parâmetros HTTP;
+- preservação dos metadados de paginação.
+
+A suíte também mantém os testes das funcionalidades anteriores de consistência transacional e remoção de capas, incluindo:
 
 - compensação de uploads de capas após rollback;
 - remoção da capa anterior após commit;
@@ -57,7 +79,7 @@ A suíte também preserva os testes introduzidos nas features anteriores de cons
 - remoção idempotente de capas em obras que já não possuem capa;
 - concorrência entre remoção e substituição de capas.
 
-A migration V10 introduziu novas foreign keys entre `work` e as tabelas `installment`, `library_entry` e `reading_progress`.
+A migration V10 introduziu foreign keys entre `work` e as tabelas `installment`, `library_entry` e `reading_progress`.
 
 Como consequência, quatro classes de testes de repositório foram ajustadas para preparar registros válidos de obras antes de persistir entidades dependentes:
 
@@ -68,7 +90,7 @@ Como consequência, quatro classes de testes de repositório foram ajustadas par
 
 A suíte utiliza diferentes níveis de teste para validar tanto o comportamento isolado das classes quanto o funcionamento integrado da aplicação.
 
-O número de testes não é utilizado isoladamente como indicador de qualidade. O objetivo principal é verificar comportamentos relevantes, regras de negócio e possíveis regressões.
+**O número de testes não é utilizado isoladamente como indicador de qualidade.** O objetivo principal é verificar comportamentos relevantes, regras de negócio e possíveis regressões.
 
 ## 2. Objetivos
 
@@ -84,9 +106,14 @@ A estratégia de testes busca:
 - verificar comportamentos transacionais;
 - testar situações de concorrência;
 - verificar restrições de integridade referencial;
-- permitir a evolução incremental do MVP.
+- validar filtros, buscas e paginação;
+- verificar ordenação e contagem dos resultados;
+- permitir a evolução incremental do MVP;
+- fornecer feedback automatizado através da CI.
 
-O Metopa utiliza testes automatizados como parte do fluxo de desenvolvimento, especialmente em alterações que envolvem persistência e operações destrutivas.
+O Metopa utiliza testes automatizados como parte do fluxo de desenvolvimento, especialmente em alterações que envolvem persistência, segurança, consultas públicas e operações destrutivas.
+
+A validação local é complementada por um workflow de GitHub Actions.
 
 ## 3. Tipos de teste
 
@@ -104,6 +131,8 @@ Esses testes são adequados para:
 - tratamento de conflitos;
 - interações entre serviços e suas dependências;
 - verificação de chamadas a repositories;
+- seleção de consultas conforme filtros;
+- conversão de resultados e preservação de paginação;
 - verificação das operações realizadas através de `BinaryStorage`;
 - verificação do registro e comportamento de callbacks transacionais.
 
@@ -128,9 +157,24 @@ Os testes unitários existentes foram ajustados para fornecer essa dependência 
 
 Os testes de `PublicationService` também foram atualizados para refletir o uso de `CatalogService.findWorkForInstallmentCreation()` na criação de installments.
 
-Essas adaptações verificam as interações com os novos contratos, enquanto os testes de integração validam o comportamento transacional efetivo.
+Na descoberta pública, `PublicationServiceTests` verifica a seleção das consultas conforme os filtros informados.
 
-A reversão real dos dados persistidos é verificada separadamente pelos testes de integração.
+Os testes relacionados à busca por título verificam:
+
+- utilização da consulta sem filtro textual quando `title` é `null`;
+- tratamento de títulos compostos somente por espaços;
+- remoção de espaços nas extremidades do título;
+- combinação de título e gênero;
+- escape de caracteres especiais;
+- mapeamento de identificadores para `PublishedWorkSummary`;
+- preservação dos metadados da página;
+- retorno de páginas vazias.
+
+Esses testes utilizam mocks do repository e do catálogo.
+
+Eles verificam as regras de orquestração do serviço, mas não executam o operador PostgreSQL `ILIKE`.
+
+A correspondência real da consulta SQL é verificada separadamente pelos testes de persistência.
 
 ### 3.2. Testes de integração
 
@@ -161,6 +205,18 @@ Na exclusão de obras, os testes verificam:
 - a coordenação entre transações concorrentes de exclusão e criação de installments;
 - a remoção das referências associadas à obra excluída.
 
+Na descoberta pública, os testes de integração verificam:
+
+- criação de obras e installments através dos serviços reais;
+- publicação de conteúdo;
+- listagem HTTP de obras publicadas;
+- exclusão de obras em draft;
+- execução dos filtros no PostgreSQL;
+- busca textual com `ILIKE`;
+- paginação e contagem de obras distintas;
+- ordenação dos resultados;
+- tratamento literal de caracteres especiais.
+
 Esses cenários não poderiam ser reproduzidos integralmente apenas com mocks dos repositories.
 
 ### 3.3. Testes de contratos HTTP
@@ -171,13 +227,15 @@ Entre os aspectos validados estão:
 
 - rotas e métodos HTTP;
 - formatos de requisição;
+- parâmetros de consulta;
 - validações de entrada;
 - autenticação;
 - autorização;
 - proteção CSRF;
 - códigos de resposta;
 - representações retornadas;
-- persistência dos efeitos das operações.
+- metadados de paginação;
+- persistência dos efeitos das operações, quando aplicável.
 
 O Spring MockMvc é utilizado nos testes que exercitam a camada HTTP sem exigir um servidor externo iniciado manualmente.
 
@@ -212,6 +270,50 @@ Detail: A work with installments cannot be deleted.
 
 A verificação do contrato HTTP é complementada pela consulta ao estado persistido após cada operação.
 
+**Descoberta pública**
+
+O endpoint:
+
+```http
+GET /api/works
+```
+
+aceita os parâmetros opcionais:
+
+```text
+title
+genre
+page
+size
+```
+
+Os testes verificam:
+
+- valores padrão de paginação;
+- recebimento de título e gênero;
+- combinação dos filtros;
+- encaminhamento dos parâmetros ao serviço;
+- resposta paginada;
+- validação dos parâmetros de paginação;
+- rejeição de gêneros inválidos;
+- representação de resultados vazios.
+
+O contrato de resposta contém:
+
+```text
+content
+page
+size
+totalElements
+totalPages
+```
+
+O endpoint retorna `200 OK` quando a consulta é válida, inclusive quando não existem resultados.
+
+Parâmetros inválidos de paginação e valores desconhecidos de gênero retornam `400 Bad Request`.
+
+Os testes HTTP isolados do controller utilizam dependências simuladas. A segurança e a integração real com o PostgreSQL são verificadas em testes específicos.
+
 ### 3.4. Testes de modularidade
 
 O Spring Modulith é utilizado para verificar os limites arquiteturais da aplicação.
@@ -238,6 +340,14 @@ Essa abordagem permite verificar a existência de installments sem introduzir um
 
 O teste de modularidade ajuda a identificar regressões nessa organização.
 
+A descoberta pública utiliza uma integração diferente.
+
+O módulo `publication` executa consultas SQL nativas que acessam tabelas relacionadas a `catalog`, mas recupera os metadados públicos através de `CatalogService`.
+
+O teste de modularidade verifica dependências entre módulos Java, não todas as referências SQL entre tabelas pertencentes a módulos distintos.
+
+Essa limitação está documentada em [ARCHITECTURE.md](ARCHITECTURE.md).
+
 ## 4. Executando os testes
 
 ### 4.1. Pré-requisitos
@@ -250,6 +360,8 @@ Para executar a suíte completa, o ambiente deve possuir:
 - Maven Wrapper do projeto.
 
 O Maven Wrapper já está incluído no repositório.
+
+Não é necessário instalar o Maven globalmente.
 
 ### 4.2. Iniciar o PostgreSQL
 
@@ -269,9 +381,11 @@ Os testes de integração que utilizam o banco dependem de uma instância Postgr
 
 O Spring Boot também pode gerenciar o ciclo de vida do Docker Compose conforme a configuração da aplicação.
 
-Na última execução de um teste individual, o PostgreSQL foi iniciado pelo Spring Boot e a migration V10 foi validada pelo Flyway.
+O Flyway valida e aplica as migrations necessárias durante a inicialização do contexto da aplicação.
 
 ### 4.3. Executar a suíte completa
+
+Durante o desenvolvimento:
 
 ```bash
 ./mvnw clean test
@@ -279,14 +393,41 @@ Na última execução de um teste individual, o PostgreSQL foi iniciado pelo Spr
 
 O comando remove os artefatos anteriores de build, compila o projeto e executa os testes configurados para a fase `test` do Maven.
 
-O resultado deve ser verificado no terminal.
+Antes de abrir um Pull Request:
 
-A execução completa é a validação principal antes da conclusão de alterações no código da aplicação.
+```bash
+./mvnw clean verify
+```
 
-O resultado mais recente reportado foi:
+O comando executa as fases do ciclo de vida do Maven até `verify`.
+
+Isso inclui os testes e as fases posteriores, como o empacotamento da aplicação.
+
+**Diferença entre os comandos:**
+
+| Comando | Finalidade |
+|---------|------------|
+| `./mvnw test` | Executar os testes configurados para a fase `test` |
+| `./mvnw clean test` | Limpar o build anterior e executar os testes |
+| `./mvnw verify` | Executar as fases do Maven até `verify` |
+| `./mvnw clean verify` | Limpar o build e realizar a validação completa até `verify` |
+
+Os testes de integração atuais, incluindo aqueles com `@SpringBootTest`, são executados pelo Maven Surefire durante a fase `test`, conforme as convenções de descoberta utilizadas pelo projeto.
+
+A classificação de um teste como integração depende do comportamento que ele exercita, não necessariamente da fase `integration-test` do Maven.
+
+A execução de `verify` não significa automaticamente que exista uma suíte separada controlada pelo Maven Failsafe Plugin.
+
+A execução final recomendada para o Metopa é:
+
+```bash
+./mvnw clean verify
+```
+
+A última validação local completa confirmou:
 
 ```text
-Tests run: 273, Failures: 0, Errors: 0, Skipped: 0
+Tests run: 304, Failures: 0, Errors: 0, Skipped: 0
 BUILD SUCCESS
 ```
 
@@ -328,6 +469,32 @@ Para os testes de integração de exclusão de obras:
 
 ```bash
 ./mvnw -Dtest=WorkDeletionIntegrationTests test
+```
+
+**Testes da descoberta pública**
+
+Repository:
+
+```bash
+./mvnw -Dtest=InstallmentRepositoryTests test
+```
+
+Service:
+
+```bash
+./mvnw -Dtest=PublicationServiceTests test
+```
+
+Controller:
+
+```bash
+./mvnw -Dtest=PublishedWorkControllerTests test
+```
+
+Integração:
+
+```bash
+./mvnw -Dtest=PublishedWorkDiscoveryIntegrationTests test
 ```
 
 Também é possível executar um método específico.
@@ -392,6 +559,30 @@ Para executar o teste da restrição de integridade referencial:
 ./mvnw -Dtest=WorkDeletionIntegrationTests#shouldPreventDeletingWorkWithInstallmentsAtDatabaseLevel test
 ```
 
+Para verificar a busca parcial por título através da API:
+
+```bash
+./mvnw -Dtest=PublishedWorkDiscoveryIntegrationTests#shouldFindPublishedWorksByPartialTitleIgnoringCase test
+```
+
+Para verificar a combinação de título e gênero:
+
+```bash
+./mvnw -Dtest=PublishedWorkDiscoveryIntegrationTests#shouldFilterPublishedWorksByTitleAndGenre test
+```
+
+Para verificar a paginação e ordenação:
+
+```bash
+./mvnw -Dtest=PublishedWorkDiscoveryIntegrationTests#shouldPaginateTitleSearchByLatestPublishedInstallment test
+```
+
+Para verificar o tratamento literal de caracteres especiais:
+
+```bash
+./mvnw -Dtest=PublishedWorkDiscoveryIntegrationTests#shouldTreatTitleWildcardsAsLiteralCharacters test
+```
+
 Essa abordagem permite obter feedback mais rápido durante as etapas de implementação.
 
 Após a correção, a suíte completa deve ser executada para identificar possíveis regressões em outros módulos.
@@ -414,6 +605,75 @@ Esses relatórios ajudam a identificar:
 - resultados individuais das classes.
 
 Em caso de falha, a primeira etapa é identificar o teste afetado e compreender qual comportamento esperado deixou de ser atendido.
+
+### 4.6. Integração contínua com GitHub Actions
+
+O backend possui um workflow de integração contínua configurado no GitHub Actions.
+
+O workflow utiliza:
+
+- Java 25;
+- PostgreSQL 18.6 como serviço de teste;
+- Maven Wrapper;
+- execução dos testes automatizados;
+- empacotamento da aplicação.
+
+O comando executado na CI é:
+
+```bash
+./mvnw -B -ntp clean verify
+```
+
+As opções adicionais são:
+
+| Opção | Finalidade |
+|-------|------------|
+| `-B` | Executar o Maven em modo batch |
+| `-ntp` | Desabilitar a exibição do progresso de transferências |
+
+O ambiente de CI utiliza um serviço PostgreSQL próprio.
+
+Não depende da instalação local de PostgreSQL ou do Docker Compose utilizado pelo desenvolvedor.
+
+A configuração dos testes impede a substituição automática do PostgreSQL por um banco embarcado.
+
+O workflow está configurado para validar alterações direcionadas à `main` através de Pull Requests, além dos eventos previstos em sua configuração.
+
+A branch principal utiliza a verificação automatizada do backend como parte do processo de integração das alterações.
+
+O fluxo recomendado é:
+
+```text
+Desenvolvimento da feature
+    |
+    v
+Testes específicos
+    |
+    v
+./mvnw clean verify
+    |
+    v
+Revisão de código e documentação
+    |
+    v
+Push da branch
+    |
+    v
+Pull Request para main
+    |
+    v
+GitHub Actions
+    |
+    v
+Verificação dos checks
+    |
+    v
+Merge
+```
+
+A aprovação dos testes locais não substitui a execução do workflow na CI.
+
+Da mesma forma, uma execução bem-sucedida na CI não elimina a necessidade de revisar o comportamento da alteração e seus possíveis efeitos sobre outras partes da aplicação.
 
 ## 5. Estratégia de desenvolvimento
 
@@ -464,10 +724,14 @@ O refactor não deve alterar o comportamento observado pelos testes.
 Depois da implementação e da revisão:
 
 ```bash
-./mvnw clean test
+./mvnw clean verify
 ```
 
-A suíte completa ajuda a verificar se a alteração introduziu regressões em funcionalidades existentes.
+A validação completa ajuda a verificar se a alteração introduziu regressões em funcionalidades existentes.
+
+O comando também verifica as fases posteriores aos testes, incluindo o empacotamento.
+
+O mesmo objetivo de validação é aplicado pela CI.
 
 ### 5.5. Exemplo: consistência transacional das capas
 
@@ -623,6 +887,137 @@ A nova integridade referencial também exigiu ajustes nos testes de repositório
 
 Após essas alterações, a suíte completa foi executada com **273 testes aprovados**.
 
+### 5.8. Exemplo: descoberta pública paginada
+
+A descoberta pública foi implementada incrementalmente, com testes nas camadas de persistência, serviço, HTTP e integração.
+
+O endpoint correspondente é:
+
+```http
+GET /api/works
+```
+
+A implementação permite paginação com os parâmetros `page` e `size`.
+
+O valor padrão de `page` é `0`, enquanto `size` utiliza `20`.
+
+O tamanho da página deve estar entre `1` e `50`.
+
+Os testes verificam:
+
+- retorno de obras com conteúdo publicado;
+- exclusão de obras sem installments publicados;
+- prevenção de resultados duplicados;
+- filtragem por gênero;
+- paginação antes da recuperação dos resumos;
+- contagem correta de obras distintas;
+- ordenação determinística;
+- primeira página;
+- páginas seguintes;
+- páginas fora do intervalo de resultados;
+- rejeição de parâmetros de paginação inválidos.
+
+A implementação utiliza consultas SQL nativas no PostgreSQL.
+
+O repository retorna `Page<UUID>`, e o serviço recupera os metadados das obras selecionadas na página.
+
+A resposta HTTP utiliza `PublishedWorksPageResponse`.
+
+A paginação preserva os seguintes campos:
+
+```text
+content
+page
+size
+totalElements
+totalPages
+```
+
+### 5.9. Exemplo: busca pública por título
+
+A `feature/public-work-title-search` acrescentou a busca parcial por título à descoberta pública paginada.
+
+O endpoint passou a aceitar o parâmetro opcional `title`.
+
+Exemplo:
+
+```http
+GET /api/works?title=dragon
+```
+
+A busca também pode ser combinada com gênero e paginação:
+
+```http
+GET /api/works?title=dragon&genre=SCI_FI&page=0&size=10
+```
+
+A implementação mantém as regras existentes de visibilidade, deduplicação, ordenação e contagem.
+
+**Primeiro conjunto — persistência**
+
+Os testes do `InstallmentRepository` verificam o comportamento das consultas SQL no PostgreSQL real.
+
+Os novos cenários incluem:
+
+- busca parcial por título;
+- correspondência sem diferenciar maiúsculas e minúsculas;
+- exclusão de installments não publicados;
+- combinação de título e gênero;
+- contagem de obras distintas;
+- paginação;
+- tratamento literal dos caracteres `%`, `_` e `!`.
+
+A busca utiliza `ILIKE` com escape explícito.
+
+**Segundo conjunto — serviço**
+
+Os testes do `PublicationService` verificam:
+
+- normalização do título;
+- tratamento de `null`;
+- tratamento de título em branco;
+- preservação do filtro de gênero;
+- seleção do método adequado do repository;
+- escape dos caracteres especiais;
+- conversão para `PublishedWorkSummary`;
+- manutenção dos metadados de paginação;
+- comportamento de páginas vazias.
+
+**Terceiro conjunto — HTTP**
+
+Os testes de `PublishedWorkControllerTests` verificam:
+
+- recebimento de `title`;
+- recebimento de `genre`;
+- combinação dos filtros;
+- encaminhamento dos parâmetros ao serviço;
+- valores padrão de paginação;
+- estrutura de resposta;
+- rejeição de valores inválidos;
+- preservação das operações públicas existentes.
+
+**Quarto conjunto — integração completa**
+
+Os testes de `PublishedWorkDiscoveryIntegrationTests` exercitam o fluxo:
+
+```text
+HTTP
+  ↓
+PublishedWorkController
+  ↓
+PublicationService
+  ↓
+InstallmentRepository
+  ↓
+PostgreSQL
+```
+
+Os cenários verificam o comportamento real da descoberta pública, incluindo filtros, resultados publicados, paginação e correspondência textual.
+
+Os testes utilizam títulos exclusivos para evitar que dados persistidos anteriormente interfiram nas contagens exatas.
+
+A validação final da suíte confirmou **304 testes aprovados**, incluindo os novos cenários.
+
 ## 6. Cobertura funcional
 
 Os testes estão distribuídos entre os domínios e responsabilidades da aplicação.
@@ -712,9 +1107,19 @@ Os testes verificam:
 - consulta da existência de installments para impedir a exclusão de obras;
 - utilização do bloqueio da obra durante a criação de installments;
 - preservação dos installments quando a exclusão da obra é rejeitada;
-- prevenção de referências a obras inexistentes.
+- prevenção de referências a obras inexistentes;
+- descoberta pública de obras com conteúdo publicado;
+- filtragem da descoberta pública por gênero;
+- busca parcial e case-insensitive por título;
+- normalização e escape de parâmetros de busca;
+- combinação de filtros de título e gênero;
+- exclusão de obras com apenas installments `DRAFT`;
+- paginação de identificadores de obras;
+- contagem de obras distintas;
+- ordenação determinística;
+- preservação dos metadados de paginação.
 
-Esse módulo concentra alguns dos testes de integração mais relevantes para a consistência entre o banco de dados e o filesystem.
+Esse módulo concentra alguns dos testes de integração mais relevantes para a consistência entre o banco de dados, o filesystem e a descoberta pública.
 
 ### 6.4. Library
 
@@ -779,6 +1184,8 @@ Os testes verificam respostas apropriadas quando o usuário não está autentica
 Na remoção de capas, uma requisição sem sessão autenticada recebe `401 Unauthorized`.
 
 Na exclusão de obras, o teste `shouldRejectUnauthenticatedWorkDeletion()` verifica a mesma exigência.
+
+A descoberta pública utiliza endpoints de leitura que dispensam sessão autenticada.
 
 ### 7.2. Autorização
 
@@ -864,6 +1271,18 @@ O método HTTP `DELETE` continua sendo idempotente quanto ao efeito pretendido s
 
 A idempotência HTTP não exige que todas as requisições retornem o mesmo código de resposta.
 
+Para a descoberta pública:
+
+| Situação | Resposta |
+|----------|----------|
+| Consulta válida | `200 OK` |
+| Nenhuma obra encontrada | `200 OK` |
+| Página fora do intervalo | `200 OK` |
+| Gênero inválido | `400 Bad Request` |
+| `page` negativo | `400 Bad Request` |
+| `size` menor que 1 ou maior que 50 | `400 Bad Request` |
+| Parâmetro numérico inválido | `400 Bad Request` |
+
 ### 7.5. Visão pública e administrativa
 
 Os testes verificam a separação entre:
@@ -882,6 +1301,8 @@ Ela não altera o estado de publicação do conteúdo.
 
 A exclusão de uma obra também é uma operação administrativa, mas só pode ocorrer quando não existem installments associados.
 
+A descoberta pública reforça essa separação, pois somente considera obras que possuem pelo menos um installment publicado.
+
 ## 8. Testes de persistência
 
 O PostgreSQL é utilizado nos testes de integração que dependem de comportamento relacional real.
@@ -899,7 +1320,11 @@ Entre elas:
 - restrições de exclusão;
 - rollback;
 - visibilidade de alterações entre transações;
-- bloqueios pessimistas.
+- bloqueios pessimistas;
+- consultas SQL nativas;
+- filtragem e paginação;
+- contagem de resultados distintos;
+- ordenação determinística.
 
 ### 8.1. Restrições de unicidade
 
@@ -1046,6 +1471,60 @@ Essa abordagem mantém o foco dos testes nos repositories correspondentes, sem e
 Os testes continuam verificando suas responsabilidades originais, agora utilizando dados compatíveis com as restrições do banco.
 
 Após os ajustes, os testes afetados foram executados individualmente e a suíte completa foi validada com sucesso.
+
+### 8.7. Persistência da descoberta pública
+
+A descoberta pública utiliza consultas SQL nativas executadas pelo `InstallmentRepository`.
+
+Os testes verificam as consultas no PostgreSQL real, preservando as regras de visibilidade.
+
+As consultas consideram somente installments com status `PUBLISHED`.
+
+Como uma obra pode possuir vários installments publicados, os testes verificam que o mesmo `work_id` aparece apenas uma vez nos resultados.
+
+A paginação utiliza o Spring Data `Pageable`.
+
+O repository retorna `Page<UUID>`, com contagem de obras distintas.
+
+A consulta de contagem utiliza:
+
+```sql
+COUNT(DISTINCT i.work_id)
+```
+
+Os testes verificam que filtros são aplicados antes da seleção da página.
+
+A ordenação utiliza:
+
+```sql
+ORDER BY MAX(i.updated_at) DESC, i.work_id ASC
+```
+
+O segundo critério garante desempate determinístico.
+
+**Busca por título**
+
+A pesquisa utiliza:
+
+```sql
+w.title ILIKE :titlePattern ESCAPE '!'
+```
+
+O `PublicationService` prepara o padrão de pesquisa antes da execução SQL.
+
+Os testes de repository verificam:
+
+- busca parcial;
+- correspondência sem diferenciar maiúsculas e minúsculas;
+- exclusão de obras com apenas conteúdo em draft;
+- combinação com o filtro de gênero;
+- paginação dos resultados filtrados;
+- contagem correta;
+- tratamento literal dos metacaracteres SQL.
+
+A associação de gênero é consultada através de `EXISTS`, evitando multiplicação de resultados na consulta principal.
+
+Esses testes complementam os testes unitários do serviço, que verificam a preparação do padrão de pesquisa e a seleção das consultas.
 
 ## 9. Testes de armazenamento binário
 
@@ -1808,6 +2287,8 @@ Os testes unitários do `CatalogService` verificam a utilização de `findByIdFo
 
 Os testes de integração verificam o comportamento transacional efetivo.
 
+Na descoberta pública, o PostgreSQL real também é necessário para validar a semântica de `ILIKE`, agrupamento, paginação e contagem de obras distintas.
+
 ### 11.8. Limites dos testes
 
 Os cenários de concorrência verificam situações específicas e conhecidas.
@@ -1838,11 +2319,46 @@ Os testes de integração de capas utilizam uma configuração de armazenamento 
 metopa.storage.root=target/test-work-cover-storage
 ```
 
+Os testes de integração da descoberta pública utilizam:
+
+```properties
+metopa.storage.root=target/test-work-discovery-storage
+```
+
 As verificações devem considerar tanto o estado do PostgreSQL quanto o estado do filesystem.
 
 A migration V10 exige que registros dependentes de uma obra utilizem um `workId` existente.
 
 Os testes de repositório devem preparar explicitamente essas referências, em vez de depender de registros pré-existentes ou de identificadores sem correspondência no banco.
+
+### 12.1. Isolamento da descoberta pública
+
+Os testes de descoberta pública executam consultas contra o PostgreSQL real.
+
+A classe `PublishedWorkDiscoveryIntegrationTests` cria usuários, obras, installments e páginas necessários para seus cenários.
+
+Para os filtros por título, os testes utilizam termos de pesquisa exclusivos, normalmente combinados com UUIDs.
+
+Isso permite validar contagens exatas sem depender de uma base de dados completamente vazia.
+
+Por exemplo, um teste pode criar três obras que compartilham um marcador exclusivo:
+
+- duas obras com installments publicados;
+- uma obra contendo apenas um installment em draft.
+
+A consulta pelo marcador deve retornar apenas as duas obras publicadas.
+
+Nos testes de paginação, os timestamps dos installments são ajustados explicitamente para estabelecer uma ordem conhecida.
+
+Essa estratégia evita depender da velocidade de criação dos registros para determinar a ordenação esperada.
+
+Os testes existentes de listagem geral também verificam a quantidade de obras publicadas antes e depois da preparação dos dados.
+
+Entretanto, esses cenários pressupõem que outras operações não modifiquem simultaneamente os mesmos resultados durante a execução.
+
+A implementação atual não garante isolamento completo por banco descartável ou limpeza automática de todos os registros gerados.
+
+A adoção de estratégias adicionais de limpeza e isolamento poderá ser avaliada caso necessário.
 
 ### Recomendações
 
@@ -1852,12 +2368,15 @@ Os testes de repositório devem preparar explicitamente essas referências, em v
 - respeitar as foreign keys do schema;
 - utilizar configurações de armazenamento próprias dos testes;
 - verificar o estado final persistido;
-- limpar recursos criados pelos cenários de teste;
+- limpar recursos criados pelos cenários de teste quando apropriado;
 - evitar sleeps arbitrários em testes concorrentes;
 - utilizar mecanismos de sincronização controlada quando necessário;
 - utilizar timeouts para evitar esperas indefinidas;
 - liberar bloqueios e encerrar executores em blocos `finally`;
-- validar referências do PostgreSQL e arquivos físicos após operações concorrentes.
+- validar referências do PostgreSQL e arquivos físicos após operações concorrentes;
+- utilizar marcadores exclusivos quando testes consultarem dados persistidos compartilhados;
+- não pressupor que a base de dados esteja vazia;
+- evitar testes que dependam de timestamps gerados com diferenças mínimas.
 
 ## 13. Diagnóstico de falhas
 
@@ -1883,7 +2402,9 @@ Verificar:
 - restrições do banco;
 - fronteiras transacionais;
 - estado final persistido;
-- integridade referencial entre entidades.
+- integridade referencial entre entidades;
+- funcionamento das consultas SQL nativas;
+- correspondência entre consultas de conteúdo e contagem.
 
 Após a migration V10, falhas de persistência envolvendo `work_id` também devem considerar se a obra referenciada foi criada corretamente.
 
@@ -1940,6 +2461,7 @@ Verificar:
 
 - existência do endpoint e método HTTP correto;
 - mapeamento do controller;
+- parâmetros da requisição;
 - exceção lançada pelo serviço;
 - tratamento no `@RestControllerAdvice`;
 - resposta `ProblemDetail`;
@@ -1953,6 +2475,47 @@ Na exclusão de obras, a exceção `WorkHasInstallmentsException` é tratada pel
 
 O erro diferencia a tentativa de excluir uma obra com installments de uma tentativa de excluir uma obra inexistente.
 
+### 13.7. Falhas na descoberta pública
+
+Quando um teste de descoberta pública falhar, verificar:
+
+- se os installments foram publicados corretamente;
+- se existem obras com apenas installments `DRAFT`;
+- se a consulta utiliza `status = 'PUBLISHED'`;
+- se o agrupamento por `work_id` evita duplicações;
+- se os filtros são aplicados antes da paginação;
+- se a consulta de contagem utiliza os mesmos filtros;
+- se o total representa obras distintas;
+- se os UUIDs e gêneros utilizados no teste correspondem aos registros persistidos;
+- se o título foi normalizado adequadamente;
+- se `%`, `_` e `!` foram escapados;
+- se a ordenação utiliza `MAX(updated_at)` dos installments publicados;
+- se o desempate por UUID está sendo respeitado;
+- se os metadados da resposta HTTP correspondem aos resultados do repository.
+
+Quando a falha estiver relacionada a `ILIKE`, verificar especialmente a preparação do padrão de busca no `PublicationService` e a condição SQL utilizada no `InstallmentRepository`.
+
+Para falhas de paginação, verificar tanto a consulta de conteúdo quanto a consulta de contagem.
+
+Para falhas de ordenação, confirmar os valores efetivamente persistidos na coluna `updated_at`.
+
+### 13.8. Falhas na integração contínua
+
+Quando um Pull Request falhar na CI, verificar:
+
+- se a falha ocorreu na compilação, nos testes ou no empacotamento;
+- se o PostgreSQL de serviço iniciou corretamente;
+- se o datasource utiliza as credenciais e a conexão esperadas;
+- se as migrations Flyway foram aplicadas;
+- se há diferenças entre o ambiente local e o ambiente de CI;
+- se os testes dependem de dados ou arquivos criados fora do próprio cenário;
+- se existem testes sensíveis a tempo, concorrência ou ordem de execução;
+- se o Maven retornou um erro de dependência ou configuração.
+
+O log do GitHub Actions deve ser utilizado para identificar a etapa exata da falha.
+
+Quando necessário, executar localmente a classe afetada antes de repetir a validação completa.
+
 ## 14. Critérios de conclusão de uma alteração
 
 Antes de concluir uma feature ou correção no backend, recomenda-se verificar:
@@ -1965,11 +2528,13 @@ Antes de concluir uma feature ou correção no backend, recomenda-se verificar:
 - [ ] Comportamento de rollback analisado em operações transacionais.
 - [ ] Restrições de integridade referencial verificadas quando aplicável.
 - [ ] Cenários de concorrência considerados quando relevantes.
+- [ ] Consultas de filtro, contagem e paginação verificadas quando aplicável.
 - [ ] Limites entre módulos preservados.
-- [ ] Suíte completa executada com sucesso.
+- [ ] Suíte completa executada com `./mvnw clean verify`.
 - [ ] Documentação atualizada quando o comportamento ou contrato mudou.
 - [ ] `git diff --check` sem problemas.
 - [ ] Pull Request preparada com resumo e validação.
+- [ ] Checks obrigatórios do GitHub Actions aprovados antes do merge.
 
 Para mudanças exclusivamente documentais, a execução completa da suíte Java não é obrigatória quando nenhum código, teste ou arquivo de configuração de execução foi modificado.
 
@@ -1986,7 +2551,14 @@ Novas funcionalidades podem exigir:
 - testes de integridade referencial;
 - testes de falhas de armazenamento;
 - testes relacionados à reconciliação de arquivos;
-- verificações adicionais de fronteiras arquiteturais.
+- verificações adicionais de fronteiras arquiteturais;
+- testes de desempenho de consultas;
+- verificação de planos de execução do PostgreSQL;
+- testes de estratégias futuras de indexação;
+- melhor isolamento de bancos de dados utilizados pelos testes;
+- novas verificações na integração contínua.
+
+A evolução da descoberta pública poderá exigir testes adicionais caso sejam introduzidos novos filtros, estratégias de relevância ou mecanismos de indexação.
 
 A prioridade é testar comportamentos importantes e riscos identificados, evitando adicionar testes apenas para aumentar a contagem total.
 
