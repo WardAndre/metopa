@@ -10,6 +10,10 @@ import metopa.catalog.WorkType;
 import metopa.identity.CreateUserCommand;
 import metopa.identity.IdentityService;
 import metopa.identity.UserReference;
+import metopa.moderation.CreateReportCommand;
+import metopa.moderation.ModerationService;
+import metopa.moderation.ReportReason;
+import metopa.reading.ReadingService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -23,9 +27,11 @@ import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 
 @SpringBootTest(
         properties = {
@@ -54,6 +60,12 @@ class PublishedWorkDiscoveryIntegrationTests {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private ReadingService readingService;
+
+    @Autowired
+    private ModerationService moderationService;
 
     @Test
     void shouldReturnOnlyPublishedWorksWithoutDuplicates()
@@ -571,6 +583,636 @@ class PublishedWorkDiscoveryIntegrationTests {
         assertThat(totalPages(response)).isEqualTo(1);
     }
 
+    @Test
+    void shouldExcludeRestrictedWorksFromTitleSearchBeforePagination()
+            throws Exception {
+
+        UUID ownerId = createUser("visibility-discovery");
+
+        String uniqueTitle = "Visibility-"
+                + UUID.randomUUID()
+                .toString()
+                .replace("-", "");
+
+        UUID restrictedWorkId = createPublishedWork(
+                ownerId,
+                uniqueTitle + " Restricted",
+                2,
+                Set.of(Genre.SCI_FI)
+        );
+
+        UUID publicWorkId = createPublishedWork(
+                ownerId,
+                uniqueTitle + " Public",
+                1,
+                Set.of(Genre.SCI_FI)
+        );
+
+        int updatedRows = jdbcTemplate.update(
+                """
+                UPDATE work
+                SET visibility = 'RESTRICTED'
+                WHERE id = ?
+                """,
+                restrictedWorkId
+        );
+
+        assertThat(updatedRows).isEqualTo(1);
+
+        for (boolean filterByGenre : List.of(false, true)) {
+            var request = get("/api/works")
+                    .queryParam("title", uniqueTitle)
+                    .queryParam("page", "0")
+                    .queryParam("size", "1");
+
+            if (filterByGenre) {
+                request.queryParam("genre", "SCI_FI");
+            }
+
+            mockMvc.perform(request)
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.totalElements").value(1))
+                    .andExpect(jsonPath("$.totalPages").value(1))
+                    .andExpect(jsonPath("$.content.length()").value(1))
+                    .andExpect(jsonPath("$.content[0].id")
+                            .value(publicWorkId.toString()));
+        }
+    }
+
+    @Test
+    void shouldExcludeRestrictedWorksFromPublicDiscoveryTotals()
+            throws Exception {
+
+        Long totalBefore = jdbcTemplate.queryForObject(
+                """
+                SELECT COUNT(DISTINCT i.work_id)
+                FROM installment i
+                JOIN work w ON w.id = i.work_id
+                WHERE i.status = 'PUBLISHED'
+                  AND w.visibility = 'PUBLIC'
+                """,
+                Long.class
+        );
+
+        Long genreTotalBefore = jdbcTemplate.queryForObject(
+                """
+                SELECT COUNT(DISTINCT i.work_id)
+                FROM installment i
+                JOIN work w ON w.id = i.work_id
+                WHERE i.status = 'PUBLISHED'
+                  AND w.visibility = 'PUBLIC'
+                  AND EXISTS (
+                      SELECT 1
+                      FROM work_genre wg
+                      WHERE wg.work_id = i.work_id
+                        AND wg.genre = 'SCI_FI'
+                  )
+                """,
+                Long.class
+        );
+
+        UUID ownerId = createUser("visibility-count");
+
+        String suffix = UUID.randomUUID().toString();
+
+        UUID publicWorkId = createPublishedWork(
+                ownerId,
+                "Public " + suffix,
+                1,
+                Set.of(Genre.SCI_FI)
+        );
+
+        UUID restrictedWorkId = createPublishedWork(
+                ownerId,
+                "Restricted " + suffix,
+                1,
+                Set.of(Genre.SCI_FI)
+        );
+
+        assertThat(publicWorkId).isNotEqualTo(restrictedWorkId);
+
+        int updatedRows = jdbcTemplate.update(
+                """
+                UPDATE work
+                SET visibility = 'RESTRICTED'
+                WHERE id = ?
+                """,
+                restrictedWorkId
+        );
+
+        assertThat(updatedRows).isEqualTo(1);
+
+        mockMvc.perform(get("/api/works")
+                        .queryParam("page", "0")
+                        .queryParam("size", "20"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements")
+                        .value(totalBefore + 1));
+
+        mockMvc.perform(get("/api/works")
+                        .queryParam("genre", "SCI_FI")
+                        .queryParam("page", "0")
+                        .queryParam("size", "20"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements")
+                        .value(genreTotalBefore + 1));
+    }
+
+    @Test
+    void shouldHideRestrictedPublishedWorkFromDirectAccess()
+            throws Exception {
+
+        UUID ownerId = createUser("restricted-detail");
+
+        UUID workId = createPublishedWork(
+                ownerId,
+                "Restricted Direct Access " + UUID.randomUUID(),
+                1
+        );
+
+        // A published and public work must be accessible.
+        mockMvc.perform(
+                        get("/api/works/{workId}", workId)
+                )
+                .andExpect(status().isOk());
+
+        // Simulate an administrative visibility restriction.
+        int updatedRows = jdbcTemplate.update(
+                """
+                UPDATE work
+                SET visibility = 'RESTRICTED'
+                WHERE id = ?
+                """,
+                workId
+        );
+
+        assertThat(updatedRows).isEqualTo(1);
+
+        // A restricted work must no longer be publicly accessible.
+        mockMvc.perform(
+                        get("/api/works/{workId}", workId)
+                )
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void shouldHideRestrictedPublishedWorkCoverFromDirectAccess()
+            throws Exception {
+
+        UUID ownerId = createUser("restricted-cover");
+
+        UUID workId = createPublishedWork(
+                ownerId,
+                "Restricted Cover " + UUID.randomUUID(),
+                1
+        );
+
+        byte[] coverContent = "restricted-cover-content".getBytes();
+
+        catalogService.setCover(
+                ownerId,
+                workId,
+                "image/webp",
+                coverContent
+        );
+
+        // A published and public work cover must be accessible.
+        mockMvc.perform(
+                        get("/api/works/{workId}/cover", workId)
+                )
+                .andExpect(status().isOk())
+                .andExpect(content().contentType("image/webp"))
+                .andExpect(content().bytes(coverContent));
+
+        // Simulate an administrative visibility restriction.
+        int updatedRows = jdbcTemplate.update(
+                """
+                UPDATE work
+                SET visibility = 'RESTRICTED'
+                WHERE id = ?
+                """,
+                workId
+        );
+
+        assertThat(updatedRows).isEqualTo(1);
+
+        // A restricted work cover must no longer be publicly accessible.
+        mockMvc.perform(
+                        get("/api/works/{workId}/cover", workId)
+                )
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void shouldHideRestrictedPublishedInstallmentFromDirectAccess()
+            throws Exception {
+
+        UUID ownerId = createUser("restricted-installment");
+
+        UUID workId = createPublishedWork(
+                ownerId,
+                "Restricted Installment " + UUID.randomUUID(),
+                1
+        );
+
+        UUID installmentId = jdbcTemplate.queryForObject(
+                """
+                SELECT id
+                FROM installment
+                WHERE work_id = ?
+                  AND status = 'PUBLISHED'
+                ORDER BY number ASC
+                LIMIT 1
+                """,
+                UUID.class,
+                workId
+        );
+
+        assertThat(installmentId).isNotNull();
+
+        // A published installment of a public work must be accessible.
+        mockMvc.perform(
+                        get(
+                                "/api/installments/{installmentId}",
+                                installmentId
+                        )
+                )
+                .andExpect(status().isOk());
+
+        // Simulate an administrative visibility restriction.
+        int updatedRows = jdbcTemplate.update(
+                """
+                UPDATE work
+                SET visibility = 'RESTRICTED'
+                WHERE id = ?
+                """,
+                workId
+        );
+
+        assertThat(updatedRows).isEqualTo(1);
+
+        // An installment of a restricted work must not be publicly accessible.
+        mockMvc.perform(
+                        get(
+                                "/api/installments/{installmentId}",
+                                installmentId
+                        )
+                )
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void shouldHideRestrictedPublishedPageContentFromDirectAccess()
+            throws Exception {
+
+        UUID ownerId = createUser("restricted-page");
+
+        UUID workId = createPublishedWork(
+                ownerId,
+                "Restricted Page " + UUID.randomUUID(),
+                1
+        );
+
+        UUID installmentId = jdbcTemplate.queryForObject(
+                """
+                SELECT id
+                FROM installment
+                WHERE work_id = ?
+                  AND status = 'PUBLISHED'
+                ORDER BY number ASC
+                LIMIT 1
+                """,
+                UUID.class,
+                workId
+        );
+
+        assertThat(installmentId).isNotNull();
+
+        UUID pageId = publicationService
+                .findPublishedInstallment(installmentId)
+                .pages()
+                .getFirst()
+                .id();
+
+        byte[] expectedContent = "page-1".getBytes();
+
+        // Published page content must be accessible for a public work.
+        mockMvc.perform(
+                        get("/api/pages/{pageId}/content", pageId)
+                )
+                .andExpect(status().isOk())
+                .andExpect(content().bytes(expectedContent));
+
+        // Simulate an administrative visibility restriction.
+        int updatedRows = jdbcTemplate.update(
+                """
+                UPDATE work
+                SET visibility = 'RESTRICTED'
+                WHERE id = ?
+                """,
+                workId
+        );
+
+        assertThat(updatedRows).isEqualTo(1);
+
+        // Page content must not be accessible for a restricted work.
+        mockMvc.perform(
+                        get("/api/pages/{pageId}/content", pageId)
+                )
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void shouldRejectReadingProgressForRestrictedWork()
+            throws Exception {
+
+        UUID userId = createUser("restricted-reading");
+
+        UUID workId = createPublishedWork(
+                userId,
+                "Restricted Reading " + UUID.randomUUID(),
+                1
+        );
+
+        PublishedWorkView work =
+                publicationService.findPublishedWork(workId);
+
+        UUID installmentId =
+                work.installments().getFirst().id();
+
+        UUID pageId =
+                publicationService
+                        .findPublishedInstallment(installmentId)
+                        .pages()
+                        .getFirst()
+                        .id();
+
+        // The work must be restricted before recording progress.
+        int updatedRows = jdbcTemplate.update(
+                """
+                UPDATE work
+                SET visibility = 'RESTRICTED'
+                WHERE id = ?
+                """,
+                workId
+        );
+
+        assertThat(updatedRows).isEqualTo(1);
+
+        assertThatThrownBy(() ->
+                readingService.saveProgress(userId, pageId)
+        ).isInstanceOf(
+                PublishedPageNotFoundException.class
+        );
+
+        // Rejected progress must not create a reading record.
+        assertThat(readingService.findProgress(userId, workId))
+                .isEmpty();
+    }
+
+    @Test
+    void shouldPreserveExistingReadingProgressWhenWorkBecomesRestricted()
+            throws Exception {
+
+        UUID userId = createUser("restricted-progress-update");
+
+        UUID workId = createPublishedWork(
+                userId,
+                "Restricted Progress Update " + UUID.randomUUID(),
+                2
+        );
+
+        PublishedWorkView work =
+                publicationService.findPublishedWork(workId);
+
+        UUID firstInstallmentId =
+                work.installments().get(0).id();
+
+        UUID secondInstallmentId =
+                work.installments().get(1).id();
+
+        UUID firstPageId =
+                publicationService
+                        .findPublishedInstallment(firstInstallmentId)
+                        .pages()
+                        .getFirst()
+                        .id();
+
+        UUID secondPageId =
+                publicationService
+                        .findPublishedInstallment(secondInstallmentId)
+                        .pages()
+                        .getFirst()
+                        .id();
+
+        // Save reading progress while the work is public.
+        UUID progressId =
+                readingService.saveProgress(userId, firstPageId);
+
+        var originalProgress =
+                readingService.findProgress(userId, workId)
+                        .orElseThrow();
+
+        assertThat(originalProgress.id()).isEqualTo(progressId);
+        assertThat(originalProgress.pageId()).isEqualTo(firstPageId);
+
+        // Restrict the work after progress has been saved.
+        int updatedRows = jdbcTemplate.update(
+                """
+                UPDATE work
+                SET visibility = 'RESTRICTED'
+                WHERE id = ?
+                """,
+                workId
+        );
+
+        assertThat(updatedRows).isEqualTo(1);
+
+        // Updating progress for a restricted work must be rejected.
+        assertThatThrownBy(() ->
+                readingService.saveProgress(userId, secondPageId)
+        ).isInstanceOf(
+                PublishedPageNotFoundException.class
+        );
+
+        // Previously saved progress must remain unchanged.
+        var preservedProgress =
+                readingService.findProgress(userId, workId)
+                        .orElseThrow();
+
+        assertThat(preservedProgress.id())
+                .isEqualTo(originalProgress.id());
+
+        assertThat(preservedProgress.installmentId())
+                .isEqualTo(firstInstallmentId);
+
+        assertThat(preservedProgress.pageId())
+                .isEqualTo(firstPageId);
+
+        assertThat(preservedProgress.updatedAt())
+                .isEqualTo(originalProgress.updatedAt());
+    }
+
+    @Test
+    void shouldHideAndRestorePublishedWorkAfterModerationActions()
+            throws Exception {
+
+        UUID ownerId = createUser("moderated-public-work");
+
+        UUID workId = createPublishedWork(
+                ownerId,
+                "Moderated Published Work " + UUID.randomUUID(),
+                1
+        );
+
+        // The published work must initially be publicly accessible.
+        mockMvc.perform(
+                        get("/api/works/{workId}", workId)
+                )
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(workId.toString()));
+
+        assertThat(catalogService.hasPublicVisibility(workId))
+                .isTrue();
+
+        // Create a moderation report for the published work.
+        UUID reportId = moderationService.createReport(
+                new CreateReportCommand(
+                        ownerId,
+                        workId,
+                        ReportReason.COPYRIGHT,
+                        "Possible copyright infringement."
+                )
+        );
+
+        // Exercise the moderation workflow.
+        moderationService.startReview(
+                reportId,
+                ownerId,
+                "Administrative review initiated."
+        );
+
+        moderationService.resolveWorkRestriction(
+                reportId,
+                ownerId,
+                "Confirmed content policy violation."
+        );
+
+        // Verify that the moderation decision was persisted.
+        String decision = jdbcTemplate.queryForObject(
+                """
+                SELECT decision
+                FROM moderation_report
+                WHERE id = ?
+                """,
+                String.class,
+                reportId
+        );
+
+        assertThat(decision)
+                .isEqualTo("WORK_RESTRICTED");
+
+        // Verify that the work visibility changed in PostgreSQL.
+        String visibility = jdbcTemplate.queryForObject(
+                """
+                SELECT visibility
+                FROM work
+                WHERE id = ?
+                """,
+                String.class,
+                workId
+        );
+
+        assertThat(visibility)
+                .isEqualTo("RESTRICTED");
+
+        assertThat(catalogService.hasPublicVisibility(workId))
+                .isFalse();
+
+        // The previously accessible work must now be hidden.
+        mockMvc.perform(
+                        get("/api/works/{workId}", workId)
+                )
+                .andExpect(status().isNotFound());
+
+        // Restore the work through the moderation service.
+        moderationService.restoreWork(
+                reportId,
+                ownerId,
+                "Restriction reversed after administrative review."
+        );
+
+        // Verify that the original moderation decision is preserved.
+        String decisionAfterRestoration =
+                jdbcTemplate.queryForObject(
+                        """
+                        SELECT decision
+                        FROM moderation_report
+                        WHERE id = ?
+                        """,
+                        String.class,
+                        reportId
+                );
+
+        assertThat(decisionAfterRestoration)
+                .isEqualTo("WORK_RESTRICTED");
+
+        String statusAfterRestoration =
+                jdbcTemplate.queryForObject(
+                        """
+                        SELECT status
+                        FROM moderation_report
+                        WHERE id = ?
+                        """,
+                        String.class,
+                        reportId
+                );
+
+        assertThat(statusAfterRestoration)
+                .isEqualTo("RESOLVED");
+
+        // Verify the restored work visibility in PostgreSQL.
+        String restoredVisibility =
+                jdbcTemplate.queryForObject(
+                        """
+                        SELECT visibility
+                        FROM work
+                        WHERE id = ?
+                        """,
+                        String.class,
+                        workId
+                );
+
+        assertThat(restoredVisibility)
+                .isEqualTo("PUBLIC");
+
+        assertThat(catalogService.hasPublicVisibility(workId))
+                .isTrue();
+
+        // Verify that the restoration was recorded in the audit trail.
+        Long restorationAuditCount =
+                jdbcTemplate.queryForObject(
+                        """
+                        SELECT COUNT(*)
+                        FROM moderation_audit_entry
+                        WHERE report_id = ?
+                          AND action = 'WORK_RESTORED'
+                        """,
+                        Long.class,
+                        reportId
+                );
+
+        assertThat(restorationAuditCount)
+                .isEqualTo(1L);
+
+        // The restored work must be publicly accessible again.
+        mockMvc.perform(
+                        get("/api/works/{workId}", workId)
+                )
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(workId.toString()));
+    }
+
     private String findPageContainingWork(
             UUID workId,
             Genre genre
@@ -682,9 +1324,11 @@ class PublishedWorkDiscoveryIntegrationTests {
         if (genre == null) {
             return jdbcTemplate.queryForObject(
                     """
-                    SELECT COUNT(DISTINCT work_id)
-                    FROM installment
-                    WHERE status = 'PUBLISHED'
+                    SELECT COUNT(DISTINCT i.work_id)
+                    FROM installment i
+                    JOIN work w ON w.id = i.work_id
+                    WHERE i.status = 'PUBLISHED'
+                      AND w.visibility = 'PUBLIC'
                     """,
                     Long.class
             );
@@ -694,7 +1338,9 @@ class PublishedWorkDiscoveryIntegrationTests {
                 """
                 SELECT COUNT(DISTINCT i.work_id)
                 FROM installment i
+                JOIN work w ON w.id = i.work_id
                 WHERE i.status = 'PUBLISHED'
+                  AND w.visibility = 'PUBLIC'
                   AND EXISTS (
                       SELECT 1
                       FROM work_genre wg

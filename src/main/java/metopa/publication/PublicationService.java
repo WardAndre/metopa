@@ -250,6 +250,14 @@ public class PublicationService {
             );
         }
 
+        if (!catalogService.hasPublicVisibility(
+                installment.getWorkId()
+        )) {
+            throw new PublishedInstallmentNotFoundException(
+                    installmentId
+            );
+        }
+
         var pages =
                 pageRepository
                         .findByInstallmentIdOrderByNumberAsc(
@@ -299,6 +307,14 @@ public class PublicationService {
 
         if (installment.getStatus()
                 != PublicationStatus.PUBLISHED) {
+            throw new PublishedPageNotFoundException(
+                    pageId
+            );
+        }
+
+        if (!catalogService.hasPublicVisibility(
+                installment.getWorkId()
+        )) {
             throw new PublishedPageNotFoundException(
                     pageId
             );
@@ -380,15 +396,19 @@ public class PublicationService {
 
         Installment installment =
                 installmentRepository
-                        .findById(
-                                page.getInstallmentId()
-                        )
+                        .findById(page.getInstallmentId())
                         .orElseThrow(() ->
                                 new PublishedPageNotFoundException(pageId)
                         );
 
         if (installment.getStatus()
                 != PublicationStatus.PUBLISHED) {
+            throw new PublishedPageNotFoundException(pageId);
+        }
+
+        if (!catalogService.hasPublicVisibility(
+                installment.getWorkId()
+        )) {
             throw new PublishedPageNotFoundException(pageId);
         }
 
@@ -407,15 +427,15 @@ public class PublicationService {
                 findPublishedInstallments(workId);
 
         if (installments.isEmpty()) {
-            throw new PublishedWorkNotFoundException(
-                    workId
-            );
+            throw new PublishedWorkNotFoundException(workId);
+        }
+
+        if (!catalogService.hasPublicVisibility(workId)) {
+            throw new PublishedWorkNotFoundException(workId);
         }
 
         WorkDetails work =
-                catalogService.findWorkDetails(
-                        workId
-                );
+                catalogService.findWorkDetails(workId);
 
         return new PublishedWorkView(
                 work.id(),
@@ -483,43 +503,11 @@ public class PublicationService {
     }
 
     @Transactional(readOnly = true)
-    public List<PublishedWorkSummary> findPublishedWorks() {
-        return findPublishedWorks(null);
-    }
-
-    @Transactional(readOnly = true)
-    public List<PublishedWorkSummary> findPublishedWorks(
-            Genre genre
-    ) {
-        return installmentRepository
-                .findByStatusOrderByUpdatedAtDesc(
-                        PublicationStatus.PUBLISHED
-                )
-                .stream()
-                .map(Installment::getWorkId)
-                .distinct()
-                .map(catalogService::findWorkSummary)
-                .filter(work ->
-                        genre == null
-                                || work.genres().contains(genre)
-                )
-                .map(work ->
-                        new PublishedWorkSummary(
-                                work.id(),
-                                work.title(),
-                                work.type(),
-                                work.genres(),
-                                work.hasCover()
-                        )
-                )
-                .toList();
-    }
-
-    @Transactional(readOnly = true)
     public PublishedWorkCoverContent findPublishedWorkCover(
             UUID workId
     ) {
-        if (!hasPublishedContent(workId)) {
+        if (!hasPublishedContent(workId)
+                || !catalogService.hasPublicVisibility(workId)) {
             throw new PublishedWorkCoverNotFoundException(
                     workId
             );

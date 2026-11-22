@@ -559,6 +559,9 @@ class PublicationServiceTests {
         when(installmentRepository.findById(installment.getId()))
                 .thenReturn(Optional.of(installment));
 
+        when(catalogService.hasPublicVisibility(workId))
+                .thenReturn(true);
+
         when(
                 pageRepository.findByInstallmentIdOrderByNumberAsc(
                         installment.getId()
@@ -584,6 +587,46 @@ class PublicationServiceTests {
         assertThat(result.pages())
                 .extracting(PageView::contentType)
                 .containsExactly("image/jpeg", "image/webp");
+
+        verify(catalogService)
+                .hasPublicVisibility(workId);
+    }
+
+    @Test
+    void shouldHideRestrictedPublishedInstallment() {
+        UUID workId = UUID.randomUUID();
+
+        Installment installment =
+                new Installment(
+                        workId,
+                        InstallmentType.CHAPTER,
+                        1,
+                        "Restricted Chapter"
+                );
+
+        installment.publish();
+
+        when(installmentRepository.findById(installment.getId()))
+                .thenReturn(Optional.of(installment));
+
+        when(catalogService.hasPublicVisibility(workId))
+                .thenReturn(false);
+
+        assertThatThrownBy(() ->
+                publicationService.findPublishedInstallment(
+                        installment.getId()
+                )
+        ).isInstanceOf(
+                PublishedInstallmentNotFoundException.class
+        );
+
+        verify(catalogService)
+                .hasPublicVisibility(workId);
+
+        verify(pageRepository, never())
+                .findByInstallmentIdOrderByNumberAsc(
+                        any(UUID.class)
+                );
     }
 
     @Test
@@ -658,6 +701,9 @@ class PublicationServiceTests {
         when(installmentRepository.findById(installment.getId()))
                 .thenReturn(Optional.of(installment));
 
+        when(catalogService.hasPublicVisibility(workId))
+                .thenReturn(true);
+
         when(binaryStorage.read(page.getStorageKey()))
                 .thenReturn(content);
 
@@ -666,10 +712,63 @@ class PublicationServiceTests {
                         page.getId()
                 );
 
-        assertThat(result.contentType()).isEqualTo("image/jpeg");
-        assertThat(result.content()).isEqualTo(content);
+        assertThat(result.contentType())
+                .isEqualTo("image/jpeg");
 
-        verify(binaryStorage).read(page.getStorageKey());
+        assertThat(result.content())
+                .isEqualTo(content);
+
+        verify(catalogService)
+                .hasPublicVisibility(workId);
+
+        verify(binaryStorage)
+                .read(page.getStorageKey());
+    }
+
+    @Test
+    void shouldHidePageContentForRestrictedPublishedWork() {
+        UUID workId = UUID.randomUUID();
+
+        Installment installment =
+                new Installment(
+                        workId,
+                        InstallmentType.CHAPTER,
+                        1,
+                        "Restricted Chapter"
+                );
+
+        installment.publish();
+
+        Page page =
+                new Page(
+                        installment.getId(),
+                        1,
+                        "installments/example/restricted-page",
+                        "image/jpeg"
+                );
+
+        when(pageRepository.findById(page.getId()))
+                .thenReturn(Optional.of(page));
+
+        when(installmentRepository.findById(installment.getId()))
+                .thenReturn(Optional.of(installment));
+
+        when(catalogService.hasPublicVisibility(workId))
+                .thenReturn(false);
+
+        assertThatThrownBy(() ->
+                publicationService.findPublishedPageContent(
+                        page.getId()
+                )
+        ).isInstanceOf(
+                PublishedPageNotFoundException.class
+        );
+
+        verify(catalogService)
+                .hasPublicVisibility(workId);
+
+        verify(binaryStorage, never())
+                .read(any(String.class));
     }
 
     @Test
@@ -704,7 +803,11 @@ class PublicationServiceTests {
                 )
         ).isInstanceOf(PublishedPageNotFoundException.class);
 
-        verify(binaryStorage, never()).read(any(String.class));
+        verify(catalogService, never())
+                .hasPublicVisibility(workId);
+
+        verify(binaryStorage, never())
+                .read(any(String.class));
     }
 
     @Test
@@ -718,7 +821,14 @@ class PublicationServiceTests {
                 publicationService.findPublishedPageContent(pageId)
         ).isInstanceOf(PublishedPageNotFoundException.class);
 
-        verify(binaryStorage, never()).read(any(String.class));
+        verify(installmentRepository, never())
+                .findById(any(UUID.class));
+
+        verify(catalogService, never())
+                .hasPublicVisibility(any(UUID.class));
+
+        verify(binaryStorage, never())
+                .read(any(String.class));
     }
 
     @Test
@@ -761,12 +871,18 @@ class PublicationServiceTests {
         when(installment.getStatus())
                 .thenReturn(PublicationStatus.PUBLISHED);
 
+        when(catalogService.hasPublicVisibility(workId))
+                .thenReturn(true);
+
         PublishedPageReference reference =
                 publicationService.findPublishedPageReference(pageId);
 
         assertThat(reference.pageId()).isEqualTo(pageId);
         assertThat(reference.installmentId()).isEqualTo(installmentId);
         assertThat(reference.workId()).isEqualTo(workId);
+
+        verify(catalogService)
+                .hasPublicVisibility(workId);
     }
 
     @Test
@@ -788,6 +904,9 @@ class PublicationServiceTests {
                                 PublicationStatus.PUBLISHED
                         )
         ).thenReturn(List.of(installment));
+
+        when(catalogService.hasPublicVisibility(workId))
+                .thenReturn(true);
 
         when(catalogService.findWorkDetails(workId))
                 .thenReturn(
@@ -814,7 +933,8 @@ class PublicationServiceTests {
         assertThat(result.title()).isEqualTo("Metopa Origins");
         assertThat(result.description())
                 .isEqualTo("A science fiction graphic novel.");
-        assertThat(result.type()).isEqualTo(WorkType.GRAPHIC_NOVEL);
+        assertThat(result.type())
+                .isEqualTo(WorkType.GRAPHIC_NOVEL);
         assertThat(result.readingDirection())
                 .isEqualTo(ReadingDirection.LEFT_TO_RIGHT);
         assertThat(result.presentationMode())
@@ -835,6 +955,46 @@ class PublicationServiceTests {
         assertThat(summary.type()).isEqualTo(InstallmentType.ISSUE);
         assertThat(summary.number()).isEqualTo(1);
         assertThat(summary.title()).isEqualTo("Issue One");
+
+        verify(catalogService)
+                .hasPublicVisibility(workId);
+
+        verify(catalogService)
+                .findWorkDetails(workId);
+    }
+
+    @Test
+    void shouldHideRestrictedPublishedWork() {
+        UUID workId = UUID.randomUUID();
+        UUID installmentId = UUID.randomUUID();
+
+        Installment installment = mock(Installment.class);
+
+        when(installment.getId()).thenReturn(installmentId);
+        when(installment.getType()).thenReturn(InstallmentType.ISSUE);
+        when(installment.getNumber()).thenReturn(1);
+        when(installment.getTitle()).thenReturn("Issue One");
+
+        when(
+                installmentRepository
+                        .findByWorkIdAndStatusOrderByNumberAscCreatedAtAsc(
+                                workId,
+                                PublicationStatus.PUBLISHED
+                        )
+        ).thenReturn(List.of(installment));
+
+        when(catalogService.hasPublicVisibility(workId))
+                .thenReturn(false);
+
+        assertThatThrownBy(() ->
+                publicationService.findPublishedWork(workId)
+        ).isInstanceOf(PublishedWorkNotFoundException.class);
+
+        verify(catalogService)
+                .hasPublicVisibility(workId);
+
+        verify(catalogService, never())
+                .findWorkDetails(workId);
     }
 
     @Test
@@ -853,7 +1013,11 @@ class PublicationServiceTests {
                 publicationService.findPublishedWork(workId)
         ).isInstanceOf(PublishedWorkNotFoundException.class);
 
-        verify(catalogService, never()).findWorkDetails(workId);
+        verify(catalogService, never())
+                .hasPublicVisibility(workId);
+
+        verify(catalogService, never())
+                .findWorkDetails(workId);
     }
 
     @Test
@@ -900,89 +1064,6 @@ class PublicationServiceTests {
     }
 
     @Test
-    void shouldFindPublishedWorks() {
-        UUID firstWorkId = UUID.randomUUID();
-        UUID secondWorkId = UUID.randomUUID();
-
-        Installment newestFirstWorkInstallment =
-                mock(Installment.class);
-
-        Installment olderFirstWorkInstallment =
-                mock(Installment.class);
-
-        Installment secondWorkInstallment =
-                mock(Installment.class);
-
-        when(newestFirstWorkInstallment.getWorkId())
-                .thenReturn(firstWorkId);
-
-        when(olderFirstWorkInstallment.getWorkId())
-                .thenReturn(firstWorkId);
-
-        when(secondWorkInstallment.getWorkId())
-                .thenReturn(secondWorkId);
-
-        when(
-                installmentRepository.findByStatusOrderByUpdatedAtDesc(
-                        PublicationStatus.PUBLISHED
-                )
-        ).thenReturn(
-                List.of(
-                        newestFirstWorkInstallment,
-                        olderFirstWorkInstallment,
-                        secondWorkInstallment
-                )
-        );
-
-        when(catalogService.findWorkSummary(firstWorkId))
-                .thenReturn(
-                        new WorkSummary(
-                                firstWorkId,
-                                "Metopa Origins",
-                                WorkType.GRAPHIC_NOVEL,
-                                Set.of(
-                                        Genre.SCI_FI,
-                                        Genre.ADVENTURE
-                                ),
-                                true
-                        )
-                );
-
-        when(catalogService.findWorkSummary(secondWorkId))
-                .thenReturn(
-                        new WorkSummary(
-                                secondWorkId,
-                                "Another Work",
-                                WorkType.COMIC,
-                                Set.of(Genre.DRAMA),
-                                false
-                        )
-                );
-
-        List<PublishedWorkSummary> result =
-                publicationService.findPublishedWorks();
-
-        assertThat(result.get(0).hasCover()).isTrue();
-        assertThat(result.get(1).hasCover()).isFalse();
-        assertThat(result).hasSize(2);
-
-        assertThat(result.get(0).id()).isEqualTo(firstWorkId);
-        assertThat(result.get(0).title()).isEqualTo("Metopa Origins");
-        assertThat(result.get(0).type())
-                .isEqualTo(WorkType.GRAPHIC_NOVEL);
-        assertThat(result.get(0).genres())
-                .containsExactlyInAnyOrder(
-                        Genre.SCI_FI,
-                        Genre.ADVENTURE
-                );
-
-        assertThat(result.get(1).id()).isEqualTo(secondWorkId);
-        assertThat(result.get(1).title()).isEqualTo("Another Work");
-        assertThat(result.get(1).genres())
-                .containsExactly(Genre.DRAMA);
-    }
-
-    @Test
     void shouldReadCoverForPublishedWork() {
         UUID workId = UUID.randomUUID();
         byte[] content = "cover-content".getBytes();
@@ -993,6 +1074,9 @@ class PublicationServiceTests {
                         PublicationStatus.PUBLISHED
                 )
         ).thenReturn(true);
+
+        when(catalogService.hasPublicVisibility(workId))
+                .thenReturn(true);
 
         when(catalogService.findWorkCover(workId))
                 .thenReturn(
@@ -1005,8 +1089,17 @@ class PublicationServiceTests {
         PublishedWorkCoverContent result =
                 publicationService.findPublishedWorkCover(workId);
 
-        assertThat(result.contentType()).isEqualTo("image/webp");
-        assertThat(result.content()).isEqualTo(content);
+        assertThat(result.contentType())
+                .isEqualTo("image/webp");
+
+        assertThat(result.content())
+                .isEqualTo(content);
+
+        verify(catalogService)
+                .hasPublicVisibility(workId);
+
+        verify(catalogService)
+                .findWorkCover(workId);
     }
 
     @Test
@@ -1022,79 +1115,15 @@ class PublicationServiceTests {
 
         assertThatThrownBy(() ->
                 publicationService.findPublishedWorkCover(workId)
-        ).isInstanceOf(PublishedWorkCoverNotFoundException.class);
-
-        verify(catalogService, never()).findWorkCover(workId);
-    }
-
-    @Test
-    void shouldFilterPublishedWorksByGenre() {
-        UUID scienceFictionWorkId = UUID.randomUUID();
-        UUID dramaWorkId = UUID.randomUUID();
-
-        Installment scienceFictionInstallment =
-                mock(Installment.class);
-
-        Installment dramaInstallment =
-                mock(Installment.class);
-
-        when(scienceFictionInstallment.getWorkId())
-                .thenReturn(scienceFictionWorkId);
-
-        when(dramaInstallment.getWorkId())
-                .thenReturn(dramaWorkId);
-
-        when(
-                installmentRepository.findByStatusOrderByUpdatedAtDesc(
-                        PublicationStatus.PUBLISHED
-                )
-        ).thenReturn(
-                List.of(
-                        scienceFictionInstallment,
-                        dramaInstallment
-                )
+        ).isInstanceOf(
+                PublishedWorkCoverNotFoundException.class
         );
 
-        when(catalogService.findWorkSummary(scienceFictionWorkId))
-                .thenReturn(
-                        new WorkSummary(
-                                scienceFictionWorkId,
-                                "Metopa Origins",
-                                WorkType.GRAPHIC_NOVEL,
-                                Set.of(
-                                        Genre.SCI_FI,
-                                        Genre.ADVENTURE
-                                ),
-                                true
-                        )
-                );
+        verify(catalogService, never())
+                .hasPublicVisibility(workId);
 
-        when(catalogService.findWorkSummary(dramaWorkId))
-                .thenReturn(
-                        new WorkSummary(
-                                dramaWorkId,
-                                "Another Work",
-                                WorkType.COMIC,
-                                Set.of(Genre.DRAMA),
-                                false
-                        )
-                );
-
-        List<PublishedWorkSummary> result =
-                publicationService.findPublishedWorks(
-                        Genre.SCI_FI
-                );
-
-        assertThat(result).hasSize(1);
-
-        assertThat(result.getFirst().id())
-                .isEqualTo(scienceFictionWorkId);
-
-        assertThat(result.getFirst().genres())
-                .containsExactlyInAnyOrder(
-                        Genre.SCI_FI,
-                        Genre.ADVENTURE
-                );
+        verify(catalogService, never())
+                .findWorkCover(workId);
     }
 
     @Test
@@ -2222,5 +2251,72 @@ class PublicationServiceTests {
 
         verify(catalogService, never())
                 .findWorkSummary(any(UUID.class));
+    }
+
+    @Test
+    void shouldHideCoverForRestrictedPublishedWork() {
+        UUID workId = UUID.randomUUID();
+
+        when(
+                installmentRepository.existsByWorkIdAndStatus(
+                        workId,
+                        PublicationStatus.PUBLISHED
+                )
+        ).thenReturn(true);
+
+        when(catalogService.hasPublicVisibility(workId))
+                .thenReturn(false);
+
+        assertThatThrownBy(() ->
+                publicationService.findPublishedWorkCover(workId)
+        ).isInstanceOf(
+                PublishedWorkCoverNotFoundException.class
+        );
+
+        verify(catalogService)
+                .hasPublicVisibility(workId);
+
+        verify(catalogService, never())
+                .findWorkCover(workId);
+    }
+
+    @Test
+    void shouldHidePublishedPageReferenceForRestrictedWork() {
+        UUID workId = UUID.randomUUID();
+
+        Installment installment =
+                new Installment(
+                        workId,
+                        InstallmentType.CHAPTER,
+                        1,
+                        "Restricted Chapter"
+                );
+
+        installment.publish();
+
+        Page page =
+                new Page(
+                        installment.getId(),
+                        1,
+                        "installments/example/restricted-reference",
+                        "image/jpeg"
+                );
+
+        when(pageRepository.findById(page.getId()))
+                .thenReturn(Optional.of(page));
+
+        when(installmentRepository.findById(installment.getId()))
+                .thenReturn(Optional.of(installment));
+
+        assertThatThrownBy(() ->
+                publicationService.findPublishedPageReference(
+                        page.getId()
+                )
+        ).isInstanceOf(
+                PublishedPageNotFoundException.class
+        );
+
+        verify(catalogService)
+                .hasPublicVisibility(workId);
     }
 }

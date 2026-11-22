@@ -54,6 +54,9 @@ class WebSecurityConfiguration {
                                 HttpMethod.GET,
                                 "/api/works/*/cover"
                         ).permitAll()
+                        .requestMatchers(
+                                "/api/admin/**"
+                        ).hasRole("ADMIN")
 
                         .anyRequest().authenticated()
 

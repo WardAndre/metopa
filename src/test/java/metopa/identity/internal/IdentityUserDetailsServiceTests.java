@@ -13,6 +13,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.mock;
 
 @ExtendWith(MockitoExtension.class)
 class IdentityUserDetailsServiceTests {
@@ -58,5 +59,32 @@ class IdentityUserDetailsServiceTests {
                 userDetailsService.loadUserByUsername("unknown")
         )
                 .isInstanceOf(UsernameNotFoundException.class);
+    }
+
+    @Test
+    void shouldLoadAdminWithUserAndAdminAuthorities() {
+        UserAccount account = mock(UserAccount.class);
+
+        when(account.getUsername())
+                .thenReturn("admin");
+
+        when(account.passwordHash())
+                .thenReturn("{bcrypt}encoded-password");
+
+        when(account.getRole())
+                .thenReturn(AccountRole.ADMIN);
+
+        when(repository.findByUsername("admin"))
+                .thenReturn(Optional.of(account));
+
+        UserDetails userDetails =
+                userDetailsService.loadUserByUsername("admin");
+
+        assertThat(userDetails.getAuthorities())
+                .extracting("authority")
+                .containsExactlyInAnyOrder(
+                        "ROLE_USER",
+                        "ROLE_ADMIN"
+                );
     }
 }
