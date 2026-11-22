@@ -2,7 +2,7 @@
 
 Documentação da estratégia de testes automatizados do backend do Metopa.
 
-Os testes são utilizados para validar regras de domínio, persistência, autenticação, autorização, contratos HTTP, modularidade, descoberta pública, armazenamento binário, consistência transacional e concorrência.
+Os testes são utilizados para validar regras de domínio, persistência, autenticação, autorização, contratos HTTP, modularidade, descoberta pública, moderação administrativa, armazenamento binário, consistência transacional e concorrência.
 
 O projeto utiliza Java 25, Spring Boot 4.1.1, JUnit, Mockito, Spring Test e PostgreSQL 18.
 
@@ -11,7 +11,7 @@ O projeto utiliza Java 25, Spring Boot 4.1.1, JUnit, Mockito, Spring Test e Post
 A última execução local completa da suíte apresentou:
 
 ```text
-Tests run: 304
+Tests run: 441
 Failures: 0
 Errors: 0
 Skipped: 0
@@ -19,15 +19,17 @@ Skipped: 0
 BUILD SUCCESS
 ```
 
-A execução foi realizada em **7 de novembro de 2026**, através do comando:
+A execução foi realizada em **21 de novembro de 2026**, através do comando:
 
 ```bash
 ./mvnw clean verify
 ```
 
-O tempo total registrado foi de aproximadamente 2 minutos e 46 segundos.
+O tempo total registrado foi de aproximadamente 3 minutos e 23 segundos.
 
 Além dos testes automatizados, o Maven concluiu o empacotamento da aplicação como um JAR executável do Spring Boot.
+
+Os checks do GitHub Actions também foram aprovados durante o Pull Request da moderação mínima e após o merge na branch `main`.
 
 ### Histórico de validações
 
@@ -35,9 +37,18 @@ Além dos testes automatizados, o Maven concluiu o empacotamento da aplicação 
 |------|------------------|----------|
 | 29/10/2026 | 258 | Remoção de capas |
 | 02/11/2026 | 273 | Exclusão de obras e integridade referencial |
-| 07/11/2026 | 304 | Descoberta pública paginada, busca por título e validação final |
+| 07/11/2026 | 304 | Descoberta pública paginada e busca por título |
+| 21/11/2026 | 441 | Moderação mínima, visibilidade, autorização administrativa e auditoria |
 
-A implementação da exclusão de obras introduziu 15 cenários de integração, incluindo:
+O histórico representa as validações completas registradas durante o desenvolvimento.
+
+A evolução de 304 para 441 testes também inclui ajustes e testes de regressão relacionados aos módulos existentes.
+
+A quantidade de testes não representa, isoladamente, uma medida de qualidade ou cobertura percentual.
+
+### Evolução da cobertura
+
+A exclusão de obras introduziu cenários relacionados a:
 
 - exclusão de obras sem installments;
 - rejeição da exclusão de obras com installments `DRAFT`;
@@ -45,20 +56,18 @@ A implementação da exclusão de obras introduziu 15 cenários de integração,
 - exclusão física da capa após commit;
 - preservação da obra e da capa após rollback;
 - autorização baseada na propriedade da obra;
-- rejeição de operações sem autenticação;
-- proteção CSRF;
-- tratamento de obras inexistentes com HTTP `404`;
-- tratamento de obras com installments com HTTP `409`;
-- concorrência entre exclusão de obras e criação de installments;
-- exclusão de referências de biblioteca e progresso de leitura;
-- proteção contra exclusão direta de obras com installments no PostgreSQL;
-- exclusão dos gêneros associados à obra.
+- autenticação e CSRF;
+- tratamento de recursos inexistentes;
+- conflitos HTTP;
+- concorrência entre exclusão e criação de installments;
+- integridade referencial;
+- exclusão das referências de biblioteca, progresso e gêneros.
 
 Posteriormente, a descoberta pública passou a oferecer paginação, busca parcial por título e combinação com o filtro de gênero.
 
-Os testes adicionais verificam:
+Os testes verificam:
 
-- listagem paginada de obras publicadas;
+- listagem paginada;
 - exclusão de obras sem conteúdo publicado;
 - prevenção de resultados duplicados;
 - contagem de obras distintas;
@@ -70,14 +79,28 @@ Os testes adicionais verificam:
 - validação dos parâmetros HTTP;
 - preservação dos metadados de paginação.
 
-A suíte também mantém os testes das funcionalidades anteriores de consistência transacional e remoção de capas, incluindo:
+A implementação da moderação mínima ampliou a cobertura para:
 
-- compensação de uploads de capas após rollback;
-- remoção da capa anterior após commit;
-- coordenação de substituições concorrentes;
-- proteção contra conflitos entre atualização de metadados e substituição de capa;
-- remoção idempotente de capas em obras que já não possuem capa;
-- concorrência entre remoção e substituição de capas.
+- registro de denúncias;
+- persistência de motivos e descrições;
+- estados `OPEN`, `UNDER_REVIEW` e `RESOLVED`;
+- decisões `NO_VIOLATION` e `WORK_RESTRICTED`;
+- autorização baseada em `USER` e `ADMIN`;
+- autenticação administrativa;
+- listagem e paginação de denúncias;
+- início de análise;
+- resolução administrativa;
+- restrição de obras;
+- restauração de obras;
+- auditoria das ações;
+- transições inválidas;
+- operações duplicadas;
+- rollback;
+- concorrência;
+- visibilidade dos conteúdos públicos;
+- preservação do histórico de moderação.
+
+A suíte também mantém a cobertura de consistência transacional das capas, incluindo compensação após rollback, limpeza após commit e operações concorrentes.
 
 A migration V10 introduziu foreign keys entre `work` e as tabelas `installment`, `library_entry` e `reading_progress`.
 
@@ -88,6 +111,8 @@ Como consequência, quatro classes de testes de repositório foram ajustadas par
 - `LibraryEntryRepositoryTests`;
 - `ReadingProgressRepositoryTests`.
 
+As migrations V11–V18 acrescentaram a persistência e as restrições relacionadas à moderação, aos papéis de acesso e à visibilidade das obras.
+
 A suíte utiliza diferentes níveis de teste para validar tanto o comportamento isolado das classes quanto o funcionamento integrado da aplicação.
 
 **O número de testes não é utilizado isoladamente como indicador de qualidade.** O objetivo principal é verificar comportamentos relevantes, regras de negócio e possíveis regressões.
@@ -96,24 +121,29 @@ A suíte utiliza diferentes níveis de teste para validar tanto o comportamento 
 
 A estratégia de testes busca:
 
-- verificar as regras de negócio;
+- verificar regras de negócio;
 - identificar regressões;
 - garantir a integridade dos dados;
-- validar os contratos HTTP;
+- validar contratos HTTP;
 - verificar autenticação e autorização;
-- preservar os limites arquiteturais;
+- preservar limites arquiteturais;
 - validar operações com arquivos binários;
 - verificar comportamentos transacionais;
 - testar situações de concorrência;
-- verificar restrições de integridade referencial;
+- verificar integridade referencial;
 - validar filtros, buscas e paginação;
-- verificar ordenação e contagem dos resultados;
+- verificar ordenação e contagem;
+- validar transições de moderação;
+- proteger operações administrativas;
+- verificar o histórico de auditoria;
+- validar a visibilidade pública das obras;
+- impedir alterações parciais em operações transacionais;
 - permitir a evolução incremental do MVP;
 - fornecer feedback automatizado através da CI.
 
-O Metopa utiliza testes automatizados como parte do fluxo de desenvolvimento, especialmente em alterações que envolvem persistência, segurança, consultas públicas e operações destrutivas.
+O Metopa utiliza testes automatizados como parte do fluxo de desenvolvimento, especialmente em alterações que envolvem persistência, segurança, consultas públicas, operações destrutivas e transições de estado.
 
-A validação local é complementada por um workflow de GitHub Actions.
+A validação local é complementada pelo GitHub Actions.
 
 ## 3. Tipos de teste
 
@@ -129,56 +159,76 @@ Esses testes são adequados para:
 - normalização de dados;
 - regras de domínio;
 - tratamento de conflitos;
-- interações entre serviços e suas dependências;
+- transições de estado;
+- interações entre serviços;
 - verificação de chamadas a repositories;
-- seleção de consultas conforme filtros;
-- conversão de resultados e preservação de paginação;
-- verificação das operações realizadas através de `BinaryStorage`;
-- verificação do registro e comportamento de callbacks transacionais.
+- seleção de consultas;
+- conversão de resultados;
+- preservação de metadados de paginação;
+- operações realizadas através de `BinaryStorage`;
+- registro e execução de callbacks transacionais;
+- decisões administrativas;
+- auditoria;
+- restrição e restauração de visibilidade.
 
-Os testes unitários permitem identificar problemas rapidamente e fornecer feedback durante o desenvolvimento.
+Os testes unitários permitem identificar problemas rapidamente durante o desenvolvimento.
 
-Entretanto, não substituem os testes de integração quando o comportamento depende de transações reais, consultas SQL ou configuração do Spring.
+Entretanto, não substituem testes de integração quando o comportamento depende de transações reais, SQL, bloqueios PostgreSQL ou configuração do Spring Security.
 
-No módulo `catalog`, os testes também verificam a utilização de `findByIdForUpdate()` nas operações de escrita sobre obras.
+#### Catalog
 
-Essa verificação confirma a interação com o repository, mas não demonstra, isoladamente, a aquisição de bloqueios no PostgreSQL.
+Os testes verificam o uso de `findByIdForUpdate()` em operações de escrita.
 
-Os testes unitários da remoção de capas verificam que:
+Essa verificação confirma a interação com o repository, mas não demonstra, isoladamente, a aquisição do bloqueio no PostgreSQL.
 
-- a referência da capa é removida da entidade;
-- a exclusão física é solicitada após commit;
-- a exclusão física não é solicitada após rollback;
-- o serviço utiliza o repository com bloqueio pessimista.
+Os testes de remoção de capas verificam:
 
-A implementação da exclusão de obras introduziu a dependência `WorkDeletionGuard` no `CatalogService`.
+- remoção da referência na entidade;
+- exclusão física solicitada após commit;
+- ausência de exclusão física após rollback;
+- utilização do repository com bloqueio pessimista.
 
-Os testes unitários existentes foram ajustados para fornecer essa dependência ao serviço.
+Os testes de visibilidade verificam as regras de domínio associadas aos estados `PUBLIC` e `RESTRICTED`.
 
-Os testes de `PublicationService` também foram atualizados para refletir o uso de `CatalogService.findWorkForInstallmentCreation()` na criação de installments.
+#### Publication
 
-Na descoberta pública, `PublicationServiceTests` verifica a seleção das consultas conforme os filtros informados.
+Os testes de `PublicationService` verificam a seleção das consultas conforme os filtros.
 
-Os testes relacionados à busca por título verificam:
+Os cenários de busca por título incluem:
 
-- utilização da consulta sem filtro textual quando `title` é `null`;
-- tratamento de títulos compostos somente por espaços;
-- remoção de espaços nas extremidades do título;
-- combinação de título e gênero;
-- escape de caracteres especiais;
-- mapeamento de identificadores para `PublishedWorkSummary`;
+- ausência de filtro quando `title` é `null`;
+- títulos compostos somente por espaços;
+- remoção de espaços das extremidades;
+- combinação com gênero;
+- escape dos caracteres especiais;
+- mapeamento para `PublishedWorkSummary`;
 - preservação dos metadados da página;
 - retorno de páginas vazias.
 
-Esses testes utilizam mocks do repository e do catálogo.
+Esses testes utilizam mocks e não executam diretamente o operador PostgreSQL `ILIKE`.
 
-Eles verificam as regras de orquestração do serviço, mas não executam o operador PostgreSQL `ILIKE`.
+A correspondência real é verificada por testes de persistência.
 
-A correspondência real da consulta SQL é verificada separadamente pelos testes de persistência.
+#### Moderation
+
+Os testes unitários verificam:
+
+- criação de denúncias;
+- validação de entradas;
+- transições permitidas;
+- rejeição de transições inválidas;
+- seleção das decisões administrativas;
+- chamadas ao módulo `catalog`;
+- persistência das ações de auditoria;
+- tratamento de operações duplicadas.
+
+As regras das entidades são verificadas independentemente dos controllers HTTP.
+
+Os testes do serviço verificam a orquestração das dependências, sem substituir os testes transacionais com PostgreSQL.
 
 ### 3.2. Testes de integração
 
-Os testes de integração verificam o comportamento conjunto de diferentes componentes da aplicação.
+Os testes de integração verificam o comportamento conjunto de diferentes componentes.
 
 Conforme o cenário, utilizam:
 
@@ -187,98 +237,136 @@ Conforme o cenário, utilizam:
 - autenticação e sessões HTTP;
 - proteção CSRF;
 - persistência real no PostgreSQL;
+- migrations Flyway;
 - transações reais;
+- bloqueios pessimistas;
 - armazenamento binário no filesystem local.
 
-Esses testes são especialmente relevantes para funcionalidades cujo comportamento depende da integração entre o banco, a aplicação e o armazenamento físico.
+Esses testes são relevantes para funcionalidades cujo comportamento depende da integração entre aplicação, banco e armazenamento físico.
 
-Os testes de consistência de capas verificam simultaneamente o estado persistido no PostgreSQL e a presença dos arquivos no filesystem.
+#### Consistência de arquivos
 
-Na remoção de capas, os testes verificam tanto a exclusão confirmada quanto a preservação dos dados e arquivos em cenários de rollback ou operações não autorizadas.
+Os testes verificam simultaneamente o estado persistido no PostgreSQL e a presença dos arquivos no filesystem.
 
-Na exclusão de obras, os testes verificam:
+Nas operações de capas, verificam a exclusão confirmada e a preservação dos dados após rollback.
 
-- a remoção efetiva do registro da obra;
-- a preservação de obras com installments;
-- o comportamento da capa física após commit e rollback;
-- as restrições relacionais do PostgreSQL;
-- a coordenação entre transações concorrentes de exclusão e criação de installments;
-- a remoção das referências associadas à obra excluída.
+Nas operações de exclusão de obras, verificam:
 
-Na descoberta pública, os testes de integração verificam:
+- remoção do registro;
+- preservação de obras com installments;
+- comportamento da capa após commit;
+- preservação após rollback;
+- integridade referencial;
+- coordenação entre transações concorrentes.
 
-- criação de obras e installments através dos serviços reais;
+#### Descoberta pública
+
+Os testes de integração verificam:
+
+- criação de obras e installments;
 - publicação de conteúdo;
-- listagem HTTP de obras publicadas;
-- exclusão de obras em draft;
-- execução dos filtros no PostgreSQL;
+- descoberta HTTP;
+- exclusão de drafts;
+- consultas reais no PostgreSQL;
 - busca textual com `ILIKE`;
-- paginação e contagem de obras distintas;
-- ordenação dos resultados;
-- tratamento literal de caracteres especiais.
+- paginação;
+- contagem;
+- ordenação;
+- tratamento literal de caracteres especiais;
+- exclusão de obras `RESTRICTED`.
 
-Esses cenários não poderiam ser reproduzidos integralmente apenas com mocks dos repositories.
+#### Moderação
+
+Os testes de integração verificam:
+
+- persistência das denúncias;
+- alterações de estado;
+- auditoria administrativa;
+- autenticação e autorização;
+- resolução sem violação;
+- resolução com restrição;
+- restauração;
+- rollback;
+- concorrência;
+- prevenção de operações duplicadas;
+- preservação das decisões históricas.
+
+A integração entre `moderation` e `catalog` é importante porque a resolução pode alterar dados pertencentes aos dois módulos na mesma transação.
+
+Esses cenários não poderiam ser reproduzidos integralmente apenas com mocks.
 
 ### 3.3. Testes de contratos HTTP
 
-Os testes HTTP verificam o comportamento observado pelo cliente da aplicação.
+Os testes HTTP verificam o comportamento observado pelo cliente.
 
 Entre os aspectos validados estão:
 
-- rotas e métodos HTTP;
+- rotas e métodos;
 - formatos de requisição;
 - parâmetros de consulta;
 - validações de entrada;
 - autenticação;
 - autorização;
 - proteção CSRF;
-- códigos de resposta;
+- códigos HTTP;
 - representações retornadas;
 - metadados de paginação;
-- persistência dos efeitos das operações, quando aplicável.
+- persistência dos efeitos, quando aplicável.
 
-O Spring MockMvc é utilizado nos testes que exercitam a camada HTTP sem exigir um servidor externo iniciado manualmente.
+O Spring MockMvc é utilizado para exercitar a camada HTTP sem exigir um servidor externo iniciado manualmente.
 
-O endpoint de remoção de capas utiliza:
+#### Remoção de capas
+
+Endpoint:
 
 ```http
 DELETE /api/works/{workId}/cover
 ```
 
-Os testes verificam as respostas `204 No Content`, `401 Unauthorized`, `403 Forbidden` e `404 Not Found`, conforme o cenário.
+Os testes verificam respostas como:
 
-O endpoint de exclusão de obras utiliza:
+- `204 No Content`;
+- `401 Unauthorized`;
+- `403 Forbidden`;
+- `404 Not Found`.
+
+#### Exclusão de obras
+
+Endpoint:
 
 ```http
 DELETE /api/works/{workId}
 ```
 
-Os testes verificam as respostas:
+Os testes verificam:
 
-- `204 No Content` quando o proprietário exclui uma obra sem installments;
-- `401 Unauthorized` quando não existe sessão autenticada;
-- `403 Forbidden` quando o usuário não é proprietário ou a requisição não possui CSRF válido;
-- `404 Not Found` quando a obra não existe;
-- `409 Conflict` quando a obra possui installments.
+| Situação | Resposta |
+|----------|----------|
+| Proprietário exclui obra sem installments | `204` |
+| Usuário não autenticado | `401` |
+| Usuário não autorizado | `403` |
+| CSRF ausente ou inválido | `403` |
+| Obra inexistente | `404` |
+| Obra com installments | `409` |
 
-O conflito de exclusão utiliza `ProblemDetail` com os seguintes campos:
+O conflito utiliza `ProblemDetail`.
+
+Campos relevantes:
 
 ```text
 Title:  Work cannot be deleted
 Detail: A work with installments cannot be deleted.
 ```
 
-A verificação do contrato HTTP é complementada pela consulta ao estado persistido após cada operação.
+#### Descoberta pública
 
-**Descoberta pública**
-
-O endpoint:
+Endpoint:
 
 ```http
 GET /api/works
 ```
 
-aceita os parâmetros opcionais:
+Parâmetros:
 
 ```text
 title
@@ -289,16 +377,15 @@ size
 
 Os testes verificam:
 
-- valores padrão de paginação;
-- recebimento de título e gênero;
-- combinação dos filtros;
-- encaminhamento dos parâmetros ao serviço;
+- valores padrão;
+- recebimento dos filtros;
+- combinação dos parâmetros;
+- encaminhamento ao serviço;
 - resposta paginada;
-- validação dos parâmetros de paginação;
-- rejeição de gêneros inválidos;
-- representação de resultados vazios.
+- parâmetros inválidos;
+- resultados vazios.
 
-O contrato de resposta contém:
+Campos da resposta:
 
 ```text
 content
@@ -308,17 +395,45 @@ totalElements
 totalPages
 ```
 
-O endpoint retorna `200 OK` quando a consulta é válida, inclusive quando não existem resultados.
+Uma consulta válida retorna `200 OK`, inclusive sem resultados.
 
-Parâmetros inválidos de paginação e valores desconhecidos de gênero retornam `400 Bad Request`.
+Parâmetros inválidos retornam `400 Bad Request`.
 
-Os testes HTTP isolados do controller utilizam dependências simuladas. A segurança e a integração real com o PostgreSQL são verificadas em testes específicos.
+#### Moderação administrativa
+
+Os testes HTTP verificam os endpoints de listagem, início de análise, resolução e restauração de denúncias.
+
+Os contratos administrativos incluem:
+
+```http
+GET /api/admin/moderation/reports
+POST /api/admin/moderation/reports/{reportId}/start-review
+POST /api/admin/moderation/reports/{reportId}/resolve
+POST /api/admin/moderation/reports/{reportId}/restore
+```
+
+São verificados:
+
+- autenticação obrigatória;
+- autorização `ROLE_ADMIN`;
+- proteção CSRF;
+- parâmetros de paginação;
+- filtro por status;
+- validação das justificativas;
+- decisões válidas;
+- códigos de sucesso;
+- tratamento de denúncias inexistentes;
+- rejeição de transições inválidas;
+- conflitos `409`;
+- ausência de alterações após operações rejeitadas.
+
+Os testes isolados dos controllers utilizam dependências simuladas.
+
+A integração real com autenticação, persistência e transações é verificada por testes específicos.
 
 ### 3.4. Testes de modularidade
 
 O Spring Modulith é utilizado para verificar os limites arquiteturais da aplicação.
-
-Esses testes procuram identificar dependências inadequadas entre os módulos definidos no projeto.
 
 Os módulos são:
 
@@ -332,19 +447,17 @@ media
 moderation
 ```
 
-O objetivo é preservar o encapsulamento dos domínios e impedir que mudanças introduzam acoplamentos incompatíveis com a arquitetura modular.
+O objetivo é preservar o encapsulamento dos domínios.
 
-A exclusão de obras utiliza o contrato `WorkDeletionGuard`, definido pelo módulo `catalog` e implementado em `publication.internal`.
+A exclusão de obras utiliza `WorkDeletionGuard`, definido por `catalog` e implementado em `publication.internal`.
 
-Essa abordagem permite verificar a existência de installments sem introduzir uma dependência direta de `CatalogService` sobre `InstallmentRepository`.
+A moderação utiliza APIs públicas de `catalog` para validar obras e modificar sua visibilidade.
 
-O teste de modularidade ajuda a identificar regressões nessa organização.
+As entidades e repositories internos não devem ser acessados livremente por outros módulos.
 
-A descoberta pública utiliza uma integração diferente.
+A descoberta pública possui uma integração diferente: `publication` executa consultas SQL nativas que acessam tabelas de `catalog`.
 
-O módulo `publication` executa consultas SQL nativas que acessam tabelas relacionadas a `catalog`, mas recupera os metadados públicos através de `CatalogService`.
-
-O teste de modularidade verifica dependências entre módulos Java, não todas as referências SQL entre tabelas pertencentes a módulos distintos.
+O teste de modularidade verifica dependências entre módulos Java, não todas as referências SQL entre tabelas.
 
 Essa limitação está documentada em [ARCHITECTURE.md](ARCHITECTURE.md).
 
@@ -356,7 +469,7 @@ Para executar a suíte completa, o ambiente deve possuir:
 
 - JDK 25;
 - Docker e Docker Compose;
-- PostgreSQL disponível conforme a configuração local;
+- PostgreSQL disponível;
 - Maven Wrapper do projeto.
 
 O Maven Wrapper já está incluído no repositório.
@@ -377,11 +490,11 @@ Verifique os containers:
 docker compose ps
 ```
 
-Os testes de integração que utilizam o banco dependem de uma instância PostgreSQL acessível com as configurações esperadas pela aplicação.
+Os testes de integração que utilizam o banco dependem de uma instância PostgreSQL acessível.
 
 O Spring Boot também pode gerenciar o ciclo de vida do Docker Compose conforme a configuração da aplicação.
 
-O Flyway valida e aplica as migrations necessárias durante a inicialização do contexto da aplicação.
+O Flyway valida e aplica as migrations necessárias durante a inicialização.
 
 ### 4.3. Executar a suíte completa
 
@@ -391,49 +504,37 @@ Durante o desenvolvimento:
 ./mvnw clean test
 ```
 
-O comando remove os artefatos anteriores de build, compila o projeto e executa os testes configurados para a fase `test` do Maven.
-
 Antes de abrir um Pull Request:
 
 ```bash
 ./mvnw clean verify
 ```
 
-O comando executa as fases do ciclo de vida do Maven até `verify`.
-
-Isso inclui os testes e as fases posteriores, como o empacotamento da aplicação.
-
-**Diferença entre os comandos:**
+O segundo comando executa as fases do Maven até `verify`, incluindo testes e empacotamento.
 
 | Comando | Finalidade |
 |---------|------------|
-| `./mvnw test` | Executar os testes configurados para a fase `test` |
+| `./mvnw test` | Executar os testes da fase `test` |
 | `./mvnw clean test` | Limpar o build anterior e executar os testes |
-| `./mvnw verify` | Executar as fases do Maven até `verify` |
-| `./mvnw clean verify` | Limpar o build e realizar a validação completa até `verify` |
+| `./mvnw verify` | Executar as fases até `verify` |
+| `./mvnw clean verify` | Realizar a validação completa com build limpo |
 
-Os testes de integração atuais, incluindo aqueles com `@SpringBootTest`, são executados pelo Maven Surefire durante a fase `test`, conforme as convenções de descoberta utilizadas pelo projeto.
+Os testes de integração atuais, incluindo testes com `@SpringBootTest`, são executados pelo Maven Surefire durante a fase `test`, conforme as convenções do projeto.
 
-A classificação de um teste como integração depende do comportamento que ele exercita, não necessariamente da fase `integration-test` do Maven.
+A classificação como integração depende do comportamento exercitado, não necessariamente da fase `integration-test`.
 
-A execução de `verify` não significa automaticamente que exista uma suíte separada controlada pelo Maven Failsafe Plugin.
+Executar `verify` não significa automaticamente que exista uma suíte separada controlada pelo Maven Failsafe Plugin.
 
-A execução final recomendada para o Metopa é:
-
-```bash
-./mvnw clean verify
-```
-
-A última validação local completa confirmou:
+Última validação:
 
 ```text
-Tests run: 304, Failures: 0, Errors: 0, Skipped: 0
+Tests run: 441, Failures: 0, Errors: 0, Skipped: 0
 BUILD SUCCESS
 ```
 
 ### 4.4. Executar uma classe específica
 
-Durante o desenvolvimento, é possível executar apenas a classe relacionada à funcionalidade modificada.
+Durante o desenvolvimento, é possível executar somente a classe relacionada à funcionalidade modificada.
 
 Exemplo:
 
@@ -441,37 +542,39 @@ Exemplo:
 ./mvnw -Dtest=PublicationServiceTests test
 ```
 
-Para os testes de integração de upload de páginas:
+#### Catalog
 
-```bash
-./mvnw -Dtest=PageUploadIntegrationTests test
-```
-
-Para os testes unitários do módulo `catalog`:
+Testes unitários:
 
 ```bash
 ./mvnw -Dtest=CatalogServiceTests test
 ```
 
-Para os testes HTTP do controller de capas:
-
-```bash
-./mvnw -Dtest=WorkCoverControllerTests test
-```
-
-Para os testes de integração de capas:
+Integração de capas:
 
 ```bash
 ./mvnw -Dtest=WorkCoverIntegrationTests test
 ```
 
-Para os testes de integração de exclusão de obras:
+Exclusão de obras:
 
 ```bash
 ./mvnw -Dtest=WorkDeletionIntegrationTests test
 ```
 
-**Testes da descoberta pública**
+Visibilidade:
+
+```bash
+./mvnw -Dtest=WorkVisibilityTests test
+```
+
+Persistência da visibilidade:
+
+```bash
+./mvnw -Dtest=WorkVisibilityRepositoryTests test
+```
+
+#### Publication
 
 Repository:
 
@@ -497,95 +600,117 @@ Integração:
 ./mvnw -Dtest=PublishedWorkDiscoveryIntegrationTests test
 ```
 
-Também é possível executar um método específico.
+#### Identity
 
-Para verificar o rollback da substituição de capas:
+Papéis e contas:
+
+```bash
+./mvnw -Dtest=UserAccountTests test
+```
+
+Integração com Spring Security:
+
+```bash
+./mvnw -Dtest=IdentityUserDetailsServiceTests test
+```
+
+Autorização HTTP:
+
+```bash
+./mvnw -Dtest=WebSecurityAuthorizationTests test
+```
+
+#### Moderation
+
+Domínio:
+
+```bash
+./mvnw -Dtest=ModerationReportTests test
+```
+
+Service:
+
+```bash
+./mvnw -Dtest=ModerationServiceTests test
+```
+
+Registro de denúncias:
+
+```bash
+./mvnw -Dtest=ModerationReportIntegrationTests test
+```
+
+Início de análise:
+
+```bash
+./mvnw -Dtest=ModerationServiceStartReviewTests test
+```
+
+Resolução:
+
+```bash
+./mvnw -Dtest=ModerationServiceResolveTests test
+```
+
+Testes HTTP administrativos:
+
+```bash
+./mvnw -Dtest=AdminModerationReportControllerTests test
+```
+
+Resolução administrativa com integração:
+
+```bash
+./mvnw -Dtest=AdminModerationResolveIntegrationTests test
+```
+
+Rollback de resolução:
+
+```bash
+./mvnw -Dtest=ModerationResolveTransactionIntegrationTests test
+```
+
+Concorrência na análise:
+
+```bash
+./mvnw -Dtest=ModerationStartReviewConcurrencyIntegrationTests test
+```
+
+#### Executar um método específico
+
+O Maven Surefire permite selecionar um método pelo formato:
+
+```text
+-Dtest=NomeDaClasse#nomeDoMetodo
+```
+
+Exemplos existentes:
 
 ```bash
 ./mvnw -Dtest=WorkCoverIntegrationTests#shouldRemoveNewCoverWhenReplacementRollsBack test
 ```
 
-Para executar o teste de remoção de capa existente:
-
-```bash
-./mvnw -Dtest=WorkCoverIntegrationTests#shouldRemoveExistingCoverForWorkOwner test
-```
-
-Para executar o teste de rollback da remoção:
-
-```bash
-./mvnw -Dtest=WorkCoverIntegrationTests#shouldPreserveCoverWhenRemovalRollsBack test
-```
-
-Para executar o teste de concorrência entre remoção e substituição:
-
 ```bash
 ./mvnw -Dtest=WorkCoverIntegrationTests#shouldPreserveReplacementWhenCoverRemovalCommitsConcurrently test
 ```
-
-Para verificar o callback de remoção após commit:
-
-```bash
-./mvnw -Dtest=CatalogServiceTests#shouldDeleteCoverFileAfterRemovalCommit test
-```
-
-Para verificar a preservação do arquivo após rollback:
-
-```bash
-./mvnw -Dtest=CatalogServiceTests#shouldPreserveCoverFileAfterRemovalRollback test
-```
-
-Para executar somente o cenário de exclusão de obra sem installments:
 
 ```bash
 ./mvnw -Dtest=WorkDeletionIntegrationTests#shouldDeleteEmptyWorkForOwner test
 ```
 
-Para verificar a rejeição da exclusão de uma obra com installment `DRAFT`:
-
-```bash
-./mvnw -Dtest=WorkDeletionIntegrationTests#shouldRejectDeletingWorkWithDraftInstallment test
-```
-
-Para verificar a preservação da obra e da capa após rollback:
-
-```bash
-./mvnw -Dtest=WorkDeletionIntegrationTests#shouldPreserveWorkAndCoverWhenDeletionRollsBack test
-```
-
-Para executar o teste da restrição de integridade referencial:
-
 ```bash
 ./mvnw -Dtest=WorkDeletionIntegrationTests#shouldPreventDeletingWorkWithInstallmentsAtDatabaseLevel test
 ```
-
-Para verificar a busca parcial por título através da API:
 
 ```bash
 ./mvnw -Dtest=PublishedWorkDiscoveryIntegrationTests#shouldFindPublishedWorksByPartialTitleIgnoringCase test
 ```
 
-Para verificar a combinação de título e gênero:
+Para verificar outros métodos, utilize os nomes efetivamente declarados na classe correspondente.
 
-```bash
-./mvnw -Dtest=PublishedWorkDiscoveryIntegrationTests#shouldFilterPublishedWorksByTitleAndGenre test
-```
+A execução direcionada permite obter feedback rápido.
 
-Para verificar a paginação e ordenação:
-
-```bash
-./mvnw -Dtest=PublishedWorkDiscoveryIntegrationTests#shouldPaginateTitleSearchByLatestPublishedInstallment test
-```
-
-Para verificar o tratamento literal de caracteres especiais:
-
-```bash
-./mvnw -Dtest=PublishedWorkDiscoveryIntegrationTests#shouldTreatTitleWildcardsAsLiteralCharacters test
-```
-
-Essa abordagem permite obter feedback mais rápido durante as etapas de implementação.
-
-Após a correção, a suíte completa deve ser executada para identificar possíveis regressões em outros módulos.
+Após corrigir ou implementar uma funcionalidade, a suíte completa deve ser executada para identificar regressões.
 
 ### 4.5. Relatórios de execução
 
@@ -595,56 +720,60 @@ O Maven Surefire disponibiliza relatórios em:
 target/surefire-reports/
 ```
 
-Esses relatórios ajudam a identificar:
+Esses relatórios permitem identificar:
 
 - testes executados;
 - falhas;
 - erros;
 - testes ignorados;
-- detalhes das exceções;
+- detalhes de exceções;
 - resultados individuais das classes.
 
-Em caso de falha, a primeira etapa é identificar o teste afetado e compreender qual comportamento esperado deixou de ser atendido.
+Em caso de falha, a investigação deve começar pelo teste afetado e pelo comportamento esperado.
 
 ### 4.6. Integração contínua com GitHub Actions
 
-O backend possui um workflow de integração contínua configurado no GitHub Actions.
+O backend possui um workflow de integração contínua.
 
 O workflow utiliza:
 
 - Java 25;
-- PostgreSQL 18.6 como serviço de teste;
+- PostgreSQL 18.6;
 - Maven Wrapper;
-- execução dos testes automatizados;
+- testes automatizados;
 - empacotamento da aplicação.
 
-O comando executado na CI é:
+Comando:
 
 ```bash
 ./mvnw -B -ntp clean verify
 ```
 
-As opções adicionais são:
+Opções:
 
 | Opção | Finalidade |
 |-------|------------|
-| `-B` | Executar o Maven em modo batch |
-| `-ntp` | Desabilitar a exibição do progresso de transferências |
+| `-B` | Executar Maven em modo batch |
+| `-ntp` | Desabilitar o progresso de transferências |
 
-O ambiente de CI utiliza um serviço PostgreSQL próprio.
+A CI utiliza um serviço PostgreSQL próprio.
 
-Não depende da instalação local de PostgreSQL ou do Docker Compose utilizado pelo desenvolvedor.
+Não depende da instalação local do desenvolvedor.
 
-A configuração dos testes impede a substituição automática do PostgreSQL por um banco embarcado.
+A configuração dos testes impede a substituição automática por um banco embarcado.
 
-O workflow está configurado para validar alterações direcionadas à `main` através de Pull Requests, além dos eventos previstos em sua configuração.
+O workflow está configurado para validar:
 
-A branch principal utiliza a verificação automatizada do backend como parte do processo de integração das alterações.
+- Pull Requests direcionados à `main`;
+- pushes na branch `main`;
+- execuções manuais.
 
-O fluxo recomendado é:
+A branch principal utiliza os checks obrigatórios como parte do processo de integração.
+
+Fluxo:
 
 ```text
-Desenvolvimento da feature
+Desenvolvimento
     |
     v
 Testes específicos
@@ -669,17 +798,24 @@ Verificação dos checks
     |
     v
 Merge
+    |
+    v
+CI após merge
 ```
 
-A aprovação dos testes locais não substitui a execução do workflow na CI.
+O Pull Request da moderação mínima foi integrado após a aprovação dos checks.
 
-Da mesma forma, uma execução bem-sucedida na CI não elimina a necessidade de revisar o comportamento da alteração e seus possíveis efeitos sobre outras partes da aplicação.
+A execução posterior ao merge também foi aprovada.
+
+O sucesso local não substitui a validação na CI.
+
+Da mesma forma, o sucesso da CI não elimina a necessidade de revisão da implementação.
 
 ## 5. Estratégia de desenvolvimento
 
-O desenvolvimento de novas funcionalidades e correções utiliza incrementos pequenos.
+O desenvolvimento utiliza incrementos pequenos.
 
-Quando adequado, o fluxo segue as etapas:
+Quando adequado, segue o ciclo:
 
 ```text
 RED
@@ -691,47 +827,45 @@ REFACTOR
 
 ### 5.1. RED
 
-Primeiro, é criado um teste que reproduz o comportamento esperado.
+Primeiro, é criado um teste que reproduz o comportamento desejado.
 
-Antes da implementação, esse teste deve falhar por causa da ausência do comportamento desejado.
+Antes da implementação, o teste deve falhar pela ausência desse comportamento.
 
-A falha confirma que o teste consegue identificar o problema.
+Essa falha confirma que o teste consegue identificar o problema.
 
 ### 5.2. GREEN
 
 Em seguida, é implementada a menor alteração necessária para satisfazer o teste.
 
-A prioridade é corrigir o comportamento e preservar os contratos existentes.
+A prioridade é corrigir o comportamento preservando os contratos existentes.
 
 ### 5.3. REFACTOR
 
 Após a aprovação dos testes, a implementação é revisada.
 
-São avaliados aspectos como:
+São avaliados:
 
-- clareza dos métodos;
+- clareza;
 - responsabilidades;
 - duplicação;
 - encapsulamento;
 - nomes;
-- necessidade real de novas abstrações;
-- respeito às fronteiras dos módulos.
+- necessidade real de abstrações;
+- respeito aos limites modulares.
 
-O refactor não deve alterar o comportamento observado pelos testes.
+O refactor não deve alterar o comportamento validado.
 
 ### 5.4. Validação final
 
-Depois da implementação e da revisão:
+Depois da implementação:
 
 ```bash
 ./mvnw clean verify
 ```
 
-A validação completa ajuda a verificar se a alteração introduziu regressões em funcionalidades existentes.
+A validação completa ajuda a detectar regressões.
 
-O comando também verifica as fases posteriores aos testes, incluindo o empacotamento.
-
-O mesmo objetivo de validação é aplicado pela CI.
+O comando também executa as fases posteriores aos testes, incluindo empacotamento.
 
 ### 5.5. Exemplo: consistência transacional das capas
 
@@ -739,39 +873,41 @@ A `feature/cover-transaction-consistency` foi desenvolvida através de quatro ci
 
 **Primeiro ciclo — rollback de substituição**
 
-O teste identificou que o arquivo da capa substituta permanecia armazenado mesmo depois de o PostgreSQL reverter a transação.
+O teste identificou que o arquivo da capa substituta permanecia após o rollback do PostgreSQL.
 
 A implementação passou a utilizar `TransactionSynchronization.afterCompletion()` para remover a nova capa quando a transação termina com `STATUS_ROLLED_BACK`.
 
 **Segundo ciclo — commit de substituição**
 
-O teste identificou que a capa anterior permanecia armazenada depois de uma substituição confirmada.
+O teste identificou que a capa anterior permanecia após uma substituição confirmada.
 
-A implementação passou a utilizar `TransactionSynchronization.afterCommit()` para remover o arquivo anterior após o commit.
+A implementação passou a utilizar `TransactionSynchronization.afterCommit()` para removê-la.
 
 **Terceiro ciclo — substituições concorrentes**
 
-O teste identificou a criação de um novo arquivo enquanto outra transação mantinha a obra bloqueada.
+O teste identificou armazenamento de um novo arquivo enquanto outra transação mantinha a obra bloqueada.
 
-A implementação passou a utilizar `PESSIMISTIC_WRITE` antes de realizar o armazenamento da nova capa.
+A implementação passou a adquirir `PESSIMISTIC_WRITE` antes de armazenar a nova capa.
 
 **Quarto ciclo — metadados e capa**
 
-O teste identificou uma situação na qual a atualização dos metadados sobrescrevia a referência de uma capa substituída por outra transação.
+O teste identificou uma situação em que a atualização dos metadados sobrescrevia a referência de uma capa substituída por outra transação.
 
-A implementação passou a coordenar `updateWork()` e `setCover()` através do mesmo bloqueio pessimista sobre a entidade `Work`.
+`updateWork()` e `setCover()` passaram a utilizar o mesmo bloqueio pessimista.
 
 Depois desses ciclos, a suíte completa foi executada com 248 testes aprovados.
 
+Esse resultado representa um marco histórico, não a contagem atual.
+
 ### 5.6. Exemplo: remoção de capas
 
-A `feature/creator-cover-removal` foi desenvolvida de forma incremental, acrescentando testes para os comportamentos funcionais, transacionais, de segurança e de concorrência.
+A `feature/creator-cover-removal` acrescentou cenários funcionais, transacionais, de segurança e concorrência.
 
 **Primeiro cenário — remoção de capa existente**
 
-O método de teste `shouldRemoveExistingCoverForWorkOwner()` foi criado para verificar a exclusão de uma capa existente pelo proprietário da obra.
+`shouldRemoveExistingCoverForWorkOwner()` verificou o comportamento esperado para a exclusão da capa pelo proprietário.
 
-Durante o RED, o endpoint retornava `405 Method Not Allowed`, pois o método `DELETE` ainda não estava implementado.
+Durante o RED, o endpoint retornava `405 Method Not Allowed`.
 
 A implementação introduziu:
 
@@ -780,57 +916,57 @@ A implementação introduziu:
 - `Work.clearCover()`;
 - limpeza física após commit.
 
-**Segundo cenário — rollback da remoção**
+**Segundo cenário — rollback**
 
-O teste `shouldPreserveCoverWhenRemovalRollsBack()` verifica que a referência original e o arquivo físico permanecem preservados quando a transação sofre rollback.
+`shouldPreserveCoverWhenRemovalRollsBack()` verifica a preservação da referência e do arquivo após rollback.
 
 **Terceiro cenário — idempotência**
 
-O teste `shouldRemoveCoverIdempotentlyWhenWorkHasNoCover()` verifica que uma obra existente sem capa pode receber chamadas repetidas de remoção, retornando `204 No Content`.
+`shouldRemoveCoverIdempotentlyWhenWorkHasNoCover()` verifica a resposta `204 No Content` quando a obra já não possui capa.
 
-**Quarto cenário — propriedade da obra**
+**Quarto cenário — propriedade**
 
-O teste `shouldRejectCoverRemovalFromAnotherUser()` verifica que outro usuário autenticado recebe `403 Forbidden` e não consegue alterar a referência nem remover o arquivo físico da capa.
+`shouldRejectCoverRemovalFromAnotherUser()` verifica a rejeição com `403 Forbidden`.
 
 **Quinto cenário — autenticação**
 
-O teste `shouldRejectUnauthenticatedCoverRemoval()` verifica que uma requisição sem sessão autenticada recebe `401 Unauthorized`.
+`shouldRejectUnauthenticatedCoverRemoval()` verifica a rejeição de requisições sem sessão.
 
-**Sexto cenário — proteção CSRF**
+**Sexto cenário — CSRF**
 
-O teste `shouldRequireCsrfForCoverRemoval()` verifica que uma requisição autenticada sem token CSRF válido recebe `403 Forbidden`.
+`shouldRequireCsrfForCoverRemoval()` verifica a proteção contra requisições sem token válido.
 
 **Sétimo cenário — obra inexistente**
 
-O teste `shouldReturnNotFoundWhenRemovingCoverFromNonexistentWork()` identificou uma exceção `WorkNotFoundException` não traduzida pela camada HTTP.
+`shouldReturnNotFoundWhenRemovingCoverFromNonexistentWork()` identificou a necessidade de tratar `WorkNotFoundException` na camada HTTP.
 
-A implementação passou a tratar essa exceção em `CatalogExceptionHandler`, retornando `404 Not Found` através de `ProblemDetail`.
+**Oitavo cenário — concorrência**
 
-**Oitavo cenário — concorrência com substituição**
-
-O teste `shouldPreserveReplacementWhenCoverRemovalCommitsConcurrently()` verifica o comportamento de duas transações independentes, uma removendo a capa e outra realizando sua substituição.
-
-O resultado esperado é preservar apenas a nova capa e sua referência correspondente no PostgreSQL.
+`shouldPreserveReplacementWhenCoverRemovalCommitsConcurrently()` verifica a coordenação entre remoção e substituição.
 
 **Nono cenário — callback de commit**
 
-O teste unitário `shouldDeleteCoverFileAfterRemovalCommit()` verifica que a remoção solicita a exclusão física da capa depois do commit.
+`shouldDeleteCoverFileAfterRemovalCommit()` verifica a execução da limpeza após commit.
 
 **Décimo cenário — callback de rollback**
 
-O teste unitário `shouldPreserveCoverFileAfterRemovalRollback()` verifica que a exclusão física não é solicitada quando a remoção sofre rollback.
+`shouldPreserveCoverFileAfterRemovalRollback()` verifica a ausência de exclusão física após rollback.
 
-Depois desses cenários, a suíte completa foi executada com 258 testes aprovados.
+A validação histórica dessa feature concluiu com 258 testes aprovados.
 
 ### 5.7. Exemplo: exclusão de obras
 
-A `feature/creator-work-deletion` foi desenvolvida incrementalmente, utilizando testes para orientar as regras de domínio, a autorização, a consistência transacional e o comportamento concorrente.
+A `feature/creator-work-deletion` utilizou testes para orientar regras de domínio, autorização, transações e concorrência.
 
-A classe principal é `WorkDeletionIntegrationTests`.
+Classe principal:
+
+```text
+WorkDeletionIntegrationTests
+```
 
 **Primeiro conjunto — regras funcionais**
 
-Os testes iniciais verificaram que o proprietário consegue excluir uma obra sem installments e que a exclusão é rejeitada quando existem installments `DRAFT` ou `PUBLISHED`.
+Os testes verificaram a exclusão de obras sem installments e a rejeição quando existem installments `DRAFT` ou `PUBLISHED`.
 
 A implementação introduziu:
 
@@ -842,88 +978,85 @@ A implementação introduziu:
 - `WorkHasInstallmentsException`;
 - tratamento HTTP `409 Conflict`.
 
-O contrato `WorkDeletionGuard` permite que `catalog` consulte informações pertencentes a `publication` sem acessar diretamente seu repository interno.
-
 **Segundo conjunto — consistência transacional**
 
-Os testes verificaram que a capa física é removida somente após a confirmação da exclusão da obra.
-
-Também foi criado um cenário de rollback que garante a preservação da obra, de sua referência de capa e do arquivo físico.
-
-A implementação utiliza `TransactionSynchronization.afterCommit()` para solicitar a exclusão do arquivo depois do commit.
+Os testes verificaram a remoção da capa após commit e sua preservação após rollback.
 
 **Terceiro conjunto — segurança**
 
-Os testes verificaram:
+Foram verificados:
 
-- rejeição de exclusão por outro usuário autenticado;
-- rejeição de requisição não autenticada;
-- rejeição de requisição sem CSRF válido;
-- resposta `404 Not Found` para uma obra inexistente.
+- usuário sem propriedade;
+- ausência de autenticação;
+- ausência de CSRF;
+- obra inexistente.
 
 **Quarto conjunto — concorrência**
 
-Foram implementados testes para os dois possíveis ordenamentos de commit entre:
+Foram implementados testes para os dois possíveis ordenamentos entre exclusão de obra e criação de installment.
 
-- exclusão de uma obra;
-- criação de um installment na mesma obra.
-
-Para coordenar esses fluxos, `PublicationService.createInstallment()` passou a utilizar `CatalogService.findWorkForInstallmentCreation()`.
-
-O método exige uma transação existente e adquire bloqueio pessimista sobre a obra.
+Ambos utilizam bloqueio pessimista sobre a obra.
 
 **Quinto conjunto — integridade referencial**
 
-A migration V10 introduziu foreign keys para impedir a exclusão de obras com installments e remover referências dependentes quando uma obra é excluída.
+A migration V10 introduziu foreign keys para impedir a exclusão de obras com installments e remover referências dependentes.
 
 Os testes verificam:
 
-- remoção de entradas de biblioteca;
-- remoção de registros de progresso de leitura;
-- rejeição de exclusão direta no PostgreSQL quando existem installments;
-- remoção de gêneros associados à obra.
+- biblioteca;
+- progresso de leitura;
+- integridade direta no PostgreSQL;
+- gêneros associados.
 
-A nova integridade referencial também exigiu ajustes nos testes de repositório que anteriormente utilizavam identificadores de obras inexistentes.
-
-Após essas alterações, a suíte completa foi executada com **273 testes aprovados**.
+A validação histórica concluiu com 273 testes aprovados.
 
 ### 5.8. Exemplo: descoberta pública paginada
 
-A descoberta pública foi implementada incrementalmente, com testes nas camadas de persistência, serviço, HTTP e integração.
+A descoberta pública foi desenvolvida com testes de repository, service, controller e integração.
 
-O endpoint correspondente é:
+Endpoint:
 
 ```http
 GET /api/works
 ```
 
-A implementação permite paginação com os parâmetros `page` e `size`.
+Parâmetros:
 
-O valor padrão de `page` é `0`, enquanto `size` utiliza `20`.
+```text
+page
+size
+```
 
-O tamanho da página deve estar entre `1` e `50`.
+Padrões:
+
+```text
+page = 0
+size = 20
+```
+
+O tamanho permitido é de 1 a 50.
 
 Os testes verificam:
 
-- retorno de obras com conteúdo publicado;
-- exclusão de obras sem installments publicados;
-- prevenção de resultados duplicados;
+- obras publicadas;
+- exclusão de drafts;
+- prevenção de duplicados;
 - filtragem por gênero;
-- paginação antes da recuperação dos resumos;
-- contagem correta de obras distintas;
+- paginação no PostgreSQL;
+- contagem de obras distintas;
 - ordenação determinística;
 - primeira página;
 - páginas seguintes;
-- páginas fora do intervalo de resultados;
-- rejeição de parâmetros de paginação inválidos.
+- páginas fora do intervalo;
+- parâmetros inválidos.
 
-A implementação utiliza consultas SQL nativas no PostgreSQL.
+O repository retorna `Page<UUID>`.
 
-O repository retorna `Page<UUID>`, e o serviço recupera os metadados das obras selecionadas na página.
+O serviço recupera os resumos das obras selecionadas.
 
 A resposta HTTP utiliza `PublishedWorksPageResponse`.
 
-A paginação preserva os seguintes campos:
+Campos:
 
 ```text
 content
@@ -935,9 +1068,7 @@ totalPages
 
 ### 5.9. Exemplo: busca pública por título
 
-A `feature/public-work-title-search` acrescentou a busca parcial por título à descoberta pública paginada.
-
-O endpoint passou a aceitar o parâmetro opcional `title`.
+A `feature/public-work-title-search` acrescentou a busca parcial por título.
 
 Exemplo:
 
@@ -945,60 +1076,47 @@ Exemplo:
 GET /api/works?title=dragon
 ```
 
-A busca também pode ser combinada com gênero e paginação:
+A busca pode ser combinada com gênero e paginação:
 
 ```http
 GET /api/works?title=dragon&genre=SCI_FI&page=0&size=10
 ```
 
-A implementação mantém as regras existentes de visibilidade, deduplicação, ordenação e contagem.
+**Persistência**
 
-**Primeiro conjunto — persistência**
+Os testes verificam:
 
-Os testes do `InstallmentRepository` verificam o comportamento das consultas SQL no PostgreSQL real.
-
-Os novos cenários incluem:
-
-- busca parcial por título;
-- correspondência sem diferenciar maiúsculas e minúsculas;
-- exclusão de installments não publicados;
-- combinação de título e gênero;
-- contagem de obras distintas;
+- busca parcial;
+- correspondência case-insensitive;
+- exclusão de drafts;
+- combinação de filtros;
+- contagem;
 - paginação;
-- tratamento literal dos caracteres `%`, `_` e `!`.
+- caracteres especiais.
 
-A busca utiliza `ILIKE` com escape explícito.
+A implementação utiliza PostgreSQL `ILIKE` com escape explícito.
 
-**Segundo conjunto — serviço**
+**Service**
 
-Os testes do `PublicationService` verificam:
+Os testes verificam:
 
-- normalização do título;
-- tratamento de `null`;
-- tratamento de título em branco;
-- preservação do filtro de gênero;
-- seleção do método adequado do repository;
-- escape dos caracteres especiais;
-- conversão para `PublishedWorkSummary`;
-- manutenção dos metadados de paginação;
-- comportamento de páginas vazias.
+- normalização;
+- `null`;
+- textos em branco;
+- preservação do gênero;
+- seleção da consulta;
+- escape de caracteres;
+- mapeamento;
+- paginação;
+- páginas vazias.
 
-**Terceiro conjunto — HTTP**
+**HTTP**
 
-Os testes de `PublishedWorkControllerTests` verificam:
+Os testes verificam o recebimento e a validação dos parâmetros.
 
-- recebimento de `title`;
-- recebimento de `genre`;
-- combinação dos filtros;
-- encaminhamento dos parâmetros ao serviço;
-- valores padrão de paginação;
-- estrutura de resposta;
-- rejeição de valores inválidos;
-- preservação das operações públicas existentes.
+**Integração**
 
-**Quarto conjunto — integração completa**
-
-Os testes de `PublishedWorkDiscoveryIntegrationTests` exercitam o fluxo:
+`PublishedWorkDiscoveryIntegrationTests` exercita o fluxo:
 
 ```text
 HTTP
@@ -1012,11 +1130,167 @@ InstallmentRepository
 PostgreSQL
 ```
 
-Os cenários verificam o comportamento real da descoberta pública, incluindo filtros, resultados publicados, paginação e correspondência textual.
+A validação histórica dessa etapa concluiu com 304 testes aprovados.
 
-Os testes utilizam títulos exclusivos para evitar que dados persistidos anteriormente interfiram nas contagens exatas.
+### 5.10. Exemplo: registro de denúncias
 
-A validação final da suíte confirmou **304 testes aprovados**, incluindo os novos cenários.
+A `feature/minimal-moderation` introduziu o domínio de denúncias.
+
+O desenvolvimento passou a verificar:
+
+- validação de motivos;
+- descrição da denúncia;
+- existência da obra;
+- identificação do denunciante;
+- criação no estado `OPEN`;
+- persistência;
+- resposta HTTP;
+- autenticação e CSRF.
+
+As regras são verificadas em diferentes camadas.
+
+Classes relacionadas:
+
+```text
+ModerationReportTests
+ModerationServiceTests
+ModerationReportRepositoryTests
+WorkReportControllerTests
+ModerationReportIntegrationTests
+```
+
+Os testes de domínio validam regras da entidade.
+
+Os testes de service verificam a orquestração.
+
+Os testes HTTP verificam o contrato.
+
+Os testes de integração verificam a persistência real.
+
+### 5.11. Exemplo: início de análise administrativa
+
+Uma denúncia começa no estado `OPEN`.
+
+O administrador pode iniciar sua análise, alterando o estado para `UNDER_REVIEW`.
+
+Fluxo:
+
+```text
+OPEN
+  ↓
+UNDER_REVIEW
+```
+
+Os testes verificam:
+
+- transição válida;
+- rejeição de transição duplicada;
+- justificativa administrativa;
+- identificação do administrador;
+- registro da auditoria;
+- autorização `ROLE_ADMIN`;
+- rollback;
+- concorrência.
+
+Classes relacionadas:
+
+```text
+ModerationServiceStartReviewTests
+ModerationStartReviewTransactionIntegrationTests
+ModerationStartReviewConcurrencyIntegrationTests
+AdminModerationStartReviewControllerTests
+AdminModerationStartReviewIntegrationTests
+```
+
+A transição utiliza bloqueio pessimista.
+
+Duas operações concorrentes não devem registrar validamente o início da mesma análise utilizando o estado `OPEN` anterior.
+
+### 5.12. Exemplo: resolução administrativa
+
+A resolução exige uma denúncia em `UNDER_REVIEW`.
+
+Decisões:
+
+```text
+NO_VIOLATION
+WORK_RESTRICTED
+```
+
+**Sem violação**
+
+A denúncia passa para `RESOLVED`, sem alterar a visibilidade da obra.
+
+**Com restrição**
+
+A denúncia passa para `RESOLVED`, enquanto a obra passa para `RESTRICTED`.
+
+As alterações e a auditoria participam da transação.
+
+Os testes verificam:
+
+- decisões válidas;
+- rejeição de decisões inválidas;
+- preservação dos dados após falha;
+- restrição da obra;
+- persistência da auditoria;
+- rejeição de resolução duplicada;
+- autorização administrativa;
+- códigos HTTP.
+
+Classes relacionadas:
+
+```text
+ModerationServiceResolveTests
+ModerationResolveTransactionIntegrationTests
+AdminModerationResolveControllerTests
+AdminModerationResolveIntegrationTests
+```
+
+### 5.13. Exemplo: restauração administrativa
+
+A moderação também permite restaurar uma obra restringida.
+
+A operação exige uma denúncia:
+
+- `RESOLVED`;
+- com decisão `WORK_RESTRICTED`.
+
+A obra precisa estar `RESTRICTED`.
+
+A restauração altera a visibilidade para `PUBLIC`.
+
+A decisão original permanece armazenada.
+
+Uma auditoria `WORK_RESTORED` registra a ação posterior.
+
+Os testes verificam:
+
+- restauração válida;
+- preservação da decisão;
+- persistência do evento de auditoria;
+- rejeição de restauração duplicada;
+- rejeição de usuários regulares;
+- rollback;
+- recuperação do acesso público.
+
+Os cenários de descoberta verificam o comportamento:
+
+```text
+PUBLIC
+  ↓
+200 OK
+
+RESTRICTED
+  ↓
+404 Not Found
+
+RESTORED
+  ↓
+200 OK
+```
+
+A suíte completa após a implementação da moderação mínima confirmou 441 testes aprovados.
 
 ## 6. Cobertura funcional
 
@@ -1024,63 +1298,73 @@ Os testes estão distribuídos entre os domínios e responsabilidades da aplica�
 
 ### 6.1. Identity
 
-Os testes verificam comportamentos relacionados a:
+Os testes verificam:
 
 - criação de contas;
-- validação de campos obrigatórios;
-- normalização de username e e-mail;
+- campos obrigatórios;
+- normalização;
 - unicidade de username e e-mail;
-- persistência dos usuários;
-- criação de identificadores;
-- armazenamento seguro de senhas;
+- persistência;
+- geração de identificadores;
+- armazenamento seguro das senhas;
 - autenticação;
 - sessões HTTP;
 - login e logout;
 - consulta do usuário autenticado;
-- respostas apropriadas para credenciais inválidas.
+- credenciais inválidas;
+- papéis `USER` e `ADMIN`;
+- persistência do papel da conta;
+- carregamento das autoridades no Spring Security;
+- autorização de endpoints administrativos.
+
+Classes relacionadas:
+
+```text
+UserAccountTests
+UserAccountRepositoryTests
+IdentityUserDetailsServiceTests
+WebSecurityAuthorizationTests
+```
+
+O registro regular não deve conceder privilégios administrativos.
+
+Os testes de integração verificam que a configuração de segurança utiliza os papéis persistidos.
 
 ### 6.2. Catalog
 
 Os testes verificam:
 
 - criação de obras;
-- associação com o proprietário autenticado;
-- normalização e validação dos metadados;
-- atualização dos metadados pelo proprietário;
+- associação com proprietário;
+- normalização de metadados;
+- atualização;
 - rejeição de alterações não autorizadas;
 - persistência de gêneros;
-- substituição dos gêneros existentes;
-- listagem das obras do criador;
-- consulta administrativa de obras;
+- substituição de gêneros;
+- listagem do criador;
 - isolamento entre usuários;
-- definição e leitura de capas;
-- autorização para acesso a capas;
-- exposição de informações públicas e administrativas;
-- compensação de uploads de capas após rollback;
-- remoção de capas anteriores após commit;
-- substituições concorrentes de capas;
-- concorrência entre atualizações de metadados e substituições de capas;
-- remoção de capas pelo proprietário;
-- remoção idempotente de capas em obras sem capa;
-- limpeza física após commit de remoção;
-- preservação de referências e arquivos após rollback de remoção;
-- rejeição de remoções não autorizadas;
-- proteção CSRF nas operações de remoção;
-- resposta `404 Not Found` para obras inexistentes;
-- concorrência entre remoção e substituição de capas;
-- exclusão de obras sem installments;
-- rejeição de exclusão de obras com installments `DRAFT` ou `PUBLISHED`;
-- autorização e proteção CSRF na exclusão de obras;
-- tratamento do conflito de exclusão com `409 Conflict`;
-- remoção física de capas após exclusão confirmada de obras;
-- preservação de obras e capas após rollback;
-- coordenação entre exclusão de obras e criação de installments;
-- remoção das referências de gêneros, biblioteca e progresso de leitura;
-- integridade referencial da exclusão de obras no PostgreSQL.
+- capas;
+- compensação de uploads;
+- limpeza após commit;
+- rollback;
+- concorrência;
+- exclusão de obras;
+- integridade referencial;
+- visibilidade `PUBLIC`;
+- visibilidade `RESTRICTED`;
+- transições de restrição e restauração;
+- persistência do estado de visibilidade.
 
-A integração com PostgreSQL verifica a persistência real dos dados e de suas associações.
+Classes específicas:
 
-Os testes de capas também utilizam o filesystem para verificar que os arquivos físicos permanecem consistentes com as referências persistidas.
+```text
+WorkVisibilityTests
+WorkVisibilityRepositoryTests
+```
+
+A visibilidade é uma propriedade da obra e não deve ser confundida com a publicação dos installments.
+
+Os testes de integração com PostgreSQL verificam a persistência das alterações.
 
 ### 6.3. Publication
 
@@ -1090,144 +1374,223 @@ Os testes verificam:
 - unicidade de tipo e número;
 - atualização de metadados;
 - restrições do estado `DRAFT`;
-- imutabilidade de installments `PUBLISHED`;
+- imutabilidade de `PUBLISHED`;
 - criação de páginas;
 - upload multipart;
-- armazenamento e leitura de arquivos;
-- numeração e ordenação de páginas;
+- armazenamento e leitura;
+- numeração;
 - reordenação;
 - exclusão de páginas;
 - exclusão de installments;
 - publicação;
-- leitura pública de conteúdo publicado;
-- consultas administrativas do criador;
-- validações de propriedade;
-- transações e rollback;
-- concorrência entre operações;
-- consulta da existência de installments para impedir a exclusão de obras;
-- utilização do bloqueio da obra durante a criação de installments;
-- preservação dos installments quando a exclusão da obra é rejeitada;
-- prevenção de referências a obras inexistentes;
-- descoberta pública de obras com conteúdo publicado;
-- filtragem da descoberta pública por gênero;
-- busca parcial e case-insensitive por título;
-- normalização e escape de parâmetros de busca;
-- combinação de filtros de título e gênero;
-- exclusão de obras com apenas installments `DRAFT`;
-- paginação de identificadores de obras;
-- contagem de obras distintas;
-- ordenação determinística;
-- preservação dos metadados de paginação.
+- consultas administrativas;
+- propriedade;
+- transações;
+- rollback;
+- concorrência;
+- integridade com obras;
+- descoberta pública;
+- gênero;
+- título;
+- caracteres especiais;
+- combinação de filtros;
+- paginação;
+- contagem;
+- ordenação;
+- metadados de paginação;
+- exclusão de obras restritas da descoberta;
+- bloqueio do conteúdo público;
+- restauração da disponibilidade pública.
 
-Esse módulo concentra alguns dos testes de integração mais relevantes para a consistência entre o banco de dados, o filesystem e a descoberta pública.
+A cobertura verifica que restringir uma obra não modifica os estados `PUBLISHED` de seus installments.
+
+O bloqueio ocorre na disponibilização pública do conteúdo.
 
 ### 6.4. Library
 
 Os testes verificam:
 
-- inclusão de obras na biblioteca;
+- inclusão de obras;
 - restrição a obras com conteúdo publicado;
 - prevenção de duplicidade;
-- listagem das entradas do usuário;
-- isolamento entre bibliotecas;
-- ordenação das entradas;
+- listagem;
+- isolamento por usuário;
+- ordenação;
 - remoção idempotente;
-- integridade referencial com a tabela `work`;
-- exclusão em cascata de entradas quando uma obra é excluída.
+- integridade referencial;
+- exclusão em cascata.
 
-A exclusão em cascata é validada pelo teste `WorkDeletionIntegrationTests.shouldRemoveLibraryEntriesWhenDeletingWork()`.
+A exclusão em cascata é verificada em `WorkDeletionIntegrationTests`.
+
+A restrição administrativa de visibilidade não representa exclusão física da obra.
 
 ### 6.5. Reading
 
 Os testes verificam:
 
 - registro de progresso;
-- atualização da posição existente;
-- consulta da última posição registrada;
-- identificação da obra e do installment a partir da página;
-- restrição a páginas publicadas;
-- tratamento de páginas inexistentes ou não publicadas;
-- independência em relação à biblioteca pessoal;
-- integridade referencial com a tabela `work`;
-- exclusão em cascata de progresso associado a uma obra removida.
+- atualização;
+- consulta;
+- identificação da obra e do installment pela página;
+- restrição a conteúdo publicado;
+- páginas inexistentes;
+- independência da biblioteca;
+- integridade referencial;
+- exclusão em cascata;
+- bloqueio de criação e atualização de progresso em obras restritas.
 
-A exclusão em cascata é validada pelo teste `WorkDeletionIntegrationTests.shouldRemoveReadingProgressWhenDeletingWork()`.
+A restrição de visibilidade não deve eliminar automaticamente o progresso persistido.
 
-Esse cenário de integridade referencial utiliza um registro de progresso preparado para testar a restrição do banco.
-
-No fluxo normal da aplicação, uma obra com progresso possui conteúdo publicado e, portanto, não pode ser excluída enquanto existirem installments.
+O progresso existente e a possibilidade de novas atualizações são comportamentos distintos.
 
 ### 6.6. Media
 
 Os testes verificam:
 
-- armazenamento de conteúdo binário;
-- geração interna de `storageKey`;
-- leitura de arquivos;
+- armazenamento binário;
+- geração de `storageKey`;
+- leitura;
 - exclusão;
 - exclusão idempotente de arquivos inexistentes;
-- proteção contra resolução de caminhos fora da raiz configurada;
-- integração do armazenamento com os módulos que utilizam `BinaryStorage`;
-- remoção de capas após exclusão confirmada de obras;
-- preservação dos arquivos físicos quando uma exclusão de obra sofre rollback.
+- proteção contra caminhos fora da raiz;
+- integração com `BinaryStorage`;
+- remoção após commit;
+- preservação após rollback.
+
+A restrição administrativa de uma obra não remove seus arquivos.
+
+Arquivos ainda referenciados por obras `RESTRICTED` continuam válidos.
+
+### 6.7. Moderation
+
+A implementação de moderação possui testes de domínio, repositories, services, controllers e integração.
+
+#### Registro de denúncias
+
+Verifica:
+
+- criação;
+- validação;
+- persistência;
+- existência da obra;
+- identificação do denunciante;
+- status inicial.
+
+#### Estados
+
+```text
+OPEN
+UNDER_REVIEW
+RESOLVED
+```
+
+Os testes verificam transições válidas e inválidas.
+
+#### Decisões
+
+```text
+NO_VIOLATION
+WORK_RESTRICTED
+```
+
+Os testes verificam os efeitos das decisões.
+
+#### Auditoria
+
+```text
+REVIEW_STARTED
+REPORT_RESOLVED
+WORK_RESTORED
+```
+
+Os testes verificam a persistência das ações administrativas.
+
+#### Segurança
+
+Os testes verificam:
+
+- usuário autenticado;
+- administrador;
+- usuário regular;
+- ausência de sessão;
+- ausência de CSRF;
+- autoridades do Spring Security.
+
+#### Transações
+
+Os testes verificam:
+
+- consistência entre denúncia e obra;
+- rollback;
+- preservação do estado anterior;
+- ausência de auditoria indevida;
+- rejeição de operações duplicadas.
+
+#### Concorrência
+
+Os testes verificam o início de análise com transações concorrentes e bloqueios pessimistas.
+
+#### Restauração
+
+Os testes verificam:
+
+- visibilidade `RESTRICTED` antes da operação;
+- visibilidade `PUBLIC` depois;
+- preservação da decisão `WORK_RESTRICTED`;
+- auditoria `WORK_RESTORED`;
+- rejeição de restauração duplicada;
+- recuperação do acesso público.
 
 ## 7. Segurança
 
-Os testes de segurança verificam os mecanismos de autenticação e autorização utilizados pela aplicação.
+Os testes verificam os mecanismos de autenticação e autorização utilizados pela aplicação.
 
 ### 7.1. Autenticação
 
-Operações privadas exigem uma sessão autenticada.
+Operações privadas exigem sessão autenticada.
 
-Os testes verificam respostas apropriadas quando o usuário não está autenticado.
+Os testes verificam respostas apropriadas para usuários não autenticados.
 
-Na remoção de capas, uma requisição sem sessão autenticada recebe `401 Unauthorized`.
+A descoberta pública dispensa sessão.
 
-Na exclusão de obras, o teste `shouldRejectUnauthenticatedWorkDeletion()` verifica a mesma exigência.
+As operações administrativas de moderação exigem autenticação.
 
-A descoberta pública utiliza endpoints de leitura que dispensam sessão autenticada.
+O carregamento das autoridades é validado em testes relacionados a `IdentityUserDetailsService`.
 
 ### 7.2. Autorização
 
-Operações administrativas sobre obras, installments, páginas e capas são restritas aos proprietários correspondentes.
+As operações de gerenciamento de obras são restritas aos proprietários.
 
-Os testes verificam que um usuário não pode modificar ou consultar indevidamente o conteúdo administrativo pertencente a outro usuário.
+Os testes verificam que usuários não podem modificar recursos de terceiros.
 
-Na remoção de capas, uma tentativa realizada por outro usuário autenticado deve retornar `403 Forbidden`, preservando os dados e o arquivo físico.
+Na moderação, os endpoints administrativos exigem:
 
-Na exclusão de obras, o teste `shouldRejectWorkDeletionFromNonOwner()` verifica que outro usuário autenticado recebe `403 Forbidden`.
+```text
+ROLE_ADMIN
+```
 
-O cenário também valida a preservação da obra e da capa.
+Os testes verificam que usuários com papel `USER` não podem realizar transições administrativas.
 
-A verificação de propriedade acontece antes da consulta à existência de installments.
+A existência de sessão autenticada não significa autorização administrativa.
 
 ### 7.3. CSRF
 
-Operações protegidas que alteram estado exigem um token CSRF válido.
+Operações protegidas que alteram estado exigem token CSRF válido.
 
-Os testes verificam a proteção contra requisições que não atendem a essa exigência.
+Os testes verificam:
 
-O endpoint de remoção de capas é protegido por CSRF:
+- exclusão de capas;
+- exclusão de obras;
+- registro de denúncias;
+- início de análise;
+- resolução;
+- restauração.
 
-```http
-DELETE /api/works/{workId}/cover
-```
-
-Uma tentativa de remoção autenticada sem o token exigido deve retornar `403 Forbidden`, sem modificar a capa.
-
-O endpoint de exclusão de obras também exige CSRF:
-
-```http
-DELETE /api/works/{workId}
-```
-
-O teste `shouldRejectWorkDeletionWithoutCsrf()` verifica que a operação é rejeitada com `403 Forbidden`.
+Uma requisição autenticada sem o token exigido deve ser rejeitada antes de modificar o estado persistido.
 
 ### 7.4. Respostas HTTP
 
-Os contratos utilizam códigos adequados para diferentes situações.
-
-Entre os códigos verificados estão:
+Os códigos verificados incluem:
 
 ```text
 200 OK
@@ -1240,162 +1603,195 @@ Entre os códigos verificados estão:
 409 Conflict
 ```
 
-Os testes também verificam a preservação dos dados quando operações inválidas ou não autorizadas são rejeitadas.
-
-Para o endpoint de remoção de capas, os códigos esperados são:
+#### Remoção de capas
 
 | Situação | Resposta |
 |----------|----------|
-| Proprietário remove capa existente | `204 No Content` |
-| Proprietário remove capa já ausente | `204 No Content` |
-| Usuário não autenticado | `401 Unauthorized` |
-| Usuário não é proprietário | `403 Forbidden` |
-| Token CSRF ausente ou inválido | `403 Forbidden` |
-| Obra inexistente | `404 Not Found` |
+| Remoção válida | `204` |
+| Capa já ausente | `204` |
+| Sem autenticação | `401` |
+| Sem propriedade | `403` |
+| CSRF inválido | `403` |
+| Obra inexistente | `404` |
 
-Para o endpoint de exclusão de obras:
-
-| Situação | Resposta |
-|----------|----------|
-| Proprietário exclui obra sem installments | `204 No Content` |
-| Obra possui installment `DRAFT` | `409 Conflict` |
-| Obra possui installment `PUBLISHED` | `409 Conflict` |
-| Usuário não autenticado | `401 Unauthorized` |
-| Usuário não é proprietário | `403 Forbidden` |
-| Token CSRF ausente ou inválido | `403 Forbidden` |
-| Obra inexistente | `404 Not Found` |
-
-Após a exclusão bem-sucedida de uma obra, uma nova tentativa com o mesmo identificador retorna `404 Not Found`, pois o recurso não existe mais.
-
-O método HTTP `DELETE` continua sendo idempotente quanto ao efeito pretendido sobre o estado do recurso: executar a mesma exclusão repetidamente mantém a obra ausente.
-
-A idempotência HTTP não exige que todas as requisições retornem o mesmo código de resposta.
-
-Para a descoberta pública:
+#### Exclusão de obras
 
 | Situação | Resposta |
 |----------|----------|
-| Consulta válida | `200 OK` |
-| Nenhuma obra encontrada | `200 OK` |
-| Página fora do intervalo | `200 OK` |
-| Gênero inválido | `400 Bad Request` |
-| `page` negativo | `400 Bad Request` |
-| `size` menor que 1 ou maior que 50 | `400 Bad Request` |
-| Parâmetro numérico inválido | `400 Bad Request` |
+| Obra sem installments | `204` |
+| Obra com `DRAFT` | `409` |
+| Obra com `PUBLISHED` | `409` |
+| Sem autenticação | `401` |
+| Sem propriedade | `403` |
+| CSRF inválido | `403` |
+| Obra inexistente | `404` |
+
+A idempotência HTTP diz respeito ao efeito pretendido sobre o recurso, não à obrigação de repetir o mesmo código.
+
+#### Descoberta pública
+
+| Situação | Resposta |
+|----------|----------|
+| Consulta válida | `200` |
+| Nenhum resultado | `200` |
+| Página fora do intervalo | `200` |
+| Gênero inválido | `400` |
+| `page` negativo | `400` |
+| `size` inválido | `400` |
+
+#### Moderação administrativa
+
+| Situação | Resposta |
+|----------|----------|
+| Listagem válida | `200` |
+| Início de análise válido | `204` |
+| Resolução válida | `204` |
+| Restauração válida | `204` |
+| Dados inválidos | `400` |
+| Sem autenticação | `401` |
+| Sem `ROLE_ADMIN` | `403` |
+| CSRF inválido | `403` |
+| Denúncia inexistente | `404` |
+| Transição inválida | `409` |
+| Operação duplicada incompatível | `409` |
+
+Os testes também verificam a preservação dos dados após rejeições.
 
 ### 7.5. Visão pública e administrativa
 
-Os testes verificam a separação entre:
+Os testes distinguem:
 
 - conteúdo público;
-- conteúdo em estado `DRAFT`;
-- operações administrativas do proprietário.
+- conteúdo `DRAFT`;
+- gerenciamento do proprietário;
+- operações administrativas de moderação;
+- conteúdo publicado de obras restritas.
 
-Installments não publicados não devem ficar disponíveis através dos endpoints públicos.
+Uma obra precisa possuir conteúdo publicado e visibilidade `PUBLIC` para ser disponibilizada na descoberta.
 
-O proprietário pode acessar conteúdos em draft através dos endpoints administrativos apropriados.
+O proprietário possui endpoints próprios de gerenciamento.
 
-A remoção da capa é uma operação administrativa e não depende da existência de installments publicados.
+Os administradores possuem endpoints específicos para moderação.
 
-Ela não altera o estado de publicação do conteúdo.
+A restrição administrativa não modifica a propriedade da obra.
 
-A exclusão de uma obra também é uma operação administrativa, mas só pode ocorrer quando não existem installments associados.
+### 7.6. Visibilidade de obras
 
-A descoberta pública reforça essa separação, pois somente considera obras que possuem pelo menos um installment publicado.
+A disponibilidade pública depende de:
+
+```text
+Installment.status = PUBLISHED
+Work.visibility = PUBLIC
+```
+
+Os testes verificam:
+
+- exclusão de obras restritas da descoberta;
+- indisponibilidade de detalhes públicos;
+- indisponibilidade de conteúdo de installments;
+- bloqueio de páginas públicas;
+- bloqueio de capas públicas;
+- proteção do progresso de leitura;
+- restauração do acesso após mudança para `PUBLIC`.
+
+A implementação utiliza `404 Not Found` para recursos de leitura pública indisponíveis devido à restrição.
+
+### 7.7. Segurança da moderação
+
+Os testes verificam a diferença entre autenticação e autorização.
+
+Um usuário regular autenticado não pode:
+
+- consultar a listagem administrativa de denúncias;
+- iniciar análise;
+- resolver denúncias;
+- restringir obras administrativamente;
+- restaurar obras.
+
+Essas operações dependem de `ROLE_ADMIN`.
+
+A identidade do administrador utilizada na auditoria é obtida pela aplicação.
+
+O cliente não informa um identificador administrativo arbitrário para assumir a autoria da ação.
 
 ## 8. Testes de persistência
 
-O PostgreSQL é utilizado nos testes de integração que dependem de comportamento relacional real.
+O PostgreSQL é utilizado nos testes que dependem de comportamento relacional real.
 
-Esses testes verificam situações que não seriam suficientemente representadas por mocks.
+Mocks não reproduzem integralmente:
 
-Entre elas:
-
-- persistência de entidades;
-- atualização de registros;
-- restrições de unicidade;
-- relacionamentos;
+- constraints;
 - foreign keys;
-- exclusão em cascata;
-- restrições de exclusão;
+- transações;
 - rollback;
-- visibilidade de alterações entre transações;
-- bloqueios pessimistas;
+- bloqueios;
 - consultas SQL nativas;
-- filtragem e paginação;
-- contagem de resultados distintos;
-- ordenação determinística.
+- ordenação e paginação;
+- isolamento entre transações.
 
 ### 8.1. Restrições de unicidade
 
-As validações da aplicação são complementadas pelas restrições do banco.
+As validações da aplicação são complementadas pelo banco.
 
-Exemplos relevantes incluem:
+Exemplos:
 
-- combinações únicas de tipo e número dos installments dentro de uma obra;
-- números únicos de páginas dentro de um installment.
+- combinação única de tipo e número por obra;
+- número único de página por installment;
+- username e e-mail únicos.
 
 ### 8.2. Exclusão em cascata
 
-A exclusão de installments utiliza o relacionamento `ON DELETE CASCADE` existente no PostgreSQL.
+A exclusão de installments utiliza `ON DELETE CASCADE` para os registros das páginas.
 
-Os testes verificam a remoção dos registros das páginas associadas ao installment após uma exclusão confirmada.
+A exclusão física dos arquivos é validada separadamente.
 
-A exclusão física dos arquivos é validada separadamente, respeitando a estratégia de limpeza pós-commit.
-
-A exclusão de obras também utiliza regras de integridade referencial, mas com uma distinção importante.
-
-**Installments não são excluídos em cascata quando a obra é removida.**
-
-A migration V10 define `ON DELETE RESTRICT` para `installment.work_id`, impedindo a remoção de obras que ainda possuem installments.
-
-Para outras referências, são utilizadas restrições de `ON DELETE CASCADE`:
+Na exclusão de obras:
 
 | Tabela | Restrição | Comportamento |
 |--------|-----------|---------------|
-| `installment` | `fk_installment_work` | Impede excluir obra com installments |
-| `library_entry` | `fk_library_entry_work` | Remove entradas associadas à obra excluída |
-| `reading_progress` | `fk_reading_progress_work` | Remove progresso associado à obra excluída |
-| `work_genre` | Restrição introduzida na V9 | Remove gêneros associados à obra excluída |
+| `installment` | `fk_installment_work` | Impede exclusão da obra |
+| `library_entry` | `fk_library_entry_work` | Remove entradas associadas |
+| `reading_progress` | `fk_reading_progress_work` | Remove progresso associado |
+| `work_genre` | Restrição da V9 | Remove gêneros associados |
 
-Os testes validam essas regras utilizando PostgreSQL real.
+Installments não são excluídos em cascata quando uma obra é removida.
 
 ### 8.3. Rollback
 
-Os testes de integração verificam que alterações não confirmadas são revertidas pelo PostgreSQL.
+Os testes verificam que alterações não confirmadas são revertidas.
 
-Quando uma operação envolve arquivos físicos, a validação também considera o comportamento de `BinaryStorage`.
+Quando existem arquivos físicos, verificam também `BinaryStorage`.
 
-Na substituição de capas, os testes verificam especificamente que o rollback restaura a referência anterior no PostgreSQL e que o arquivo da nova capa é removido.
+Na substituição de capas, a referência anterior e seu arquivo devem ser preservados após rollback.
 
-Na remoção de capas, os testes verificam que o rollback preserva a referência anterior no PostgreSQL e mantém o arquivo original disponível.
+Na remoção de capas, o rollback deve preservar a referência e o arquivo.
 
-Na exclusão de obras, os testes verificam que o rollback preserva:
+Na exclusão de obras, devem permanecer:
 
-- o registro da obra;
-- a referência da capa;
-- o arquivo físico.
+- obra;
+- referência da capa;
+- arquivo físico.
+
+Na moderação, o rollback deve preservar a consistência entre denúncia, visibilidade e auditoria.
 
 ### 8.4. Persistência da remoção de capas
 
-A operação `CatalogService.removeCover()` altera a entidade `Work`, removendo os valores associados à capa.
-
-Os campos afetados são:
+`CatalogService.removeCover()` altera os campos:
 
 ```text
 cover_storage_key
 cover_content_type
 ```
 
-Após um commit bem-sucedido, ambos devem permanecer nulos no PostgreSQL.
+Depois do commit, ambos devem ficar nulos.
 
-Quando a transação sofre rollback, os valores anteriores devem permanecer persistidos.
+Após rollback, os valores anteriores devem ser preservados.
 
-Os testes também verificam que a remoção da capa não implica a exclusão da obra.
+A remoção não exclui a obra.
 
 ### 8.5. Integridade referencial da exclusão de obras
 
-A migration V10 introduziu três foreign keys:
+A V10 introduziu:
 
 ```sql
 ALTER TABLE installment
@@ -1417,41 +1813,22 @@ ALTER TABLE reading_progress
     ON DELETE CASCADE;
 ```
 
-A integridade dessas relações é validada pelos seguintes testes.
+Os testes verificam:
 
-**Restrição de exclusão com installments**
+- impedimento de exclusão direta com installments;
+- remoção de referências de biblioteca;
+- remoção de progresso;
+- remoção de gêneros.
 
-O teste `shouldPreventDeletingWorkWithInstallmentsAtDatabaseLevel()` cria uma obra com installment e tenta excluir diretamente o registro da obra no PostgreSQL.
+O teste de gêneros valida o resultado observado, embora a limpeza também possa ocorrer pelo gerenciamento da coleção JPA.
 
-A operação deve ser rejeitada por violar a foreign key `fk_installment_work`.
-
-O teste verifica que a obra e o installment permanecem preservados.
-
-**Remoção de entradas de biblioteca**
-
-O teste `shouldRemoveLibraryEntriesWhenDeletingWork()` verifica que a exclusão de uma obra permitida remove as referências correspondentes em `library_entry`.
-
-**Remoção de progresso de leitura**
-
-O teste `shouldRemoveReadingProgressWhenDeletingWork()` prepara uma referência de progresso para verificar diretamente o comportamento da foreign key.
-
-A exclusão da obra deve remover o registro associado em `reading_progress`.
-
-**Remoção de gêneros**
-
-O teste `shouldRemoveWorkGenresWhenDeletingWork()` cria uma obra com gêneros e verifica que as associações deixam de existir após sua exclusão.
-
-A associação de gêneros já utiliza exclusão em cascata desde a migration V9.
-
-O teste valida o resultado observado pela aplicação, embora a limpeza das associações também possa ocorrer por meio do gerenciamento da coleção JPA. Por isso, ele não demonstra isoladamente que a foreign key realizou a exclusão.
+Por isso, esse teste não demonstra isoladamente qual mecanismo executou a exclusão.
 
 ### 8.6. Ajustes nos testes de repositório após a V10
 
-A introdução de foreign keys mudou uma premissa utilizada por alguns testes de persistência.
+Antes da V10, alguns testes persistiam entidades com `workId` aleatório sem criar a obra correspondente.
 
-Anteriormente, determinados testes criavam entidades com um `workId` gerado aleatoriamente, sem criar primeiro o registro correspondente na tabela `work`.
-
-Isso era aceito pelo schema anterior, mas passou a violar as novas restrições relacionais.
+Isso passou a violar as foreign keys.
 
 As classes afetadas foram:
 
@@ -1462,37 +1839,31 @@ LibraryEntryRepositoryTests
 ReadingProgressRepositoryTests
 ```
 
-Os testes foram ajustados para criar uma obra válida antes da persistência dos registros dependentes.
+Os testes foram ajustados para criar obras válidas.
 
-A preparação utiliza `JdbcTemplate` para inserir os dados necessários na tabela `work`.
+A preparação utiliza `JdbcTemplate` quando apropriado.
 
-Essa abordagem mantém o foco dos testes nos repositories correspondentes, sem exigir a criação completa de uma obra por meio dos serviços da aplicação.
-
-Os testes continuam verificando suas responsabilidades originais, agora utilizando dados compatíveis com as restrições do banco.
-
-Após os ajustes, os testes afetados foram executados individualmente e a suíte completa foi validada com sucesso.
+Essa abordagem mantém o foco nos repositories sem depender de todos os serviços de criação.
 
 ### 8.7. Persistência da descoberta pública
 
-A descoberta pública utiliza consultas SQL nativas executadas pelo `InstallmentRepository`.
+As consultas são executadas pelo `InstallmentRepository`.
 
-Os testes verificam as consultas no PostgreSQL real, preservando as regras de visibilidade.
+Os testes verificam:
 
-As consultas consideram somente installments com status `PUBLISHED`.
+- status `PUBLISHED`;
+- visibilidade `PUBLIC`;
+- deduplicação;
+- paginação;
+- contagem;
+- filtros;
+- ordenação.
 
-Como uma obra pode possuir vários installments publicados, os testes verificam que o mesmo `work_id` aparece apenas uma vez nos resultados.
-
-A paginação utiliza o Spring Data `Pageable`.
-
-O repository retorna `Page<UUID>`, com contagem de obras distintas.
-
-A consulta de contagem utiliza:
+A contagem utiliza:
 
 ```sql
 COUNT(DISTINCT i.work_id)
 ```
-
-Os testes verificam que filtros são aplicados antes da seleção da página.
 
 A ordenação utiliza:
 
@@ -1500,137 +1871,177 @@ A ordenação utiliza:
 ORDER BY MAX(i.updated_at) DESC, i.work_id ASC
 ```
 
-O segundo critério garante desempate determinístico.
-
-**Busca por título**
-
-A pesquisa utiliza:
+A busca textual utiliza:
 
 ```sql
 w.title ILIKE :titlePattern ESCAPE '!'
 ```
 
-O `PublicationService` prepara o padrão de pesquisa antes da execução SQL.
+Os testes verificam o comportamento real dessas expressões no PostgreSQL.
 
-Os testes de repository verificam:
+A associação de gênero é consultada por `EXISTS`.
 
-- busca parcial;
-- correspondência sem diferenciar maiúsculas e minúsculas;
-- exclusão de obras com apenas conteúdo em draft;
-- combinação com o filtro de gênero;
-- paginação dos resultados filtrados;
-- contagem correta;
-- tratamento literal dos metacaracteres SQL.
+A visibilidade também precisa participar dos filtros de seleção e contagem.
 
-A associação de gênero é consultada através de `EXISTS`, evitando multiplicação de resultados na consulta principal.
+### 8.8. Persistência da moderação
 
-Esses testes complementam os testes unitários do serviço, que verificam a preparação do padrão de pesquisa e a seleção das consultas.
+As migrations V11–V18 introduziram estruturas e constraints relacionadas a:
+
+- denúncias;
+- papéis de contas;
+- auditoria;
+- decisões;
+- resolução;
+- visibilidade;
+- restrição;
+- restauração.
+
+Classes de testes relacionadas:
+
+```text
+ModerationReportRepositoryTests
+ModerationAuditEntryRepositoryTests
+UserAccountRepositoryTests
+WorkVisibilityRepositoryTests
+```
+
+Os testes verificam os comportamentos de persistência associados a cada domínio.
+
+As regras das entidades e as restrições do PostgreSQL são complementares.
+
+### 8.9. Auditoria administrativa
+
+O histórico utiliza os eventos:
+
+```text
+REVIEW_STARTED
+REPORT_RESOLVED
+WORK_RESTORED
+```
+
+Os testes verificam a persistência das entradas e sua associação às operações administrativas.
+
+Uma restauração não deve modificar retroativamente a decisão original.
+
+O histórico deve distinguir a resolução da denúncia da alteração posterior da visibilidade.
+
+### 8.10. Visibilidade persistida
+
+A entidade `Work` possui os estados:
+
+```text
+PUBLIC
+RESTRICTED
+```
+
+Os testes verificam as transições e sua persistência.
+
+A alteração da visibilidade não modifica diretamente os registros de installments ou páginas.
+
+Uma obra restrita pode continuar possuindo conteúdo `PUBLISHED`.
+
+A descoberta pública utiliza a visibilidade persistida para determinar a disponibilidade.
 
 ## 9. Testes de armazenamento binário
 
 Arquivos de páginas e capas são armazenados fora do PostgreSQL.
 
-Por isso, os testes relacionados ao armazenamento não verificam apenas os registros do banco.
+Por isso, os testes não verificam apenas os registros do banco.
 
-Quando necessário, verificam também a existência, leitura ou remoção dos arquivos físicos.
+Quando necessário, verificam a existência, leitura ou remoção dos arquivos físicos.
 
 ### 9.1. Upload
 
-Os testes verificam o armazenamento de arquivos e a persistência dos metadados associados.
+Os testes verificam armazenamento de arquivos e persistência dos metadados.
 
-Os endpoints multipart são testados em integração com a camada HTTP.
+Endpoints multipart são testados em integração com HTTP.
 
 ### 9.2. Leitura
 
-Os testes verificam que o conteúdo binário pode ser recuperado pelos endpoints apropriados.
+Os testes verificam a recuperação do conteúdo binário.
 
 Também validam:
 
 - preservação do `Content-Type`;
-- autorização do proprietário em consultas administrativas;
-- indisponibilidade pública de conteúdo em draft.
+- autorização do proprietário;
+- indisponibilidade de conteúdo em `DRAFT`;
+- indisponibilidade pública de conteúdo de obras `RESTRICTED`.
 
 ### 9.3. Exclusão
 
-Os testes verificam a remoção dos registros e o comportamento do arquivo físico correspondente.
+Os testes verificam a remoção de registros e arquivos.
 
-A exclusão é validada tanto em situações de sucesso quanto em cenários de rollback.
+Na substituição de capas:
 
-Na substituição de capas, a limpeza física segue duas regras complementares:
+- a capa anterior é removida após commit;
+- a nova capa é removida após rollback.
 
-- a capa anterior é removida após o commit;
-- a capa recém-armazenada é removida após rollback.
-
-Na remoção explícita de capas:
+Na remoção de capas:
 
 - a referência é removida no PostgreSQL;
-- o arquivo original é excluído somente após commit;
-- em caso de rollback, a referência e o arquivo original permanecem preservados.
+- o arquivo é excluído após commit;
+- rollback preserva referência e arquivo.
 
-Na exclusão de obras com capa:
+Na exclusão de obras:
 
-- o registro da obra é removido no PostgreSQL;
-- a chave de armazenamento da capa é capturada antes da exclusão;
-- o arquivo físico é removido somente após o commit;
-- em caso de rollback, a obra, a referência e o arquivo permanecem preservados.
+- o registro é removido;
+- a referência da capa é capturada;
+- o arquivo é excluído após commit;
+- rollback preserva tudo.
 
-Os testes de integração verificam que a exclusão física não acontece antes da confirmação da transação.
+A restrição administrativa não utiliza exclusão física.
 
 ### 9.4. Segurança dos caminhos
 
 A implementação de filesystem verifica a resolução dos caminhos em relação à raiz configurada.
 
-Os testes incluem a proteção contra operações fora dessa raiz.
+Os testes incluem proteção contra operações fora dessa raiz.
+
+### 9.5. Arquivos de obras restritas
+
+Arquivos de obras `RESTRICTED` continuam associados a registros existentes.
+
+Eles não são automaticamente órfãos.
+
+A indisponibilidade pública é uma regra de autorização e visibilidade, não uma indicação de que o arquivo pode ser excluído.
+
+Essa distinção deverá ser preservada nos futuros testes de reconciliação.
 
 ## 10. Testes de consistência transacional
 
 O PostgreSQL e o filesystem não compartilham uma transação distribuída.
 
-Por esse motivo, o Metopa utiliza estratégias complementares para operações de criação, exclusão, substituição e remoção de arquivos.
-
-Os testes de integração são importantes para verificar o comportamento dessas estratégias.
+O Metopa utiliza estratégias complementares de compensação e limpeza.
 
 ### 10.1. Exclusão de páginas após commit
 
-A operação `deletePage()` registra a exclusão física para execução depois do commit.
+`deletePage()` registra a limpeza física para depois do commit.
 
 O callback utiliza `TransactionSynchronization.afterCommit()`.
 
-Comportamento esperado:
-
 | Resultado | Registro PostgreSQL | Arquivo físico |
 |-----------|---------------------|----------------|
-| Commit | Removido | Removido |
+| Commit | Removido | Removido após commit |
 | Rollback | Preservado | Preservado |
 
-O teste de rollback verifica que o filesystem não perde o arquivo quando a transação de exclusão é revertida.
+Os testes verificam que o arquivo não é removido antes da confirmação da exclusão.
 
 ### 10.2. Exclusão de installments após commit
 
-A operação `deleteInstallment()` utiliza a mesma estratégia de limpeza física pós-commit.
+`deleteInstallment()` utiliza limpeza física pós-commit.
 
-Os registros das páginas são removidos no PostgreSQL através de `ON DELETE CASCADE`.
-
-As referências dos arquivos são coletadas antes da exclusão.
-
-Comportamento esperado:
+Os registros das páginas são removidos por `ON DELETE CASCADE`.
 
 | Resultado | Installment e páginas | Arquivos físicos |
 |-----------|-----------------------|------------------|
-| Commit | Removidos | Removidos |
+| Commit | Removidos | Removidos após commit |
 | Rollback | Preservados | Preservados |
-
-Os testes verificam tanto o comportamento transacional quanto a proteção dos arquivos físicos.
 
 ### 10.3. Compensação de upload de páginas após rollback
 
-A operação `createPage()` armazena o arquivo físico antes da confirmação da transação PostgreSQL.
+`createPage()` armazena o arquivo antes da confirmação da transação.
 
-Sem compensação, um rollback poderia remover o registro da página enquanto o arquivo continuaria presente no filesystem.
-
-A implementação utiliza `TransactionSynchronization.afterCompletion()` para remover o arquivo recém-criado quando a transação termina com `STATUS_ROLLED_BACK`.
-
-Comportamento esperado:
+A implementação utiliza `afterCompletion()` para remover o arquivo quando ocorre `STATUS_ROLLED_BACK`.
 
 | Resultado | Registro PostgreSQL | Arquivo físico |
 |-----------|---------------------|----------------|
@@ -1639,744 +2050,533 @@ Comportamento esperado:
 
 ### 10.4. Teste de regressão do upload de páginas
 
-O cenário de regressão foi implementado na classe `PageUploadIntegrationTests`, pelo método `shouldRemoveUploadedPageFileWhenTransactionRollsBack()`.
+O cenário é implementado em:
 
-O teste utiliza uma transação real e verifica o comportamento do banco e do filesystem.
+```text
+PageUploadIntegrationTests.shouldRemoveUploadedPageFileWhenTransactionRollsBack()
+```
 
-Fluxo simplificado:
+Fluxo:
 
-1. iniciar uma transação;
-2. criar uma página;
-3. verificar que o arquivo foi armazenado;
-4. solicitar rollback da transação;
-5. verificar que o registro da página não foi persistido;
-6. verificar que o arquivo físico foi removido.
+1. iniciar transação;
+2. criar página;
+3. verificar armazenamento;
+4. solicitar rollback;
+5. verificar ausência do registro;
+6. verificar remoção física.
 
-Durante a etapa RED, o teste encontrou a falha esperada:
+Durante RED, o teste encontrou:
 
 ```text
 Expecting value to be false but was true
 ```
 
-O resultado indicava que o arquivo continuava presente após o rollback.
+O arquivo permanecia após rollback.
 
-Depois da implementação da compensação transacional, o teste passou.
-
-Esse cenário protege contra a regressão do comportamento corrigido.
+A implementação da compensação corrigiu o comportamento.
 
 ### 10.5. Consistência transacional de capas
 
-A operação `CatalogService.setCover()` permite definir ou substituir a capa de uma obra.
+`CatalogService.setCover()` coordena:
 
-O arquivo físico é armazenado através de `BinaryStorage`, enquanto o PostgreSQL mantém a referência correspondente.
-
-Quando uma obra já possui uma capa, a substituição precisa coordenar três elementos:
-
-- a referência da capa anterior;
-- o arquivo recém-armazenado;
-- a atualização da entidade `Work`.
-
-A implementação utiliza `TransactionSynchronization` para executar operações compensatórias conforme o resultado da transação.
+- referência anterior;
+- arquivo novo;
+- atualização da entidade.
 
 **Commit**
 
-Quando a substituição é confirmada:
-
-- a referência da nova capa permanece persistida;
-- o arquivo da nova capa é preservado;
-- o arquivo da capa anterior é removido por `afterCommit()`, quando aplicável.
+- nova referência persistida;
+- arquivo novo preservado;
+- capa anterior removida após commit.
 
 **Rollback**
 
-Quando a substituição é revertida:
+- referência anterior preservada;
+- arquivo anterior preservado;
+- arquivo novo removido.
 
-- o PostgreSQL preserva a referência anterior;
-- o arquivo da capa anterior permanece disponível;
-- o arquivo recém-armazenado é removido por `afterCompletion(STATUS_ROLLED_BACK)`.
-
-Comportamento esperado:
-
-| Resultado | Referência no PostgreSQL | Capa anterior | Nova capa |
-|-----------|--------------------------|---------------|-----------|
+| Resultado | Referência PostgreSQL | Capa anterior | Nova capa |
+|-----------|-----------------------|---------------|-----------|
 | Commit | Nova capa | Removida | Preservada |
 | Rollback | Capa anterior | Preservada | Removida |
 
-No primeiro upload de uma obra, não existe arquivo anterior para remover após o commit.
-
-Essas garantias se referem às transações e aos callbacks que terminam normalmente. Falhas abruptas ou erros durante a limpeza física continuam sujeitos às limitações descritas na seção 10.10.
+Essas garantias se referem aos fluxos de transação e callbacks executados normalmente.
 
 ### 10.6. Testes de regressão das capas
 
-Os principais cenários de integração são implementados em `WorkCoverIntegrationTests`.
+Os principais cenários estão em `WorkCoverIntegrationTests`.
 
 **Rollback de substituição**
 
-O teste `shouldRemoveNewCoverWhenReplacementRollsBack()`:
+`shouldRemoveNewCoverWhenReplacementRollsBack()` verifica:
 
-1. cria uma obra;
-2. armazena a capa original;
-3. inicia uma transação para substituí-la;
-4. verifica a criação do arquivo da nova capa;
-5. solicita rollback;
-6. verifica que o PostgreSQL mantém a referência original;
-7. verifica que o arquivo original permanece disponível;
-8. verifica que o arquivo novo foi removido.
+1. criação de obra;
+2. armazenamento da capa original;
+3. tentativa de substituição;
+4. criação do arquivo novo;
+5. rollback;
+6. preservação da referência original;
+7. preservação do arquivo original;
+8. exclusão do arquivo novo.
 
-Durante o RED, o teste identificou dois arquivos presentes após o rollback, quando somente o arquivo original deveria permanecer.
+Durante RED, dois arquivos permaneciam após rollback.
 
-Depois da implementação de `afterCompletion(STATUS_ROLLED_BACK)`, o teste passou.
+A implementação de `afterCompletion()` corrigiu a falha.
 
 **Commit de substituição**
 
-O teste `shouldRemovePreviousCoverAfterSuccessfulReplacement()`:
+`shouldRemovePreviousCoverAfterSuccessfulReplacement()` verifica:
 
-1. cria uma obra;
-2. armazena a capa original;
-3. confirma a primeira operação;
-4. substitui a capa em uma nova transação;
-5. verifica que o PostgreSQL referencia a nova capa;
-6. verifica que a nova capa pode ser lida;
-7. verifica que o arquivo anterior foi removido;
-8. verifica que somente o arquivo da nova capa permanece no diretório da obra.
+1. capa original confirmada;
+2. substituição em nova transação;
+3. nova referência no banco;
+4. leitura da nova capa;
+5. exclusão do arquivo anterior;
+6. permanência apenas do novo arquivo.
 
-Durante o RED, o arquivo original continuava presente após o commit.
+Os testes verificam efeitos reais no banco e no filesystem.
 
-Depois da implementação de `afterCommit()`, o teste passou.
+### 10.7. Consistência da remoção de capas
 
-Esses cenários validam os efeitos da operação sobre o PostgreSQL e o filesystem, e não somente os métodos chamados pela aplicação.
+`CatalogService.removeCover()` utiliza bloqueio pessimista.
 
-### 10.7. Consistência transacional da remoção de capas
+Fluxo:
 
-A operação `CatalogService.removeCover()` permite remover a capa de uma obra pertencente ao usuário autenticado.
+1. bloquear obra;
+2. validar propriedade;
+3. capturar `storageKey`;
+4. limpar referência e `Content-Type`;
+5. registrar callback de exclusão após commit.
 
-A implementação utiliza bloqueio pessimista sobre a entidade `Work` antes de modificar os dados.
-
-Quando existe uma capa, o serviço:
-
-1. adquire o bloqueio da obra;
-2. valida a propriedade;
-3. captura o `storageKey` anterior;
-4. remove a referência e o `Content-Type` através de `Work.clearCover()`;
-5. registra um callback `afterCommit()` para excluir o arquivo original.
-
-A exclusão física não ocorre imediatamente.
-
-**Commit**
-
-Quando a transação é confirmada:
-
-- a referência da capa deixa de existir no PostgreSQL;
-- o `Content-Type` passa a ser `null`;
-- o arquivo físico anterior é removido através de `BinaryStorage`.
-
-**Rollback**
-
-Quando a transação é revertida:
-
-- o PostgreSQL preserva a referência original;
-- o `Content-Type` anterior permanece persistido;
-- o callback `afterCommit()` não é executado;
-- o arquivo físico original permanece disponível.
-
-Comportamento esperado:
-
-| Resultado | Referência no PostgreSQL | Arquivo original |
-|-----------|--------------------------|------------------|
+| Resultado | Referência PostgreSQL | Arquivo original |
+|-----------|-----------------------|------------------|
 | Commit | Removida | Removido após commit |
 | Rollback | Preservada | Preservado |
 
-**Obra sem capa**
+Quando a obra existe sem capa, a operação é idempotente.
 
-Quando a obra existe, mas não possui capa, a operação retorna normalmente.
-
-Nenhum arquivo é excluído.
-
-A resposta HTTP permanece `204 No Content`.
-
-**Obra inexistente**
-
-Quando a obra não existe, a operação retorna `404 Not Found`.
-
-A idempotência da remoção de capa aplica-se à ausência de capa em uma obra existente, não à ausência da própria obra.
+Quando a obra não existe, retorna `404 Not Found`.
 
 #### Testes de integração da remoção
 
-Os cenários são implementados em `WorkCoverIntegrationTests`.
+`WorkCoverIntegrationTests` possui cenários para:
 
-**Remoção de capa existente**
+- remoção válida;
+- rollback;
+- idempotência;
+- usuário sem propriedade;
+- ausência de autenticação;
+- ausência de CSRF;
+- obra inexistente;
+- concorrência com substituição.
 
-O teste `shouldRemoveExistingCoverForWorkOwner()` verifica que:
+O teste de concorrência utiliza transações independentes e sincronização entre threads.
 
-- o proprietário pode remover a capa;
-- a resposta HTTP é `204 No Content`;
-- a referência no PostgreSQL é removida;
-- o `Content-Type` é removido;
-- o arquivo físico anterior é excluído após commit.
-
-**Rollback da remoção**
-
-O teste `shouldPreserveCoverWhenRemovalRollsBack()` utiliza `TransactionTemplate` para executar a operação dentro de uma transação real.
-
-O teste verifica:
-
-1. a capa original existe;
-2. a remoção é executada dentro da transação;
-3. o arquivo físico ainda existe antes do commit;
-4. a transação é revertida;
-5. a referência anterior permanece persistida;
-6. o arquivo original permanece disponível.
-
-**Remoção idempotente**
-
-O teste `shouldRemoveCoverIdempotentlyWhenWorkHasNoCover()` verifica que chamadas repetidas à operação sobre uma obra sem capa retornam `204 No Content`.
-
-Os campos persistidos permanecem nulos e nenhum arquivo físico é criado ou removido indevidamente.
-
-**Usuário sem propriedade**
-
-O teste `shouldRejectCoverRemovalFromAnotherUser()` verifica que outro usuário autenticado recebe `403 Forbidden`.
-
-A referência e o arquivo físico permanecem preservados.
-
-**Usuário não autenticado**
-
-O teste `shouldRejectUnauthenticatedCoverRemoval()` verifica que uma requisição sem sessão autenticada recebe `401 Unauthorized`.
-
-A capa permanece inalterada.
-
-**Requisição sem CSRF**
-
-O teste `shouldRequireCsrfForCoverRemoval()` verifica que uma requisição autenticada sem o token CSRF exigido recebe `403 Forbidden`.
-
-A referência e o arquivo permanecem preservados.
-
-**Obra inexistente**
-
-O teste `shouldReturnNotFoundWhenRemovingCoverFromNonexistentWork()` verifica que uma tentativa de remoção para um `workId` inexistente retorna `404 Not Found`.
-
-O teste também protege contra regressões no tratamento HTTP de `WorkNotFoundException`.
-
-**Concorrência entre remoção e substituição**
-
-O teste `shouldPreserveReplacementWhenCoverRemovalCommitsConcurrently()` verifica que uma remoção em transação aberta impede que uma substituição concorrente avance antes da liberação do bloqueio.
-
-Após a conclusão das duas operações:
-
-- o PostgreSQL referencia a nova capa;
-- o `Content-Type` corresponde ao novo conteúdo;
-- o conteúdo binário pode ser recuperado;
-- o arquivo anterior foi removido;
-- somente a nova capa permanece no filesystem.
-
-O teste utiliza transações independentes, `CountDownLatch`, `Future` e verificações do estado final persistido.
+Após as operações, verifica a referência e o arquivo final.
 
 ### 10.8. Testes unitários dos callbacks
 
-Os serviços `PublicationService` e `CatalogService` possuem testes unitários relacionados às operações com arquivos.
+Os serviços possuem testes unitários relacionados a callbacks.
 
 Esses testes não possuem automaticamente uma transação Spring real.
 
-Quando precisam verificar o registro de callbacks transacionais, o ambiente de sincronização pode ser preparado explicitamente por meio de `TransactionSynchronizationManager`.
+Quando necessário, utilizam `TransactionSynchronizationManager` para preparar a sincronização.
 
-No `CatalogServiceTests`, o helper `simulateTransactionCompletion(Runnable operation, int completionStatus)` inicializa a sincronização, executa a operação, obtém os callbacks registrados e simula sua conclusão.
+No `CatalogServiceTests`, o helper `simulateTransactionCompletion()` permite executar os callbacks simulando commit ou rollback.
 
-Para o estado `STATUS_COMMITTED`, executa `afterCommit()` e `afterCompletion()`.
+Os testes incluem:
 
-Para `STATUS_ROLLED_BACK`, executa `afterCompletion()` com o status correspondente.
+```text
+shouldSetCoverForWorkOwner
+shouldDeleteNewCoverAfterTransactionRollback
+shouldDeletePreviousCoverAfterTransactionCommit
+shouldRejectCoverFromUserWhoDoesNotOwnWork
+shouldDeleteCoverFileAfterRemovalCommit
+shouldPreserveCoverFileAfterRemovalRollback
+```
 
-O contexto de sincronização é limpo ao final do teste.
+Esses testes verificam as interações e a execução dos callbacks.
 
-Entre os testes relevantes de definição e substituição de capas estão:
+Não demonstram a reversão real de entidades JPA.
 
-- `shouldSetCoverForWorkOwner()`;
-- `shouldDeleteNewCoverAfterTransactionRollback()`;
-- `shouldDeletePreviousCoverAfterTransactionCommit()`;
-- `shouldRejectCoverFromUserWhoDoesNotOwnWork()`.
+A persistência efetiva é verificada pelos testes de integração.
 
-Para a remoção de capas, foram adicionados:
+### 10.9. Consistência da exclusão de obras
 
-- `shouldDeleteCoverFileAfterRemovalCommit()`;
-- `shouldPreserveCoverFileAfterRemovalRollback()`.
+`CatalogService.deleteWork()` utiliza bloqueio pessimista.
 
-O primeiro teste verifica que `CatalogService.removeCover()`:
+A exclusão exige ausência de installments.
 
-- utiliza `findByIdForUpdate()`;
-- remove os metadados da capa da entidade;
-- registra a exclusão física após commit;
-- solicita `BinaryStorage.delete()` quando o callback é executado.
+Fluxo:
 
-O segundo teste verifica que:
+1. bloquear a obra;
+2. validar propriedade;
+3. verificar installments;
+4. capturar referência da capa;
+5. remover a obra;
+6. agendar exclusão da capa após commit.
 
-- o serviço utiliza `findByIdForUpdate()`;
-- o callback de exclusão física não é executado no rollback;
-- `BinaryStorage.delete()` não é chamado para o arquivo original.
-
-Esses testes validam os callbacks simulados e as interações do serviço.
-
-Eles não demonstram a reversão real de uma entidade JPA em memória.
-
-A preservação da referência persistida após rollback é validada pelos testes de integração com PostgreSQL.
-
-### 10.9. Consistência transacional da exclusão de obras
-
-A operação `CatalogService.deleteWork()` permite excluir uma obra que não possui installments.
-
-A implementação utiliza bloqueio pessimista sobre a entidade `Work` e valida a propriedade antes de consultar a existência de installments.
-
-Quando a exclusão é permitida, o serviço:
-
-1. adquire o bloqueio pessimista da obra;
-2. valida o proprietário;
-3. verifica se existem installments associados;
-4. captura a referência da capa, se existir;
-5. solicita a exclusão do registro da obra;
-6. registra um callback `afterCommit()` para remover o arquivo físico da capa, quando aplicável.
-
-A exclusão da obra não remove installments em cascata.
-
-A foreign key `fk_installment_work` impede a exclusão se existirem installments associados.
-
-**Commit**
-
-Quando a transação é confirmada:
-
-- a obra é removida do PostgreSQL;
-- as associações dependentes abrangidas pelas restrições de cascata são removidas;
-- se houver capa, o arquivo físico é removido através de `BinaryStorage`.
-
-**Rollback**
-
-Quando a transação é revertida:
-
-- a obra permanece persistida;
-- a referência da capa permanece válida;
-- o callback `afterCommit()` não é executado;
-- o arquivo físico permanece disponível.
-
-Comportamento esperado:
-
-| Resultado | Registro da obra | Referência da capa | Arquivo físico |
-|-----------|------------------|--------------------|----------------|
-| Commit | Removido | Removida com a obra | Removido após commit |
+| Resultado | Registro da obra | Referência da capa | Arquivo |
+|-----------|------------------|--------------------|---------|
+| Commit | Removido | Removida | Removido após commit |
 | Rollback | Preservado | Preservada | Preservado |
 | Obra com installments | Preservado | Preservada | Preservado |
 
-Quando a obra não possui capa, nenhuma exclusão física é necessária.
+Quando a obra não possui capa, nenhuma limpeza física é necessária.
 
-#### Testes de integração da exclusão de obras
+#### Testes de integração da exclusão
 
-Os cenários são implementados em `WorkDeletionIntegrationTests`.
+`WorkDeletionIntegrationTests` contém 15 cenários:
 
-A classe contém 15 testes.
+1. `shouldDeleteEmptyWorkForOwner()`: exclusão válida.
+2. `shouldRejectDeletingWorkWithDraftInstallment()`: rejeição com `DRAFT`.
+3. `shouldRejectDeletingWorkWithPublishedInstallment()`: rejeição com `PUBLISHED`.
+4. `shouldDeleteWorkCoverAfterSuccessfulWorkDeletion()`: limpeza após commit.
+5. `shouldPreserveWorkAndCoverWhenDeletionRollsBack()`: preservação após rollback.
+6. `shouldRejectWorkDeletionFromNonOwner()`: propriedade.
+7. `shouldRejectUnauthenticatedWorkDeletion()`: autenticação.
+8. `shouldRejectWorkDeletionWithoutCsrf()`: CSRF.
+9. `shouldReturnNotFoundWhenDeletingNonexistentWork()`: recurso inexistente.
+10. `shouldRejectInstallmentCreationWhenWorkDeletionCommitsFirst()`: concorrência.
+11. `shouldRejectWorkDeletionWhenInstallmentCreationCommitsFirst()`: concorrência.
+12. `shouldRemoveLibraryEntriesWhenDeletingWork()`: biblioteca.
+13. `shouldRemoveReadingProgressWhenDeletingWork()`: progresso.
+14. `shouldPreventDeletingWorkWithInstallmentsAtDatabaseLevel()`: foreign key.
+15. `shouldRemoveWorkGenresWhenDeletingWork()`: gêneros.
 
-**1. Exclusão de obra sem installments**
+Os testes utilizam PostgreSQL real.
 
-O teste `shouldDeleteEmptyWorkForOwner()` verifica que o proprietário consegue excluir uma obra sem installments.
+As operações concorrentes são executadas em transações independentes.
 
-O endpoint retorna `204 No Content`, e a obra deixa de existir no PostgreSQL.
+### 10.10. Consistência transacional da moderação
 
-**2. Rejeição de obra com installment DRAFT**
+A resolução de denúncias pode modificar dados em dois módulos.
 
-O teste `shouldRejectDeletingWorkWithDraftInstallment()` verifica que a exclusão é rejeitada com `409 Conflict` quando existe um installment `DRAFT`.
+Exemplo:
 
-A obra e o installment permanecem preservados.
+```text
+ModerationService
+    |
+    +----> ModerationReport
+    |      altera status e decisão
+    |
+    +----> CatalogService
+    |      restringe Work
+    |
+    +----> ModerationAuditEntry
+           registra auditoria
+```
 
-**3. Rejeição de obra com installment PUBLISHED**
+As alterações utilizam a mesma transação PostgreSQL.
 
-O teste `shouldRejectDeletingWorkWithPublishedInstallment()` verifica que a exclusão é rejeitada quando existe um installment publicado.
+**Commit**
 
-O conteúdo publicado e suas páginas permanecem preservados.
+- denúncia resolvida;
+- decisão persistida;
+- visibilidade atualizada;
+- auditoria registrada.
 
-**4. Remoção da capa após commit**
+**Rollback**
 
-O teste `shouldDeleteWorkCoverAfterSuccessfulWorkDeletion()` verifica que:
+- estado anterior preservado;
+- decisão não confirmada;
+- visibilidade anterior preservada;
+- auditoria não confirmada.
 
-- a obra é excluída;
-- sua referência de capa deixa de existir no banco;
-- o arquivo físico da capa é removido após o commit.
+Os testes verificam que falhas na alteração da visibilidade não deixam uma denúncia resolvida parcialmente.
 
-**5. Preservação após rollback**
+Classe relacionada:
 
-O teste `shouldPreserveWorkAndCoverWhenDeletionRollsBack()` utiliza uma transação real para executar a exclusão e solicitar rollback.
+```text
+ModerationResolveTransactionIntegrationTests
+```
 
-O teste verifica que a obra, a referência da capa e o arquivo físico permanecem preservados.
+### 10.11. Restauração administrativa
 
-**6. Rejeição por usuário não proprietário**
+A restauração exige:
 
-O teste `shouldRejectWorkDeletionFromNonOwner()` verifica que outro usuário autenticado recebe `403 Forbidden`.
+- denúncia `RESOLVED`;
+- decisão `WORK_RESTRICTED`;
+- obra `RESTRICTED`.
 
-A obra e sua capa permanecem preservadas.
+A operação restaura a visibilidade e registra `WORK_RESTORED`.
 
-**7. Rejeição sem autenticação**
+A decisão original permanece preservada.
 
-O teste `shouldRejectUnauthenticatedWorkDeletion()` verifica que uma requisição sem sessão autenticada recebe `401 Unauthorized`.
+| Resultado | Visibilidade | Decisão original | Nova auditoria |
+|-----------|--------------|------------------|----------------|
+| Commit válido | `PUBLIC` | Preservada | Persistida |
+| Rollback | `RESTRICTED` | Preservada | Não confirmada |
+| Restauração duplicada | `PUBLIC` | Preservada | Não duplicada |
 
-**8. Rejeição sem CSRF**
+Os testes de integração verificam a persistência e o comportamento HTTP.
 
-O teste `shouldRejectWorkDeletionWithoutCsrf()` verifica que uma requisição autenticada sem token CSRF válido recebe `403 Forbidden`.
+### 10.12. Limitações da cobertura transacional
 
-**9. Obra inexistente**
+Os testes atuais validam transações normais e rollbacks controlados.
 
-O teste `shouldReturnNotFoundWhenDeletingNonexistentWork()` verifica que a exclusão de um `workId` inexistente retorna `404 Not Found`.
+Não demonstram garantia de limpeza em todas as situações.
 
-**10. Exclusão confirma antes da criação de installment**
-
-O teste `shouldRejectInstallmentCreationWhenWorkDeletionCommitsFirst()` verifica que a criação concorrente de um installment não consegue persistir conteúdo em uma obra que já foi excluída.
-
-**11. Criação de installment confirma antes da exclusão**
-
-O teste `shouldRejectWorkDeletionWhenInstallmentCreationCommitsFirst()` verifica que a exclusão concorrente encontra o installment recém-confirmado e rejeita a remoção da obra.
-
-**12. Remoção de entradas de biblioteca**
-
-O teste `shouldRemoveLibraryEntriesWhenDeletingWork()` verifica a exclusão das referências de `library_entry` relacionadas à obra.
-
-**13. Remoção de progresso de leitura**
-
-O teste `shouldRemoveReadingProgressWhenDeletingWork()` verifica a exclusão das referências de `reading_progress` relacionadas à obra.
-
-O cenário é preparado para exercitar a restrição referencial, inclusive em uma situação que não seria normalmente produzida pelo fluxo público de leitura.
-
-**14. Proteção diretamente no PostgreSQL**
-
-O teste `shouldPreventDeletingWorkWithInstallmentsAtDatabaseLevel()` verifica que uma tentativa de excluir diretamente uma obra com installments é rejeitada pela foreign key `fk_installment_work`.
-
-O banco preserva os registros relacionados.
-
-**15. Remoção de gêneros**
-
-O teste `shouldRemoveWorkGenresWhenDeletingWork()` verifica que as associações de gêneros deixam de existir após a exclusão da obra.
-
-O teste exercita o resultado persistido da operação.
-
-Os cenários foram executados com PostgreSQL real.
-
-A suíte completa confirmou a compatibilidade das alterações com os testes existentes.
-
-### 10.10. Limitações da cobertura transacional
-
-Os testes atuais validam comportamentos em transações normais e cenários de rollback controlados.
-
-Eles não demonstram garantia de limpeza em todas as situações possíveis.
-
-Entre as limitações conhecidas estão:
+Limitações conhecidas:
 
 - encerramento abrupto da JVM;
-- falhas durante a exclusão física;
-- interrupção entre armazenamento e registro da compensação;
-- resultado transacional incerto;
-- ausência de reconciliação durável de arquivos órfãos.
+- falhas durante exclusão física;
+- interrupção antes do registro de compensação;
+- resultados transacionais incertos;
+- ausência de reconciliação durável.
 
-A compensação de rollback está implementada nos fluxos de upload de páginas e de substituição de capas descritos neste documento.
+Uma falha em `afterCommit()` pode deixar um arquivo presente após a alteração relacional confirmada.
 
-A remoção de capas utiliza uma estratégia complementar: preservar o arquivo original durante a transação e excluí-lo apenas após commit.
+Os callbacks não oferecem atomicidade distribuída entre PostgreSQL e filesystem.
 
-A exclusão de obras utiliza a mesma premissa para a capa associada à obra.
+A moderação não modifica arquivos físicos ao restringir ou restaurar obras.
 
-Não se deve assumir que todos os fluxos de armazenamento possuem automaticamente a mesma proteção.
-
-Em particular, uma falha na exclusão física durante `afterCommit()` pode deixar um arquivo armazenado mesmo após a confirmação da exclusão ou alteração do registro no PostgreSQL.
-
-A suíte atual não representa uma garantia de atomicidade distribuída entre banco de dados e filesystem.
+Sua consistência transacional é predominantemente relacional.
 
 ## 11. Testes de concorrência
 
-O Metopa utiliza bloqueios pessimistas para coordenar operações de escrita sobre o mesmo installment ou a mesma obra, conforme o domínio envolvido.
+O Metopa utiliza bloqueios pessimistas para coordenar operações sobre o mesmo installment, obra ou denúncia.
 
-A implementação utiliza `PESSIMISTIC_WRITE` no PostgreSQL.
+A implementação utiliza `PESSIMISTIC_WRITE`.
 
-Os testes de concorrência exercitam transações independentes para verificar os efeitos da coordenação.
+Os testes exercitam transações independentes.
 
 ### 11.1. Reordenação concorrente com publicação
 
-Um cenário de integração verifica o conflito entre:
+Uma transação reordena páginas enquanto outra tenta publicar o installment.
 
-- reordenar páginas;
-- publicar o mesmo installment.
+O bloqueio coordena as operações.
 
-Uma transação mantém o bloqueio enquanto executa a reordenação.
-
-Outra transação tenta publicar o installment e precisa respeitar a coordenação estabelecida no PostgreSQL.
-
-O teste verifica a preservação da ordem persistida e a consistência do estado final.
+O teste verifica a preservação da ordem e do estado final.
 
 ### 11.2. Exclusão concorrente com publicação
 
-Outro cenário verifica a interação entre:
+Se a publicação confirma primeiro, a exclusão encontra o installment `PUBLISHED` e é rejeitada.
 
-- publicação;
-- exclusão do mesmo installment.
-
-Se a publicação for confirmada antes de a exclusão prosseguir, a operação de exclusão deve encontrar o installment publicado e rejeitar sua remoção.
-
-O resultado deve preservar o conteúdo publicado e seus arquivos.
+O conteúdo permanece preservado.
 
 ### 11.3. Substituições concorrentes de capas
 
-O módulo `catalog` utiliza um bloqueio pessimista na entidade `Work` antes de armazenar uma nova capa.
+`CatalogService.setCover()` utiliza:
 
-O método `WorkRepository.findByIdForUpdate(UUID workId)` é declarado no repository com a anotação `@Lock(LockModeType.PESSIMISTIC_WRITE)`.
+```text
+WorkRepository.findByIdForUpdate()
+```
 
-A consulta utiliza JPQL para localizar a obra pelo identificador e adquirir o bloqueio necessário.
+O teste relevante é:
 
-O `CatalogService.setCover()` utiliza essa consulta antes de chamar `BinaryStorage.store()`.
+```text
+shouldWaitForWorkLockBeforeStoringReplacementCover()
+```
 
-O cenário de integração é `shouldWaitForWorkLockBeforeStoringReplacementCover()`.
+O cenário utiliza transações independentes.
 
-O teste utiliza duas transações independentes.
+Uma transação mantém a obra bloqueada enquanto outra tenta substituir a capa.
 
-Uma transação adquire o bloqueio da obra diretamente no PostgreSQL.
+O teste utiliza `WatchService` para observar a criação de arquivos.
 
-A segunda tenta substituir sua capa.
-
-Enquanto o bloqueio permanece ativo, a substituição não deve avançar até o armazenamento do novo arquivo.
-
-O teste utiliza `WatchService` para observar eventos de criação no diretório da obra.
-
-Durante o RED, um evento de criação foi observado antes da liberação do bloqueio.
-
-Depois da utilização de `findByIdForUpdate()`, o teste passou.
-
-Após a conclusão das transações, também é verificado que o filesystem contém a capa correspondente à referência persistida.
+A nova capa não deve ser armazenada antes da liberação do bloqueio.
 
 ### 11.4. Concorrência entre metadados e capa
 
-O módulo `catalog` permite atualizar os metadados da obra e substituir sua capa.
+O teste:
 
-Essas operações modificam a mesma entidade `Work`.
+```text
+shouldPreserveCoverWhenMetadataUpdateCommitsConcurrently()
+```
 
-Antes da coordenação, uma atualização de metadados podia utilizar uma versão anteriormente carregada da entidade e sobrescrever a referência de uma capa confirmada por outra transação.
+verifica que atualização de metadados e substituição de capa utilizam coordenação sobre a mesma entidade.
 
-Esse comportamento representa uma situação de *lost update*.
+O estado final precisa preservar:
 
-O cenário de integração é `shouldPreserveCoverWhenMetadataUpdateCommitsConcurrently()`.
+- título atualizado;
+- referência da nova capa;
+- `Content-Type`;
+- conteúdo binário;
+- ausência de arquivos antigos indevidos.
 
-O teste utiliza duas transações independentes.
-
-A primeira atualiza os metadados da obra e permanece aberta.
-
-A segunda tenta substituir a capa enquanto a primeira ainda não concluiu sua transação.
-
-O teste verifica que a substituição precisa aguardar a conclusão da atualização de metadados.
-
-Após os commits, são verificados:
-
-- o título atualizado;
-- a referência da nova capa no PostgreSQL;
-- o `Content-Type` da nova capa;
-- a disponibilidade do conteúdo binário;
-- a ausência de arquivos de capas anteriores no diretório da obra.
-
-Durante o RED, a referência persistida no PostgreSQL não correspondia à nova capa registrada pela operação de substituição.
-
-A correção passou a utilizar `findByIdForUpdate()` também em `CatalogService.updateWork()`.
-
-Assim, `updateWork()` e `setCover()` utilizam o mesmo mecanismo de coordenação sobre a obra.
-
-O teste passou após essa alteração.
+O objetivo é evitar *lost updates*.
 
 ### 11.5. Concorrência entre remoção e substituição de capas
 
-O módulo `catalog` também utiliza o bloqueio pessimista na remoção de capas.
+O teste:
 
-As operações `removeCover()` e `setCover()` acessam a obra através de `findByIdForUpdate()`.
+```text
+shouldPreserveReplacementWhenCoverRemovalCommitsConcurrently()
+```
 
-O cenário de integração é `shouldPreserveReplacementWhenCoverRemovalCommitsConcurrently()`.
+verifica:
 
-O teste utiliza duas transações independentes.
+1. remoção iniciada em transação aberta;
+2. bloqueio da obra;
+3. tentativa concorrente de substituição;
+4. espera pela liberação;
+5. commit da remoção;
+6. persistência da nova capa.
 
-A primeira remove a capa e mantém a transação aberta.
+O estado final deve preservar apenas a nova capa.
 
-A segunda tenta substituir a capa enquanto a primeira ainda possui o bloqueio da obra.
-
-A substituição não deve ser concluída antes da liberação do bloqueio.
-
-Durante esse período, o arquivo original permanece armazenado até o commit da remoção.
-
-Após a confirmação da primeira transação, a segunda pode prosseguir com a definição da nova capa.
-
-O teste verifica:
-
-- aquisição do bloqueio durante a remoção;
-- preservação do arquivo original antes do commit;
-- ausência de conclusão prematura da substituição;
-- persistência da referência da nova capa;
-- persistência do novo `Content-Type`;
-- leitura do conteúdo binário da nova capa;
-- exclusão física da capa original;
-- existência de somente uma capa no diretório ao final.
-
-Esse cenário protege contra inconsistências entre a referência persistida e o arquivo físico quando remoção e substituição acontecem concorrentemente.
+O teste utiliza transações independentes, `CountDownLatch`, `Future` e verificações no PostgreSQL e filesystem.
 
 ### 11.6. Concorrência entre exclusão de obras e criação de installments
 
-A exclusão de obras introduz uma situação de concorrência entre os módulos `catalog` e `publication`.
+A exclusão e a criação de installments compartilham o bloqueio da obra.
 
-O problema ocorre quando uma transação tenta excluir uma obra enquanto outra tenta criar um installment associado à mesma obra.
+**Exclusão confirma primeiro**
 
-Sem coordenação, a exclusão poderia consultar a ausência de installments antes de a outra transação confirmar sua criação.
+O teste `shouldRejectInstallmentCreationWhenWorkDeletionCommitsFirst()` verifica que nenhum installment órfão é persistido.
 
-A implementação utiliza bloqueio pessimista sobre a linha da obra nos dois fluxos.
+**Criação confirma primeiro**
 
-**Fluxo de exclusão da obra**
+O teste `shouldRejectWorkDeletionWhenInstallmentCreationCommitsFirst()` verifica que a exclusão encontra o installment e é rejeitada.
 
-A exclusão é coordenada pelo método `CatalogService.deleteWork(UUID userId, UUID workId)`, chamado pelo `WorkDeletionController`.
+A foreign key `fk_installment_work` fornece proteção adicional.
 
-Esse método:
+### 11.7. Concorrência no início da análise de denúncias
 
-1. inicia ou participa de uma transação;
-2. obtém a obra através de `WorkRepository.findByIdForUpdate()`;
-3. valida a propriedade;
-4. consulta a existência de installments através de `WorkDeletionGuard`;
-5. exclui a obra somente quando não existem installments associados.
+O módulo `moderation` utiliza bloqueio pessimista durante as transições administrativas.
 
-**Fluxo de criação de installments**
+Classe:
 
-A criação de installments é coordenada por `PublicationService.createInstallment()`.
+```text
+ModerationStartReviewConcurrencyIntegrationTests
+```
 
-Durante esse fluxo, o serviço utiliza o método `CatalogService.findWorkForInstallmentCreation(UUID workId)`.
+Uma denúncia inicialmente `OPEN` pode receber tentativas concorrentes de início de análise.
 
-Esse segundo método exige uma transação existente por meio de `Propagation.MANDATORY` e adquire bloqueio pessimista utilizando `WorkRepository.findByIdForUpdate()`.
+O teste verifica que a coordenação impede a confirmação válida de duas transições baseadas no mesmo estado anterior.
 
-Assim, a criação e a exclusão de installments não são responsáveis pelo mesmo conjunto de regras, mas a criação de um installment e a exclusão da obra compartilham o mecanismo de bloqueio necessário para preservar a integridade dos dados.
+Após a primeira transação confirmar `UNDER_REVIEW`, a segunda precisa observar o estado atualizado.
 
-Os testes exercitam dois ordenamentos.
+A operação incompatível é rejeitada.
 
-**Cenário A — exclusão confirma primeiro**
+A auditoria não deve registrar uma transição adicional indevida.
 
-O teste `shouldRejectInstallmentCreationWhenWorkDeletionCommitsFirst()` verifica:
+### 11.8. Concorrência na resolução e restauração
 
-1. a transação de exclusão adquire o bloqueio da obra;
-2. a criação concorrente tenta utilizar a mesma obra;
-3. a exclusão é confirmada;
-4. a criação prossegue após a liberação do bloqueio;
-5. a criação falha porque a obra não existe mais;
-6. nenhum installment órfão é persistido.
+As operações de resolução utilizam bloqueio da denúncia.
 
-**Cenário B — criação confirma primeiro**
+Quando a decisão altera a visibilidade, o catálogo também bloqueia a obra.
 
-O teste `shouldRejectWorkDeletionWhenInstallmentCreationCommitsFirst()` verifica:
+A restauração valida o estado da denúncia e a visibilidade atual.
 
-1. a criação do installment adquire o bloqueio da obra;
-2. a exclusão concorrente tenta acessar a mesma obra;
-3. a criação é confirmada;
-4. a exclusão prossegue;
-5. o serviço identifica a existência do installment;
-6. a exclusão é rejeitada;
-7. a obra e o installment permanecem preservados.
+Os testes de integração verificam que operações incompatíveis não produzem estados finais parcialmente persistidos.
 
-Os testes utilizam transações independentes, sincronização entre threads e verificação do estado final no PostgreSQL.
+Uma restauração duplicada é rejeitada e não deve produzir auditoria adicional.
 
-A foreign key `fk_installment_work` oferece uma proteção adicional de integridade referencial.
+### 11.9. Por que utilizar PostgreSQL real?
 
-### 11.7. Por que utilizar PostgreSQL real?
+Mocks verificam interações, mas não reproduzem integralmente:
 
-Mocks podem verificar chamadas a métodos, mas não reproduzem integralmente o comportamento de bloqueios e isolamento transacional do banco.
-
-Os testes com PostgreSQL real ajudam a verificar:
-
-- aquisição dos bloqueios;
+- aquisição de bloqueios;
 - espera entre transações;
-- visibilidade do estado confirmado;
-- preservação das restrições;
-- resultado final das operações concorrentes;
+- isolamento;
+- visibilidade após commit;
 - comportamento das foreign keys;
-- integridade referencial após exclusões.
+- restrições de unicidade;
+- persistência concorrente;
+- semântica de `ILIKE`;
+- agrupamento e paginação.
 
-Os testes unitários do `CatalogService` verificam a utilização de `findByIdForUpdate()`.
+Os testes unitários verificam a utilização dos métodos de repository.
 
 Os testes de integração verificam o comportamento transacional efetivo.
 
-Na descoberta pública, o PostgreSQL real também é necessário para validar a semântica de `ILIKE`, agrupamento, paginação e contagem de obras distintas.
+### 11.10. Limites dos testes
 
-### 11.8. Limites dos testes
+Os cenários exercitam situações específicas.
 
-Os cenários de concorrência verificam situações específicas e conhecidas.
+Não representam prova exaustiva de ausência de problemas concorrentes.
 
-Não representam uma prova exaustiva de ausência de problemas de concorrência em todas as interações possíveis.
+Testes com:
 
-Os testes que utilizam `CountDownLatch`, `Future`, `WatchService` e intervalos de espera precisam ser interpretados considerando possíveis diferenças de escalonamento e desempenho do ambiente.
+```text
+CountDownLatch
+Future
+WatchService
+```
 
-As janelas temporais utilizadas ajudam a reproduzir e verificar comportamentos concorrentes, mas não constituem, isoladamente, uma prova formal de ordenação.
+e janelas temporais precisam ser interpretados considerando diferenças de escalonamento e desempenho.
 
-As verificações do estado final persistido e dos arquivos físicos complementam essas observações.
+As verificações do estado final complementam as observações temporais.
 
-Novos testes devem ser adicionados quando surgirem operações ou riscos concretos que justifiquem sua criação.
+Novos testes devem ser adicionados quando surgirem riscos concretos.
 
 ## 12. Isolamento dos testes
 
 Os testes devem evitar dependência de dados deixados por execuções anteriores.
 
-Cada cenário precisa preparar suas próprias condições iniciais e verificar seus resultados.
+Cada cenário precisa preparar suas condições iniciais.
 
-Nos testes que utilizam armazenamento físico, os arquivos gerados devem permanecer separados dos arquivos de uso normal da aplicação.
+Arquivos utilizados em testes devem permanecer separados dos arquivos normais da aplicação.
 
-Quando necessário, diretórios de armazenamento destinados aos testes são limpos durante a preparação dos cenários.
-
-Os testes de integração de capas utilizam uma configuração de armazenamento específica:
+Os testes de integração de capas utilizam:
 
 ```properties
 metopa.storage.root=target/test-work-cover-storage
 ```
 
-Os testes de integração da descoberta pública utilizam:
+Os testes de descoberta pública utilizam:
 
 ```properties
 metopa.storage.root=target/test-work-discovery-storage
 ```
 
-As verificações devem considerar tanto o estado do PostgreSQL quanto o estado do filesystem.
+As verificações devem considerar PostgreSQL e filesystem.
 
-A migration V10 exige que registros dependentes de uma obra utilizem um `workId` existente.
+A migration V10 exige referências válidas de obras nos registros dependentes.
 
-Os testes de repositório devem preparar explicitamente essas referências, em vez de depender de registros pré-existentes ou de identificadores sem correspondência no banco.
+As migrations de moderação acrescentam outras regras de integridade que também precisam ser respeitadas.
 
 ### 12.1. Isolamento da descoberta pública
 
-Os testes de descoberta pública executam consultas contra o PostgreSQL real.
+`PublishedWorkDiscoveryIntegrationTests` cria os usuários, obras, installments e páginas necessários.
 
-A classe `PublishedWorkDiscoveryIntegrationTests` cria usuários, obras, installments e páginas necessários para seus cenários.
+Para os filtros por título, utiliza termos exclusivos, normalmente associados a UUIDs.
 
-Para os filtros por título, os testes utilizam termos de pesquisa exclusivos, normalmente combinados com UUIDs.
+Isso permite validar contagens sem exigir banco completamente vazio.
 
-Isso permite validar contagens exatas sem depender de uma base de dados completamente vazia.
+Nos testes de paginação, timestamps são ajustados explicitamente para estabelecer uma ordem conhecida.
 
-Por exemplo, um teste pode criar três obras que compartilham um marcador exclusivo:
+Os testes de listagem geral também consideram a quantidade anterior de obras publicadas.
 
-- duas obras com installments publicados;
-- uma obra contendo apenas um installment em draft.
+Entretanto, não existe garantia de isolamento completo por banco descartável em todos os cenários.
 
-A consulta pelo marcador deve retornar apenas as duas obras publicadas.
+### 12.2. Isolamento da moderação
 
-Nos testes de paginação, os timestamps dos installments são ajustados explicitamente para estabelecer uma ordem conhecida.
+Os testes de moderação devem preparar suas próprias denúncias e obras.
 
-Essa estratégia evita depender da velocidade de criação dos registros para determinar a ordenação esperada.
+Quando um teste exige estado `UNDER_REVIEW`, a transição necessária deve ser preparada explicitamente.
 
-Os testes existentes de listagem geral também verificam a quantidade de obras publicadas antes e depois da preparação dos dados.
+Quando exige uma obra `RESTRICTED`, o cenário deve estabelecer esse estado antes da verificação.
 
-Entretanto, esses cenários pressupõem que outras operações não modifiquem simultaneamente os mesmos resultados durante a execução.
+Testes de autenticação administrativa precisam preparar contas e papéis de acesso compatíveis.
 
-A implementação atual não garante isolamento completo por banco descartável ou limpeza automática de todos os registros gerados.
+As verificações de auditoria devem considerar apenas os registros relacionados ao cenário.
 
-A adoção de estratégias adicionais de limpeza e isolamento poderá ser avaliada caso necessário.
+Testes de restauração não devem depender de restrições criadas em execuções anteriores.
 
 ### Recomendações
 
 - evitar dependência da ordem de execução;
-- não depender de identificadores gerados em outro teste;
-- preparar explicitamente os dados necessários;
-- respeitar as foreign keys do schema;
-- utilizar configurações de armazenamento próprias dos testes;
-- verificar o estado final persistido;
-- limpar recursos criados pelos cenários de teste quando apropriado;
-- evitar sleeps arbitrários em testes concorrentes;
-- utilizar mecanismos de sincronização controlada quando necessário;
-- utilizar timeouts para evitar esperas indefinidas;
-- liberar bloqueios e encerrar executores em blocos `finally`;
-- validar referências do PostgreSQL e arquivos físicos após operações concorrentes;
-- utilizar marcadores exclusivos quando testes consultarem dados persistidos compartilhados;
-- não pressupor que a base de dados esteja vazia;
-- evitar testes que dependam de timestamps gerados com diferenças mínimas.
+- não reutilizar identificadores de outro teste;
+- preparar explicitamente os dados;
+- respeitar foreign keys;
+- utilizar armazenamento de teste;
+- verificar estado final persistido;
+- limpar recursos quando apropriado;
+- evitar sleeps arbitrários;
+- utilizar sincronização controlada;
+- utilizar timeouts;
+- liberar bloqueios;
+- encerrar executores em `finally`;
+- utilizar marcadores exclusivos;
+- não pressupor banco vazio;
+- evitar ordenação baseada em timestamps muito próximos;
+- criar denúncias independentes;
+- preparar explicitamente os papéis de acesso;
+- verificar o histórico de auditoria;
+- preservar dados utilizados por outros cenários.
 
 ## 13. Diagnóstico de falhas
 
@@ -2388,133 +2588,180 @@ Verificar:
 
 - dados de entrada;
 - normalização;
-- validações de comandos;
+- comandos;
 - regras de domínio;
-- resposta HTTP esperada.
+- enums;
+- transições;
+- respostas HTTP.
 
 ### 13.2. Falhas de persistência
 
 Verificar:
 
-- disponibilidade do PostgreSQL;
-- configuração do datasource;
-- execução do Flyway;
-- restrições do banco;
+- PostgreSQL;
+- datasource;
+- Flyway;
+- constraints;
 - fronteiras transacionais;
-- estado final persistido;
-- integridade referencial entre entidades;
-- funcionamento das consultas SQL nativas;
-- correspondência entre consultas de conteúdo e contagem.
+- estado persistido;
+- integridade referencial;
+- SQL nativo;
+- consultas de conteúdo e contagem.
 
-Após a migration V10, falhas de persistência envolvendo `work_id` também devem considerar se a obra referenciada foi criada corretamente.
+Após a V10, verificar se o `workId` utilizado existe.
 
-Uma tentativa de persistir um installment, uma entrada de biblioteca ou um progresso de leitura com um `workId` inexistente pode violar a foreign key correspondente.
+Após as migrations V11–V18, verificar também as constraints de moderação, papéis e visibilidade.
 
-### 13.3. Falhas de autenticação
+### 13.3. Falhas de autenticação e autorização
 
 Verificar:
 
 - sessão autenticada;
-- permissões do usuário;
+- papel do usuário;
+- autoridades carregadas;
+- `ROLE_ADMIN`;
 - propriedade da obra;
-- token CSRF;
-- código HTTP esperado.
+- CSRF;
+- código esperado.
+
+Um usuário autenticado com papel regular não deve receber autorização administrativa.
 
 ### 13.4. Falhas de armazenamento
 
 Verificar:
 
-- configuração do diretório de armazenamento;
+- diretório configurado;
 - criação do arquivo;
-- geração do `storageKey`;
-- operações de leitura e exclusão;
-- momento da execução dos callbacks transacionais;
-- resultado da transação PostgreSQL;
-- correspondência entre referências persistidas e arquivos físicos.
+- `storageKey`;
+- leitura;
+- exclusão;
+- callbacks;
+- resultado da transação;
+- referências persistidas.
 
-Na remoção de capas, verificar especialmente se o arquivo foi excluído antes ou depois do commit e se os metadados da entidade correspondem ao estado final do filesystem.
+Na remoção de capas, confirmar o momento da exclusão física.
 
-Na exclusão de obras, verificar se o registro foi removido antes da limpeza física e se o arquivo da capa foi preservado em caso de rollback.
+Na exclusão de obras, confirmar que a limpeza ocorreu após commit.
 
 ### 13.5. Falhas de concorrência
 
 Verificar:
 
-- utilização do bloqueio pessimista;
-- início das transações independentes;
+- bloqueio pessimista;
+- transações independentes;
 - ordem dos eventos;
-- momento do commit ou rollback;
-- estado final observado pelas transações;
-- restrições do PostgreSQL;
-- atualização de referências com valores anteriormente carregados;
-- existência de arquivos órfãos após operações concorrentes.
+- commit e rollback;
+- estado final;
+- restrições PostgreSQL;
+- referências desatualizadas;
+- arquivos órfãos;
+- auditorias duplicadas;
+- transições inválidas.
 
-Quando o cenário envolve remoção e substituição de capas, verificar se ambas as operações utilizam `findByIdForUpdate()` e se a referência final corresponde ao arquivo físico preservado.
-
-Quando o cenário envolve exclusão de obras e criação de installments, verificar se ambos os fluxos adquirem o bloqueio pessimista da mesma obra.
-
-Também verificar se a criação ocorre dentro de uma transação que permanece ativa até a persistência do installment.
+Na moderação, verificar o estado da denúncia antes e depois da tentativa concorrente.
 
 ### 13.6. Falhas de tratamento HTTP
 
 Verificar:
 
-- existência do endpoint e método HTTP correto;
-- mapeamento do controller;
-- parâmetros da requisição;
-- exceção lançada pelo serviço;
-- tratamento no `@RestControllerAdvice`;
-- resposta `ProblemDetail`;
-- código HTTP esperado.
+- rota;
+- método;
+- controller;
+- parâmetros;
+- exceção;
+- `@RestControllerAdvice`;
+- handlers locais;
+- `ProblemDetail`;
+- código esperado.
 
-Na implementação de remoção de capas, o teste de obra inexistente identificou uma `WorkNotFoundException` não tratada adequadamente pela camada HTTP.
+Na exclusão de obras, `WorkHasInstallmentsException` é tratado por `CatalogExceptionHandler`, retornando `409 Conflict`.
 
-A inclusão do tratamento em `CatalogExceptionHandler` corrigiu esse cenário, permitindo retornar `404 Not Found`.
-
-Na exclusão de obras, a exceção `WorkHasInstallmentsException` é tratada pelo `CatalogExceptionHandler`, retornando `409 Conflict`.
-
-O erro diferencia a tentativa de excluir uma obra com installments de uma tentativa de excluir uma obra inexistente.
+Na moderação, transições inválidas recebem tratamento HTTP de conflito.
 
 ### 13.7. Falhas na descoberta pública
 
-Quando um teste de descoberta pública falhar, verificar:
+Verificar:
 
-- se os installments foram publicados corretamente;
-- se existem obras com apenas installments `DRAFT`;
-- se a consulta utiliza `status = 'PUBLISHED'`;
-- se o agrupamento por `work_id` evita duplicações;
-- se os filtros são aplicados antes da paginação;
-- se a consulta de contagem utiliza os mesmos filtros;
-- se o total representa obras distintas;
-- se os UUIDs e gêneros utilizados no teste correspondem aos registros persistidos;
-- se o título foi normalizado adequadamente;
-- se `%`, `_` e `!` foram escapados;
-- se a ordenação utiliza `MAX(updated_at)` dos installments publicados;
-- se o desempate por UUID está sendo respeitado;
-- se os metadados da resposta HTTP correspondem aos resultados do repository.
+- installments publicados;
+- obras apenas com drafts;
+- visibilidade `PUBLIC`;
+- visibilidade `RESTRICTED`;
+- agrupamento por `work_id`;
+- filtros antes da paginação;
+- consulta de contagem;
+- obras distintas;
+- UUIDs;
+- gêneros;
+- normalização do título;
+- escape de `%`, `_` e `!`;
+- ordenação por `MAX(updated_at)`;
+- desempate por UUID;
+- metadados da resposta.
 
-Quando a falha estiver relacionada a `ILIKE`, verificar especialmente a preparação do padrão de busca no `PublicationService` e a condição SQL utilizada no `InstallmentRepository`.
+Para falhas relacionadas à moderação, verificar se a visibilidade foi efetivamente persistida antes da consulta pública.
 
-Para falhas de paginação, verificar tanto a consulta de conteúdo quanto a consulta de contagem.
+### 13.8. Falhas de moderação
 
-Para falhas de ordenação, confirmar os valores efetivamente persistidos na coluna `updated_at`.
+Quando um teste de moderação falhar, verificar:
 
-### 13.8. Falhas na integração contínua
+- existência da denúncia;
+- estado inicial;
+- decisão anterior;
+- justificativa;
+- identificação do administrador;
+- papel `ADMIN`;
+- auditoria;
+- bloqueio pessimista;
+- transação;
+- visibilidade atual da obra.
+
+#### Falha no início de análise
+
+Confirmar que a denúncia estava `OPEN`.
+
+Uma denúncia `UNDER_REVIEW` não pode iniciar novamente a mesma análise.
+
+#### Falha na resolução
+
+Confirmar que a denúncia estava `UNDER_REVIEW`.
+
+Verificar a decisão informada e a visibilidade da obra.
+
+#### Falha na restauração
+
+Confirmar:
+
+- denúncia `RESOLVED`;
+- decisão `WORK_RESTRICTED`;
+- obra `RESTRICTED`;
+- ausência de restauração anterior incompatível.
+
+#### Falha de auditoria
+
+Verificar se a ação esperada foi persistida somente após uma operação válida.
+
+Uma operação rejeitada não deve criar auditoria indevida.
+
+### 13.9. Falhas na integração contínua
 
 Quando um Pull Request falhar na CI, verificar:
 
-- se a falha ocorreu na compilação, nos testes ou no empacotamento;
-- se o PostgreSQL de serviço iniciou corretamente;
-- se o datasource utiliza as credenciais e a conexão esperadas;
-- se as migrations Flyway foram aplicadas;
-- se há diferenças entre o ambiente local e o ambiente de CI;
-- se os testes dependem de dados ou arquivos criados fora do próprio cenário;
-- se existem testes sensíveis a tempo, concorrência ou ordem de execução;
-- se o Maven retornou um erro de dependência ou configuração.
+- compilação;
+- testes;
+- empacotamento;
+- inicialização do PostgreSQL;
+- datasource;
+- migrations;
+- diferenças entre ambientes;
+- dados residuais;
+- arquivos de teste;
+- concorrência;
+- dependências;
+- configuração do Maven.
 
-O log do GitHub Actions deve ser utilizado para identificar a etapa exata da falha.
+O log do GitHub Actions deve indicar a etapa afetada.
 
-Quando necessário, executar localmente a classe afetada antes de repetir a validação completa.
+Quando necessário, execute a classe individualmente antes da suíte completa.
 
 ## 14. Critérios de conclusão de uma alteração
 
@@ -2522,43 +2769,84 @@ Antes de concluir uma feature ou correção no backend, recomenda-se verificar:
 
 - [ ] Regras de negócio implementadas.
 - [ ] Testes relevantes criados ou atualizados.
-- [ ] Testes relacionados à alteração aprovados.
-- [ ] Cenários de erro e autorização considerados.
-- [ ] Efeitos persistidos verificados quando necessário.
-- [ ] Comportamento de rollback analisado em operações transacionais.
-- [ ] Restrições de integridade referencial verificadas quando aplicável.
-- [ ] Cenários de concorrência considerados quando relevantes.
-- [ ] Consultas de filtro, contagem e paginação verificadas quando aplicável.
-- [ ] Limites entre módulos preservados.
+- [ ] Testes relacionados aprovados.
+- [ ] Cenários de erro considerados.
+- [ ] Autenticação e autorização verificadas.
+- [ ] CSRF considerado nas operações de escrita.
+- [ ] Efeitos persistidos verificados.
+- [ ] Rollback analisado quando necessário.
+- [ ] Integridade referencial verificada.
+- [ ] Concorrência considerada quando relevante.
+- [ ] Consultas e paginação verificadas.
+- [ ] Transições de estado validadas.
+- [ ] Auditoria verificada quando aplicável.
+- [ ] Visibilidade pública validada.
+- [ ] Limites modulares preservados.
 - [ ] Suíte completa executada com `./mvnw clean verify`.
-- [ ] Documentação atualizada quando o comportamento ou contrato mudou.
+- [ ] Documentação atualizada.
 - [ ] `git diff --check` sem problemas.
-- [ ] Pull Request preparada com resumo e validação.
-- [ ] Checks obrigatórios do GitHub Actions aprovados antes do merge.
+- [ ] Pull Request preparada.
+- [ ] Checks obrigatórios aprovados.
+- [ ] CI após merge verificada quando aplicável.
 
-Para mudanças exclusivamente documentais, a execução completa da suíte Java não é obrigatória quando nenhum código, teste ou arquivo de configuração de execução foi modificado.
+Para alterações exclusivamente documentais, a execução completa da suíte Java não é obrigatória quando nenhum código, teste ou arquivo de configuração de execução foi modificado.
 
 ## 15. Evolução da estratégia
 
-A estratégia de testes deve acompanhar a evolução do MVP.
+A estratégia de testes deve acompanhar o desenvolvimento do MVP.
 
 Novas funcionalidades podem exigir:
 
-- testes adicionais de integração;
+- novos testes de integração;
 - testes de concorrência;
-- validações de contratos HTTP;
-- novos cenários de segurança;
-- testes de integridade referencial;
-- testes de falhas de armazenamento;
-- testes relacionados à reconciliação de arquivos;
-- verificações adicionais de fronteiras arquiteturais;
-- testes de desempenho de consultas;
-- verificação de planos de execução do PostgreSQL;
-- testes de estratégias futuras de indexação;
-- melhor isolamento de bancos de dados utilizados pelos testes;
-- novas verificações na integração contínua.
+- contratos HTTP;
+- cenários de segurança;
+- integridade referencial;
+- falhas de armazenamento;
+- reconciliação de arquivos;
+- testes de modularidade;
+- desempenho de consultas;
+- planos de execução PostgreSQL;
+- estratégias de indexação;
+- maior isolamento de banco;
+- novas verificações na CI.
 
-A evolução da descoberta pública poderá exigir testes adicionais caso sejam introduzidos novos filtros, estratégias de relevância ou mecanismos de indexação.
+### Próxima etapa: reconciliação de arquivos órfãos
+
+A próxima funcionalidade planejada é a reconciliação de arquivos órfãos.
+
+A estratégia de testes deverá considerar:
+
+- arquivos com referências válidas;
+- arquivos sem referências;
+- capas e páginas;
+- arquivos pertencentes a obras `RESTRICTED`;
+- arquivos criados durante transações ainda abertas;
+- uploads em andamento;
+- falhas de exclusão;
+- repetição segura da limpeza;
+- preservação de arquivos válidos;
+- integridade entre PostgreSQL e filesystem.
+
+Um arquivo pertencente a uma obra restrita continua válido quando possui referência persistida.
+
+A reconciliação não deve confundir indisponibilidade pública com ausência de referência.
+
+A implementação ainda precisa ser definida e não faz parte da suíte atual.
+
+### Evoluções futuras
+
+Também poderão ser avaliados:
+
+- otimizações de consulta;
+- índices PostgreSQL;
+- novos filtros de descoberta;
+- novos fluxos administrativos;
+- testes de desempenho;
+- infraestrutura de armazenamento diferente;
+- estratégias de limpeza durável;
+- maior isolamento dos testes;
+- verificações adicionais de observabilidade.
 
 A prioridade é testar comportamentos importantes e riscos identificados, evitando adicionar testes apenas para aumentar a contagem total.
 
