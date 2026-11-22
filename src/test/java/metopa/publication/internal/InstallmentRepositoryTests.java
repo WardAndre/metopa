@@ -58,14 +58,8 @@ class InstallmentRepositoryTests {
 
     @Test
     void shouldPageDistinctPublishedWorkIds() {
-        Long publishedWorksBeforeTest = jdbcTemplate.queryForObject(
-                """
-                SELECT COUNT(DISTINCT work_id)
-                FROM installment
-                WHERE status = 'PUBLISHED'
-                """,
-                Long.class
-        );
+        long publishedWorksBeforeTest =
+                countDiscoverablePublishedWorks();
 
         UUID firstWorkId = UUID.randomUUID();
         UUID secondWorkId = UUID.randomUUID();
@@ -134,22 +128,8 @@ class InstallmentRepositoryTests {
     void shouldFilterPublishedWorkIdsByGenreBeforePagination() {
         String genre = "SCI_FI";
 
-        Long publishedWorksBeforeTest =
-                jdbcTemplate.queryForObject(
-                        """
-                        SELECT COUNT(DISTINCT i.work_id)
-                        FROM installment i
-                        WHERE i.status = 'PUBLISHED'
-                          AND EXISTS (
-                              SELECT 1
-                              FROM work_genre wg
-                              WHERE wg.work_id = i.work_id
-                                AND wg.genre = ?
-                          )
-                        """,
-                        Long.class,
-                        genre
-                );
+        long publishedWorksBeforeTest =
+                countDiscoverablePublishedWorksByGenre(genre);
 
         UUID scienceFictionWorkId = UUID.randomUUID();
         UUID dramaWorkId = UUID.randomUUID();
@@ -469,6 +449,41 @@ class InstallmentRepositoryTests {
         assertThat(result.getTotalElements()).isEqualTo(1);
     }
 
+    private long countDiscoverablePublishedWorks() {
+        return jdbcTemplate.queryForObject(
+                """
+                SELECT COUNT(DISTINCT i.work_id)
+                FROM installment i
+                JOIN work w ON w.id = i.work_id
+                WHERE i.status = 'PUBLISHED'
+                  AND w.visibility = 'PUBLIC'
+                """,
+                Long.class
+        );
+    }
+
+    private long countDiscoverablePublishedWorksByGenre(
+            String genre
+    ) {
+        return jdbcTemplate.queryForObject(
+                """
+                SELECT COUNT(DISTINCT i.work_id)
+                FROM installment i
+                JOIN work w ON w.id = i.work_id
+                WHERE i.status = 'PUBLISHED'
+                  AND w.visibility = 'PUBLIC'
+                  AND EXISTS (
+                      SELECT 1
+                      FROM work_genre wg
+                      WHERE wg.work_id = i.work_id
+                        AND wg.genre = ?
+                  )
+                """,
+                Long.class,
+                genre
+        );
+    }
+
     private void insertPublishedInstallment(
             UUID workId,
             int number
@@ -520,11 +535,12 @@ class InstallmentRepositoryTests {
                     work_type,
                     reading_direction,
                     presentation_mode,
+                    visibility,
                     created_at,
                     updated_at
                 )
                 VALUES (
-                    ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?, ?, 'PUBLIC',
                     CURRENT_TIMESTAMP,
                     CURRENT_TIMESTAMP
                 )

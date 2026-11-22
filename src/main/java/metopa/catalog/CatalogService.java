@@ -1,6 +1,7 @@
 package metopa.catalog;
 
 import jakarta.validation.Valid;
+import metopa.catalog.WorkVisibility;
 import metopa.catalog.internal.Work;
 import metopa.catalog.internal.WorkRepository;
 import metopa.media.BinaryStorage;
@@ -13,6 +14,7 @@ import org.springframework.validation.annotation.Validated;
 
 import java.util.List;
 import java.util.UUID;
+import java.util.Objects;
 
 @Service
 @Validated
@@ -368,5 +370,44 @@ public class CatalogService {
                 work.getId(),
                 work.getOwnerId()
         );
+    }
+
+    @Transactional(readOnly = true)
+    public boolean hasPublicVisibility(UUID workId) {
+        return repository.findById(workId)
+                .map(work ->
+                        work.getVisibility() == WorkVisibility.PUBLIC
+                )
+                .orElse(false);
+    }
+
+    @Transactional
+    public void restrictWork(UUID workId) {
+        Objects.requireNonNull(
+                workId,
+                "workId is required"
+        );
+
+        Work work = repository.findByIdForUpdate(workId)
+                .orElseThrow(() ->
+                        new WorkNotFoundException(workId)
+                );
+
+        work.restrictVisibility();
+    }
+
+    @Transactional
+    public void restoreWork(UUID workId) {
+        Objects.requireNonNull(
+                workId,
+                "workId is required"
+        );
+
+        Work work = repository.findByIdForUpdate(workId)
+                .orElseThrow(() ->
+                        new WorkNotFoundException(workId)
+                );
+
+        work.restoreVisibility();
     }
 }

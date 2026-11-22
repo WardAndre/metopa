@@ -1,3 +1,4 @@
+
 package metopa.identity.internal;
 
 import org.springframework.security.core.userdetails.User;
@@ -31,9 +32,13 @@ class IdentityUserDetailsService implements UserDetailsService {
                         )
                 );
 
+        String[] authorities = account.getRole() == AccountRole.ADMIN
+                ? new String[]{"ROLE_USER", "ROLE_ADMIN"}
+                : new String[]{"ROLE_USER"};
+
         return User.withUsername(account.getUsername())
                 .password(account.passwordHash())
-                .authorities("ROLE_USER")
+                .authorities(authorities)
                 .build();
     }
 }

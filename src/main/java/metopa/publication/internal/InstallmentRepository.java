@@ -47,14 +47,18 @@ public interface InstallmentRepository
             value = """
                     SELECT i.work_id
                     FROM installment i
+                    JOIN work w ON w.id = i.work_id
                     WHERE i.status = 'PUBLISHED'
+                      AND w.visibility = 'PUBLIC'
                     GROUP BY i.work_id
                     ORDER BY MAX(i.updated_at) DESC, i.work_id ASC
                     """,
             countQuery = """
                     SELECT COUNT(DISTINCT i.work_id)
                     FROM installment i
+                    JOIN work w ON w.id = i.work_id
                     WHERE i.status = 'PUBLISHED'
+                      AND w.visibility = 'PUBLIC'
                     """,
             nativeQuery = true
     )
@@ -66,7 +70,9 @@ public interface InstallmentRepository
             value = """
                     SELECT i.work_id
                     FROM installment i
+                    JOIN work w ON w.id = i.work_id
                     WHERE i.status = 'PUBLISHED'
+                      AND w.visibility = 'PUBLIC'
                       AND EXISTS (
                           SELECT 1
                           FROM work_genre wg
@@ -79,7 +85,9 @@ public interface InstallmentRepository
             countQuery = """
                     SELECT COUNT(DISTINCT i.work_id)
                     FROM installment i
+                    JOIN work w ON w.id = i.work_id
                     WHERE i.status = 'PUBLISHED'
+                      AND w.visibility = 'PUBLIC'
                       AND EXISTS (
                           SELECT 1
                           FROM work_genre wg
@@ -96,21 +104,23 @@ public interface InstallmentRepository
 
     @Query(
             value = """
-                SELECT i.work_id
-                FROM installment i
-                JOIN work w ON w.id = i.work_id
-                WHERE i.status = 'PUBLISHED'
-                  AND w.title ILIKE :titlePattern ESCAPE '!'
-                GROUP BY i.work_id
-                ORDER BY MAX(i.updated_at) DESC, i.work_id ASC
-                """,
+                    SELECT i.work_id
+                    FROM installment i
+                    JOIN work w ON w.id = i.work_id
+                    WHERE i.status = 'PUBLISHED'
+                      AND w.visibility = 'PUBLIC'
+                      AND w.title ILIKE :titlePattern ESCAPE '!'
+                    GROUP BY i.work_id
+                    ORDER BY MAX(i.updated_at) DESC, i.work_id ASC
+                    """,
             countQuery = """
-                SELECT COUNT(DISTINCT i.work_id)
-                FROM installment i
-                JOIN work w ON w.id = i.work_id
-                WHERE i.status = 'PUBLISHED'
-                  AND w.title ILIKE :titlePattern ESCAPE '!'
-                """,
+                    SELECT COUNT(DISTINCT i.work_id)
+                    FROM installment i
+                    JOIN work w ON w.id = i.work_id
+                    WHERE i.status = 'PUBLISHED'
+                      AND w.visibility = 'PUBLIC'
+                      AND w.title ILIKE :titlePattern ESCAPE '!'
+                    """,
             nativeQuery = true
     )
     Page<UUID> findPublishedWorkIdsByTitle(
@@ -120,33 +130,35 @@ public interface InstallmentRepository
 
     @Query(
             value = """
-                SELECT i.work_id
-                FROM installment i
-                JOIN work w ON w.id = i.work_id
-                WHERE i.status = 'PUBLISHED'
-                  AND w.title ILIKE :titlePattern ESCAPE '!'
-                  AND EXISTS (
-                      SELECT 1
-                      FROM work_genre wg
-                      WHERE wg.work_id = i.work_id
-                        AND wg.genre = :genre
-                  )
-                GROUP BY i.work_id
-                ORDER BY MAX(i.updated_at) DESC, i.work_id ASC
-                """,
+                    SELECT i.work_id
+                    FROM installment i
+                    JOIN work w ON w.id = i.work_id
+                    WHERE i.status = 'PUBLISHED'
+                      AND w.visibility = 'PUBLIC'
+                      AND w.title ILIKE :titlePattern ESCAPE '!'
+                      AND EXISTS (
+                          SELECT 1
+                          FROM work_genre wg
+                          WHERE wg.work_id = i.work_id
+                            AND wg.genre = :genre
+                      )
+                    GROUP BY i.work_id
+                    ORDER BY MAX(i.updated_at) DESC, i.work_id ASC
+                    """,
             countQuery = """
-                SELECT COUNT(DISTINCT i.work_id)
-                FROM installment i
-                JOIN work w ON w.id = i.work_id
-                WHERE i.status = 'PUBLISHED'
-                  AND w.title ILIKE :titlePattern ESCAPE '!'
-                  AND EXISTS (
-                      SELECT 1
-                      FROM work_genre wg
-                      WHERE wg.work_id = i.work_id
-                        AND wg.genre = :genre
-                  )
-                """,
+                    SELECT COUNT(DISTINCT i.work_id)
+                    FROM installment i
+                    JOIN work w ON w.id = i.work_id
+                    WHERE i.status = 'PUBLISHED'
+                      AND w.visibility = 'PUBLIC'
+                      AND w.title ILIKE :titlePattern ESCAPE '!'
+                      AND EXISTS (
+                          SELECT 1
+                          FROM work_genre wg
+                          WHERE wg.work_id = i.work_id
+                            AND wg.genre = :genre
+                      )
+                    """,
             nativeQuery = true
     )
     Page<UUID> findPublishedWorkIdsByTitleAndGenre(

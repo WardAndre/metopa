@@ -4,6 +4,8 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -30,6 +32,10 @@ public class UserAccount {
     @Column(name = "password_hash", nullable = false, length = 255)
     private String passwordHash;
 
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    private AccountRole role;
+
     protected UserAccount() {
     }
 
@@ -45,6 +51,7 @@ public class UserAccount {
         this.displayName = displayName;
         this.passwordHash = passwordHash;
         this.createdAt = Instant.now();
+        this.role = AccountRole.USER;
     }
 
     public UUID getId() {
@@ -66,6 +73,8 @@ public class UserAccount {
     public Instant getCreatedAt() {
         return createdAt;
     }
+
+    public AccountRole getRole() { return role; }
 
     String passwordHash() {
         return passwordHash;

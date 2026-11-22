@@ -14,6 +14,7 @@ import metopa.catalog.Genre;
 import metopa.catalog.PresentationMode;
 import metopa.catalog.ReadingDirection;
 import metopa.catalog.WorkType;
+import metopa.catalog.WorkVisibility;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -69,6 +70,10 @@ public class Work {
     @Enumerated(EnumType.STRING)
     private Set<Genre> genres =
             new HashSet<>();
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "visibility", nullable = false, length = 20)
+    private WorkVisibility visibility = WorkVisibility.PUBLIC;
 
     protected Work() {
     }
@@ -156,6 +161,8 @@ public class Work {
         return coverContentType;
     }
 
+    public WorkVisibility getVisibility() { return visibility; }
+
     public void setCover(
             String storageKey,
             String contentType
@@ -178,6 +185,28 @@ public class Work {
     public void setGenres(Set<Genre> genres) {
         this.genres.clear();
         this.genres.addAll(genres);
+        this.updatedAt = Instant.now();
+    }
+
+    public void restrictVisibility() {
+        if (visibility != WorkVisibility.PUBLIC) {
+            throw new IllegalStateException(
+                    "Only public works can be restricted."
+            );
+        }
+
+        this.visibility = WorkVisibility.RESTRICTED;
+        this.updatedAt = Instant.now();
+    }
+
+    public void restoreVisibility() {
+        if (visibility != WorkVisibility.RESTRICTED) {
+            throw new IllegalStateException(
+                    "Only restricted works can be restored."
+            );
+        }
+
+        this.visibility = WorkVisibility.PUBLIC;
         this.updatedAt = Instant.now();
     }
 }
