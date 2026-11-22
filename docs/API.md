@@ -2,9 +2,9 @@
 
 Documentação dos endpoints HTTP disponíveis no MVP do Metopa.
 
-A API permite gerenciar contas, autenticação, obras, installments, páginas, biblioteca pessoal e progresso de leitura.
+A API permite gerenciar contas, autenticação, obras, installments, páginas, biblioteca pessoal, progresso de leitura e moderação administrativa.
 
-Este documento descreve os contratos implementados atualmente. Os exemplos utilizam identificadores UUID e dados ilustrativos.
+Este documento descreve os contratos implementados no backend. Os exemplos utilizam identificadores UUID e dados ilustrativos.
 
 ## Visão geral
 
@@ -16,7 +16,12 @@ http://localhost:8080
 
 Os endpoints utilizam o prefixo `/api`.
 
-A API distingue operações públicas de leitura e operações administrativas ou pessoais que exigem autenticação.
+A API distingue:
+
+- operações públicas de leitura;
+- operações pessoais e de criação que exigem autenticação;
+- operações sobre recursos que exigem a propriedade da obra;
+- operações administrativas de moderação que exigem `ROLE_ADMIN`.
 
 ### Autenticação
 
@@ -26,9 +31,20 @@ Após o login, a sessão é identificada pelo cookie `JSESSIONID`.
 
 Endpoints protegidos exigem uma sessão autenticada.
 
+As contas possuem os papéis:
+
+| Papel | Responsabilidade |
+|-------|------------------|
+| `USER` | Operações regulares de criadores e leitores |
+| `ADMIN` | Operações regulares e administração da moderação |
+
+As operações de moderação administrativa exigem a autoridade `ROLE_ADMIN`.
+
+O registro público de usuários não concede privilégios administrativos.
+
 ### Proteção CSRF
 
-Operações que alteram estado exigem um token CSRF válido quando protegidas por essa configuração de segurança.
+Operações que alteram estado exigem um token CSRF válido quando protegidas pela configuração de segurança.
 
 O token pode ser obtido através de:
 
@@ -38,6 +54,8 @@ GET /api/auth/csrf
 
 O cliente deve enviar o token nas requisições protegidas utilizando o header informado pela API.
 
+A autenticação por sessão não substitui a proteção CSRF.
+
 ### Identificadores
 
 As principais entidades utilizam UUIDs:
@@ -45,11 +63,14 @@ As principais entidades utilizam UUIDs:
 - `userId`: usuário;
 - `workId`: obra;
 - `installmentId`: installment;
-- `pageId`: página.
+- `pageId`: página;
+- `reportId`: denúncia de moderação.
 
-Os identificadores relacionados à identidade do usuário autenticado são obtidos internamente a partir da sessão, quando aplicável.
+Os identificadores relacionados ao usuário autenticado são obtidos internamente a partir da sessão, quando aplicável.
 
 O cliente não deve informar o proprietário de uma obra ou de uma biblioteca.
+
+Nas operações administrativas, o identificador do administrador é obtido a partir da identidade autenticada.
 
 ### Códigos HTTP
 
@@ -60,13 +81,32 @@ Os contratos utilizam, entre outros:
 | `200 OK` | Consulta bem-sucedida |
 | `201 Created` | Recurso criado |
 | `204 No Content` | Operação concluída sem corpo de resposta |
-| `400 Bad Request` | Dados inválidos |
+| `400 Bad Request` | Dados ou parâmetros inválidos |
 | `401 Unauthorized` | Autenticação necessária |
 | `403 Forbidden` | Operação não autorizada ou CSRF inválido |
-| `404 Not Found` | Recurso não encontrado ou indisponível |
-| `409 Conflict` | Conflito com uma regra de negócio |
+| `404 Not Found` | Recurso inexistente ou indisponível |
+| `409 Conflict` | Conflito com uma regra de negócio ou transição inválida |
 
 A indicação de possíveis respostas em cada endpoint não substitui todos os erros gerais que podem ocorrer durante o processamento HTTP.
+
+### Respostas de erro
+
+A aplicação utiliza respostas HTTP apropriadas para falhas de validação, autenticação, autorização e regras de negócio.
+
+Alguns conflitos são representados utilizando `ProblemDetail`, compatível com o formato Problem Details.
+
+Exemplo ilustrativo:
+
+```json
+{
+  "type": "about:blank",
+  "title": "Invalid moderation transition",
+  "status": 409,
+  "detail": "The requested moderation action is not allowed in the current state."
+}
+```
+
+O conteúdo exato depende do tratamento de exceções associado à operação.
 
 ---
 
@@ -84,9 +124,9 @@ Exemplo:
 
 ```json
 {
-  "username": "andre",
-  "email": "andre@example.com",
-  "displayName": "André Ward",
+  "username": "reader",
+  "email": "reader@example.com",
+  "displayName": "Metopa Reader",
   "password": "StrongPassword123!"
 }
 ```
@@ -97,12 +137,21 @@ Regras:
 - username e e-mail são normalizados;
 - username e e-mail devem ser únicos;
 - o UUID da conta é gerado pelo domínio;
-- a senha é armazenada como hash bcrypt, nunca em texto puro.
+- a senha é armazenada como hash bcrypt, nunca em texto puro;
+- novas contas recebem o papel regular `USER`;
+- o registro público não permite solicitar o papel `ADMIN`.
 
 Resposta de sucesso:
 
 ```http
 201 Created
+```
+
+Possíveis respostas:
+
+```text
+400 → dados inválidos
+409 → username ou e-mail já utilizado
 ```
 
 ### 1.2. Obter token CSRF
@@ -138,6 +187,8 @@ Após autenticação bem-sucedida, o servidor estabelece uma sessão HTTP identi
 
 As mensagens de falha de autenticação não revelam se determinado username existe.
 
+As autoridades de acesso utilizadas pelo Spring Security são derivadas do papel associado à conta autenticada.
+
 ### 1.4. Consultar usuário autenticado
 
 ```http
@@ -150,7 +201,7 @@ Exemplo de resposta:
 
 ```json
 {
-  "username": "andre"
+  "username": "reader"
 }
 ```
 
@@ -187,7 +238,7 @@ Exemplo:
 ```json
 {
   "title": "Metopa Origins",
-  "description": "A graphic novel.",
+  "description": "A science fiction graphic novel.",
   "type": "GRAPHIC_NOVEL",
   "readingDirection": "LEFT_TO_RIGHT",
   "presentationMode": "SINGLE_PAGE",
@@ -202,7 +253,7 @@ O proprietário da obra não é informado pelo cliente. O Metopa determina o `ow
 
 O campo `genres` é opcional. Quando omitido, a obra é criada sem gêneros associados.
 
-Os valores disponíveis atualmente são:
+Valores disponíveis:
 
 ```text
 ACTION
@@ -219,6 +270,10 @@ THRILLER
 ```
 
 Valores duplicados não representam gêneros adicionais, pois o domínio mantém os gêneros da obra como um conjunto.
+
+Novas obras possuem inicialmente visibilidade `PUBLIC`.
+
+A visibilidade pública não significa que uma obra sem conteúdo publicado já esteja disponível na descoberta. A publicação de installments continua sendo necessária.
 
 Resposta de sucesso:
 
@@ -242,9 +297,9 @@ PUT /api/works/{workId}
 
 Requer usuário autenticado e token CSRF válido.
 
-Somente o proprietário da obra pode atualizar seus metadados.
+Somente o proprietário pode atualizar os metadados da obra.
 
-A operação utiliza `PUT`: a requisição representa o novo estado completo dos metadados editáveis da obra.
+A operação utiliza `PUT`: a requisição representa o novo estado completo dos metadados editáveis.
 
 Exemplo:
 
@@ -282,7 +337,7 @@ Regras:
 - os gêneros anteriores são substituídos pelo conjunto informado;
 - título e descrição são normalizados antes da persistência.
 
-O identificador da obra, o proprietário, a capa e a data de criação não são modificados.
+O identificador da obra, o proprietário, a capa, a data de criação e a visibilidade não são modificados por esse endpoint.
 
 A atualização utiliza bloqueio pessimista sobre a obra para coordenar alterações concorrentes de metadados e capas.
 
@@ -295,9 +350,9 @@ Resposta de sucesso:
 Possíveis respostas:
 
 ```text
-400 → um ou mais metadados são inválidos
+400 → metadados inválidos
 401 → usuário não autenticado
-403 → token CSRF ausente ou inválido, ou usuário não é proprietário da obra
+403 → CSRF inválido ou usuário não é proprietário
 404 → obra não encontrada
 ```
 
@@ -336,34 +391,20 @@ A listagem pode incluir:
 - obras com apenas installments `DRAFT`;
 - obras com conteúdo publicado.
 
+A consulta administrativa do criador é independente da descoberta pública.
+
+Uma restrição de visibilidade impede o acesso público, mas não exclui o registro da obra do catálogo.
+
 Somente obras pertencentes ao usuário autenticado são retornadas.
 
 A ordenação considera as obras atualizadas mais recentemente primeiro.
 
-A ordem dos elementos de `genres` não faz parte do contrato da API.
+A ordem dos elementos de `genres` não faz parte do contrato.
 
 Uma listagem vazia retorna:
 
 ```json
 []
-```
-
-Possível resposta:
-
-```text
-401 → usuário não autenticado
-```
-
-A consulta administrativa é independente da descoberta pública:
-
-```text
-GET /api/works
-→ descoberta pública
-→ somente obras com conteúdo publicado
-
-GET /api/me/works
-→ gerenciamento do criador
-→ todas as obras do proprietário autenticado
 ```
 
 ### 2.4. Consultar obra para o criador
@@ -396,19 +437,6 @@ Exemplo:
 }
 ```
 
-A resposta contém:
-
-```text
-id
-title
-description
-type
-readingDirection
-presentationMode
-genres
-hasCover
-```
-
 O `storageKey` da capa não é exposto.
 
 A ordem dos gêneros não representa informação semântica.
@@ -419,7 +447,7 @@ Possíveis respostas:
 
 ```text
 401 → usuário não autenticado
-403 → usuário não é proprietário da obra
+403 → usuário não é proprietário
 404 → obra não encontrada
 ```
 
@@ -428,7 +456,7 @@ Diferença entre as consultas:
 ```text
 GET /api/works/{workId}
 → visão pública
-→ requer conteúdo publicado
+→ requer conteúdo publicado e visibilidade PUBLIC
 
 GET /api/me/works/{workId}
 → visão do proprietário
@@ -483,7 +511,7 @@ Possíveis respostas:
 
 ```text
 401 → usuário não autenticado
-403 → token CSRF ausente ou inválido, ou usuário não é proprietário da obra
+403 → CSRF inválido ou usuário não é proprietário
 404 → obra não encontrada
 ```
 
@@ -507,17 +535,15 @@ Quando a obra possui uma capa:
 
 1. o backend localiza e bloqueia a obra utilizando `PESSIMISTIC_WRITE`;
 2. a propriedade da obra é validada;
-3. os campos `coverStorageKey` e `coverContentType` são removidos da entidade;
+3. os campos `coverStorageKey` e `coverContentType` são removidos;
 4. a alteração é persistida na transação PostgreSQL;
 5. após o commit, o arquivo físico é excluído através de `BinaryStorage`.
 
-Se a transação sofrer rollback, a referência anterior e o arquivo físico permanecem preservados.
+Se ocorrer rollback, a referência anterior e o arquivo permanecem preservados.
 
 A operação é **idempotente**.
 
 Quando a obra existe, mas não possui capa, a remoção continua sendo considerada bem-sucedida.
-
-Chamadas repetidas à operação retornam a mesma resposta de sucesso, desde que a obra continue existindo e o usuário tenha autorização.
 
 Resposta de sucesso:
 
@@ -525,13 +551,11 @@ Resposta de sucesso:
 204 No Content
 ```
 
-A resposta não possui corpo.
-
 Possíveis respostas:
 
 ```text
 401 → usuário não autenticado
-403 → token CSRF ausente ou inválido, ou usuário não é proprietário da obra
+403 → CSRF inválido ou usuário não é proprietário
 404 → obra não encontrada
 ```
 
@@ -539,12 +563,10 @@ A remoção da capa não exclui a obra, seus metadados, installments ou páginas
 
 Após uma remoção confirmada:
 
-- a consulta administrativa da obra apresenta `hasCover: false`;
+- `hasCover` passa a ser `false`;
 - a leitura administrativa da capa deixa de disponibilizar o arquivo;
 - a leitura pública da capa deixa de disponibilizar o arquivo;
-- nas representações públicas que disponibilizam `coverUrl`, o valor passa a ser `null` para obras sem capa.
-
-A remoção é coordenada com substituições de capas e atualizações de metadados através do bloqueio pessimista da entidade `Work`.
+- `coverUrl` passa a ser `null` nas representações públicas.
 
 A exclusão física utiliza `TransactionSynchronization.afterCommit()`.
 
@@ -560,9 +582,9 @@ Requer sessão autenticada.
 
 Retorna diretamente o conteúdo binário da capa quando o usuário é proprietário da obra.
 
-A leitura administrativa independe de a obra possuir conteúdo publicado.
+A leitura administrativa independe da existência de conteúdo publicado.
 
-A propriedade da obra é validada antes da leitura no armazenamento binário.
+A propriedade da obra é validada antes do acesso ao armazenamento binário.
 
 Exemplo:
 
@@ -579,11 +601,9 @@ Possíveis respostas:
 
 ```text
 401 → usuário não autenticado
-403 → usuário não é proprietário da obra
+403 → usuário não é proprietário
 404 → obra ou capa não encontrada
 ```
-
-Após a remoção da capa, este endpoint retorna `404` enquanto não existir uma nova capa.
 
 ### 2.8. Ler capa publicamente
 
@@ -598,7 +618,8 @@ Retorna os bytes da capa com seu `Content-Type`.
 A capa somente é disponibilizada publicamente quando:
 
 - a obra possui uma capa;
-- a obra possui pelo menos um installment publicado.
+- a obra possui pelo menos um installment publicado;
+- a visibilidade da obra é `PUBLIC`.
 
 Exemplo:
 
@@ -613,11 +634,9 @@ Possível resposta:
 404 → capa não disponível
 ```
 
+A restrição administrativa de uma obra também torna sua capa indisponível publicamente.
+
 O `storageKey` não é exposto.
-
-A remoção da capa não altera o estado de publicação dos installments.
-
-Uma obra que continua possuindo conteúdo publicado permanece disponível publicamente, mesmo sem capa.
 
 ### 2.9. Excluir obra
 
@@ -637,82 +656,52 @@ Quando a operação é permitida:
 
 1. o backend localiza e bloqueia a obra utilizando `PESSIMISTIC_WRITE`;
 2. a propriedade da obra é validada antes de consultar os installments;
-3. o módulo `catalog` consulta o contrato `WorkDeletionGuard`, implementado pelo módulo `publication`, para verificar se existem installments associados;
-4. se houver qualquer installment, a operação é rejeitada sem excluir a obra;
-5. se não houver installments, o registro da obra é removido na transação PostgreSQL;
-6. o PostgreSQL remove as associações de gêneros, entradas de biblioteca e registros de progresso de leitura através das restrições de `ON DELETE CASCADE`;
-7. quando a obra possui capa, o arquivo físico é removido através de `BinaryStorage` somente após o commit da transação.
+3. o módulo `catalog` consulta o contrato `WorkDeletionGuard`, implementado pelo módulo `publication`;
+4. se houver qualquer installment, a operação é rejeitada;
+5. se não houver installments, o registro é removido na transação PostgreSQL;
+6. as associações de gêneros, entradas de biblioteca e progresso são removidas conforme as constraints do banco;
+7. quando existe capa, o arquivo físico é removido somente após o commit.
 
-Se a transação sofrer rollback, a obra, suas referências no PostgreSQL e o arquivo físico da capa permanecem preservados.
+Se ocorrer rollback, a obra, suas referências e o arquivo da capa permanecem preservados.
 
-**Restrições de negócio:**
+Restrições:
 
 - obras sem installments podem ser excluídas;
 - obras com installments `DRAFT` não podem ser excluídas;
 - obras com installments `PUBLISHED` não podem ser excluídas;
-- a existência de uma capa não impede a exclusão;
-- a existência de gêneros associados não impede a exclusão;
+- a existência de capa ou gêneros não impede a exclusão;
 - o proprietário deve ser validado antes da consulta aos installments.
 
 A migration `V10__add_work_reference_constraints.sql` reforça essas regras diretamente no PostgreSQL.
 
-A relação `installment.work_id` utiliza `ON DELETE RESTRICT`, impedindo que uma obra com installments seja excluída mesmo por uma operação SQL que não passe pelos serviços da aplicação.
+A relação `installment.work_id` utiliza `ON DELETE RESTRICT`, impedindo que obras com installments sejam excluídas por operações SQL diretas.
 
-As relações `library_entry.work_id` e `reading_progress.work_id` utilizam `ON DELETE CASCADE`. A associação `work_genre.work_id` já utiliza essa política desde a migration V9.
-
-**Resposta de sucesso:**
+Resposta de sucesso:
 
 ```http
 204 No Content
 ```
 
-A resposta não possui corpo.
-
-**Possíveis respostas:**
+Possíveis respostas:
 
 ```text
 401 → usuário não autenticado
-403 → token CSRF ausente ou inválido, ou usuário não é proprietário da obra
+403 → CSRF inválido ou usuário não é proprietário
 404 → obra não encontrada
-409 → obra possui um ou mais installments, em DRAFT ou PUBLISHED
+409 → obra possui installments DRAFT ou PUBLISHED
 ```
 
-Quando a obra possui installments, a aplicação retorna `409 Conflict` com um erro `ProblemDetail`.
+Quando a obra possui installments, a aplicação retorna `409 Conflict` com `ProblemDetail`.
 
-Campos relevantes da resposta:
+A operação não é idempotente em termos de resposta HTTP.
 
-```json
-{
-  "title": "Work cannot be deleted",
-  "detail": "A work with installments cannot be deleted."
-}
-```
+Após uma exclusão bem-sucedida, uma nova tentativa com o mesmo `workId` retorna `404 Not Found`.
 
-O exemplo apresenta os campos específicos desse conflito, não necessariamente todos os campos da resposta HTTP.
+A exclusão da obra e a criação de installments utilizam bloqueio pessimista sobre a mesma entidade `Work`.
 
-A operação **não é idempotente em termos de resposta HTTP**.
+O objetivo é impedir que uma exclusão e uma criação concorrentes produzam registros inconsistentes.
 
-Após uma exclusão bem-sucedida, uma nova tentativa com o mesmo `workId` retorna `404 Not Found`, pois a obra não existe mais.
-
-**Concorrência:**
-
-A exclusão da obra e a criação de installments utilizam bloqueio pessimista sobre a mesma linha da entidade `Work`.
-
-A criação de installments ocorre dentro de uma transação e utiliza o método `findWorkForInstallmentCreation()`, que exige uma transação existente e adquire o bloqueio da obra.
-
-Isso estabelece os seguintes comportamentos:
-
-- se a exclusão da obra confirmar primeiro, a criação concorrente do installment não encontra mais a obra;
-- se a criação do installment confirmar primeiro, a exclusão concorrente encontra um installment e é rejeitada;
-- as duas operações não podem concluir simultaneamente produzindo uma obra excluída com um installment órfão.
-
-**Armazenamento binário:**
-
-A exclusão do registro da obra e a remoção do arquivo da capa não constituem uma transação distribuída.
-
-O registro é removido no PostgreSQL e, após a confirmação da transação, o arquivo físico é excluído por um callback `TransactionSynchronization.afterCommit()`.
-
-Uma falha na limpeza física posterior ao commit pode deixar o arquivo órfão, pois a transação do PostgreSQL já terá sido confirmada.
+A exclusão física da capa ocorre após commit e não constitui uma transação distribuída com o PostgreSQL.
 
 ---
 
@@ -749,14 +738,11 @@ STRIP
 
 O installment é criado inicialmente com status `DRAFT`.
 
-A criação ocorre dentro de uma transação e adquire um bloqueio pessimista na linha da obra.
-
-Essa coordenação impede condições de corrida com a exclusão concorrente da mesma obra:
-
-- quando a exclusão da obra confirma primeiro, a criação não encontra mais a obra;
-- quando a criação do installment confirma primeiro, a exclusão da obra é rejeitada pela existência do installment.
-
 A combinação de tipo e número deve ser única dentro da obra.
+
+A criação ocorre dentro de uma transação e adquire bloqueio pessimista na linha da obra.
+
+Essa coordenação impede condições de corrida com a exclusão concorrente da mesma obra.
 
 ### 3.2. Listar installments para o criador
 
@@ -789,16 +775,6 @@ Exemplo:
 ]
 ```
 
-Cada elemento contém:
-
-```text
-id
-type
-number
-title
-status
-```
-
 Os installments são ordenados por número crescente e, em caso de empate, pela data de criação.
 
 Uma obra sem installments retorna:
@@ -811,20 +787,11 @@ Possíveis respostas:
 
 ```text
 401 → usuário não autenticado
-403 → usuário não é proprietário da obra
+403 → usuário não é proprietário
 404 → obra não encontrada
 ```
 
-Essa consulta é diferente da leitura pública:
-
-```text
-GET /api/works/{workId}
-→ somente installments publicados
-
-GET /api/me/works/{workId}/installments
-→ installments DRAFT e PUBLISHED
-→ status explícito
-```
+A consulta administrativa inclui drafts, diferentemente da leitura pública.
 
 ### 3.3. Consultar installment para o criador
 
@@ -833,8 +800,6 @@ GET /api/me/installments/{installmentId}
 ```
 
 Requer sessão autenticada.
-
-Retorna um installment pertencente a uma obra do usuário autenticado.
 
 Permite consultar installments `DRAFT` e `PUBLISHED`, incluindo suas páginas.
 
@@ -858,26 +823,6 @@ Exemplo:
 }
 ```
 
-A resposta contém:
-
-```text
-id
-workId
-type
-number
-title
-status
-pages
-```
-
-Cada página contém:
-
-```text
-id
-number
-contentType
-```
-
 As páginas são ordenadas por número crescente.
 
 O `storageKey` não é exposto.
@@ -886,7 +831,7 @@ Possíveis respostas:
 
 ```text
 401 → usuário não autenticado
-403 → usuário não é proprietário da obra
+403 → usuário não é proprietário
 404 → installment não encontrado
 ```
 
@@ -899,8 +844,6 @@ PUT /api/installments/{installmentId}
 Requer sessão autenticada, token CSRF válido e propriedade da obra.
 
 A atualização é permitida somente enquanto o installment estiver em estado `DRAFT`.
-
-A operação representa o estado completo dos metadados editáveis.
 
 Exemplo:
 
@@ -927,7 +870,7 @@ Regras:
 - `title` é opcional;
 - espaços nas extremidades do título são removidos;
 - título vazio é normalizado para ausência de título;
-- a combinação de tipo e número deve ser única dentro da obra;
+- a combinação de tipo e número deve ser única;
 - alterar apenas o título não causa conflito com o próprio installment.
 
 O identificador, a obra associada, o status e a data de criação não são modificados.
@@ -963,11 +906,11 @@ Installments `PUBLISHED` não podem ser excluídos.
 
 Quando a operação é válida:
 
-1. o backend adquire um bloqueio pessimista na linha do installment;
-2. a propriedade da obra é validada antes do estado de publicação;
-3. as referências internas dos arquivos das páginas são coletadas;
-4. o registro do installment é removido no PostgreSQL;
-5. os registros das páginas são excluídos pelo relacionamento com `ON DELETE CASCADE`;
+1. o backend adquire bloqueio pessimista na linha do installment;
+2. a propriedade da obra é validada;
+3. as referências dos arquivos são coletadas;
+4. o installment é removido no PostgreSQL;
+5. os registros das páginas são excluídos por `ON DELETE CASCADE`;
 6. após o commit, os arquivos físicos são removidos através de `BinaryStorage`.
 
 Se ocorrer rollback, os registros e arquivos existentes permanecem preservados.
@@ -989,9 +932,7 @@ Possíveis respostas:
 
 A autorização é verificada antes de revelar o estado de publicação.
 
-O `storageKey` não é exposto ao cliente.
-
-A limpeza física posterior ao commit não é uma operação distribuída com o PostgreSQL. Falhas após o commit podem deixar arquivos órfãos.
+A limpeza física posterior ao commit não é uma operação distribuída com o PostgreSQL.
 
 ### 3.6. Publicar installment
 
@@ -1017,6 +958,10 @@ Após a publicação, o status passa para `PUBLISHED`.
 
 Installments publicados permanecem imutáveis no MVP.
 
+A publicação de um installment não altera automaticamente a visibilidade administrativa da obra.
+
+Uma obra `RESTRICTED` continua indisponível para leitura pública mesmo que possua installments publicados.
+
 ### 3.7. Consultar installment publicado
 
 ```http
@@ -1025,20 +970,20 @@ GET /api/installments/{installmentId}
 
 Endpoint público.
 
-Retorna somente installments com status `PUBLISHED`.
+Retorna somente installments com status `PUBLISHED` pertencentes a obras com visibilidade `PUBLIC`.
 
 Exemplo:
 
 ```json
 {
-  "id": "550e8400-e29b-41d4-a716-446655440000",
-  "workId": "5c4f1d34-7623-4ccf-9ee1-d5bc16d0af61",
+  "id": "550e8400-e29b-41d4-a716-446655440001",
+  "workId": "550e8400-e29b-41d4-a716-446655440000",
   "type": "CHAPTER",
   "number": 1,
   "title": "The Beginning",
   "pages": [
     {
-      "id": "26fdb67d-261c-4760-b88a-ec0b0843f9fc",
+      "id": "550e8400-e29b-41d4-a716-446655440002",
       "number": 1,
       "contentType": "image/jpeg"
     }
@@ -1049,6 +994,8 @@ Exemplo:
 As páginas são retornadas em ordem de leitura.
 
 Installments `DRAFT` são tratados como não encontrados.
+
+Installments de obras `RESTRICTED` também não são disponibilizados publicamente.
 
 A resposta pública não expõe o status nem o `storageKey`.
 
@@ -1080,7 +1027,7 @@ file   → arquivo da página
 Regras:
 
 - o installment deve estar em estado `DRAFT`;
-- o número da página deve ser único no installment;
+- o número da página deve ser único;
 - o arquivo é armazenado através do módulo `media`;
 - o `storageKey` é gerado internamente;
 - os metadados são persistidos no PostgreSQL.
@@ -1134,7 +1081,7 @@ Possíveis respostas:
 ```text
 401 → usuário não autenticado
 403 → CSRF inválido ou usuário não é proprietário
-404 → installment ou página não encontrada, ou associação inválida
+404 → installment ou página não encontrada
 409 → installment já publicado
 ```
 
@@ -1170,21 +1117,19 @@ Exemplo:
 }
 ```
 
-Os UUIDs são ilustrativos e devem corresponder às páginas existentes.
-
 Regras:
 
 - `pageIds` é obrigatório e não pode estar vazio;
 - todos os elementos devem ser UUIDs válidos e não nulos;
-- todas as páginas do installment devem aparecer exatamente uma vez;
+- todas as páginas devem aparecer exatamente uma vez;
 - IDs duplicados, ausentes ou externos são rejeitados;
 - a ordem dos IDs define a nova ordem de leitura;
 - os números são atribuídos sequencialmente a partir de `1`;
 - lacunas anteriores são eliminadas;
-- conteúdo binário, `Content-Type` e arquivos físicos não são alterados;
+- arquivos físicos e `Content-Type` não são alterados;
 - installments publicados não podem ser reordenados.
 
-A renumeração ocorre em duas fases, com `flush()` intermediário, preservando a restrição de unicidade de número por installment no PostgreSQL.
+A renumeração ocorre em duas fases, com `flush()` intermediário, preservando a unicidade do número da página no PostgreSQL.
 
 Resposta de sucesso:
 
@@ -1201,8 +1146,6 @@ Possíveis respostas:
 404 → installment não encontrado
 409 → installment publicado
 ```
-
-A operação utiliza bloqueio pessimista na linha do installment para coordenar alterações concorrentes.
 
 ### 4.4. Ler conteúdo de página para o criador
 
@@ -1229,7 +1172,7 @@ Possíveis respostas:
 
 ```text
 401 → usuário não autenticado
-403 → usuário não é proprietário da obra
+403 → usuário não é proprietário
 404 → página não encontrada
 ```
 
@@ -1252,15 +1195,29 @@ HTTP/1.1 200 OK
 Content-Type: image/jpeg
 ```
 
-Somente páginas pertencentes a installments publicados estão disponíveis.
+A página somente é disponibilizada quando:
+
+- pertence a um installment `PUBLISHED`;
+- a obra associada possui visibilidade `PUBLIC`.
 
 Páginas em `DRAFT` são tratadas como não encontradas.
+
+Páginas de obras `RESTRICTED` também são tratadas como indisponíveis.
 
 O `storageKey` não é exposto.
 
 ---
 
 ## 5. Descoberta pública
+
+A descoberta pública permite consultar obras disponíveis para leitura sem autenticação.
+
+Uma obra precisa atender a duas condições:
+
+1. possuir pelo menos um installment `PUBLISHED`;
+2. possuir visibilidade `PUBLIC`.
+
+A descoberta utiliza consultas PostgreSQL com filtros aplicados antes da paginação.
 
 ### 5.1. Consultar obra publicada
 
@@ -1270,7 +1227,7 @@ GET /api/works/{workId}
 
 Endpoint público.
 
-Uma obra somente é disponibilizada quando possui pelo menos um installment publicado.
+Uma obra somente é disponibilizada quando possui conteúdo publicado e visibilidade `PUBLIC`.
 
 Resposta de sucesso:
 
@@ -1306,26 +1263,18 @@ Exemplo:
 
 Somente installments publicados são retornados.
 
-Quando não há gêneros, a coleção é vazia:
+Quando a obra não possui gêneros, a coleção é vazia.
 
-```json
-{
-  "genres": []
-}
-```
-
-O exemplo acima ilustra o campo `genres`, não a resposta completa do endpoint.
-
-Quando a obra não possui capa, `coverUrl` é `null`.
-
-A remoção da capa não remove a obra da descoberta pública, desde que ela continue possuindo conteúdo publicado.
+Quando não possui capa, `coverUrl` é `null`.
 
 A ordem dos gêneros não faz parte do contrato.
 
-Possível resposta:
+Possíveis respostas:
 
 ```text
-404 → obra inexistente ou sem conteúdo publicado
+404 → obra inexistente
+404 → obra sem conteúdo publicado
+404 → obra com visibilidade RESTRICTED
 ```
 
 ### 5.2. Listar obras publicadas
@@ -1336,28 +1285,35 @@ GET /api/works
 
 Endpoint público.
 
-Retorna uma página de obras que possuem pelo menos um installment publicado.
+Retorna uma página de obras que possuem pelo menos um installment publicado e visibilidade `PUBLIC`.
 
-Cada obra aparece somente uma vez, independentemente da quantidade de installments publicados.
+O endpoint oferece:
 
-A listagem permite filtrar por título e gênero, além de controlar a paginação. Todos os parâmetros são opcionais.
+- paginação;
+- busca parcial por título;
+- filtragem por gênero;
+- combinação de filtros;
+- ordenação determinística.
 
 Parâmetros disponíveis:
 
 | Parâmetro | Tipo | Padrão | Descrição |
 |-----------|------|--------|-----------|
-| `title` | `String` | Ausente | Busca parcial pelo título da obra |
-| `genre` | `Genre` | Ausente | Filtra obras pelo gênero informado |
-| `page` | `int` | `0` | Índice da página, começando em zero |
-| `size` | `int` | `20` | Quantidade de obras por página, entre 1 e 50 |
+| `title` | String | Sem filtro | Busca parcial pelo título |
+| `genre` | Enum | Sem filtro | Gênero da obra |
+| `page` | Integer | `0` | Página solicitada |
+| `size` | Integer | `20` | Quantidade de resultados por página |
+
+O tamanho permitido é de 1 a 50 resultados por página.
 
 Exemplos:
 
 ```http
 GET /api/works
 GET /api/works?page=0&size=10
-GET /api/works?genre=SCI_FI
 GET /api/works?title=dragon
+GET /api/works?genre=SCI_FI
+GET /api/works?title=dragon&genre=SCI_FI
 GET /api/works?title=dragon&genre=SCI_FI&page=0&size=10
 ```
 
@@ -1367,7 +1323,7 @@ Resposta de sucesso:
 200 OK
 ```
 
-Exemplo de resposta:
+Exemplo ilustrativo de resposta paginada:
 
 ```json
 {
@@ -1390,98 +1346,19 @@ Exemplo de resposta:
 }
 ```
 
-Os campos da resposta são:
+A resposta possui:
 
 | Campo | Descrição |
 |-------|-----------|
-| `content` | Obras retornadas na página solicitada |
-| `page` | Índice da página solicitada |
-| `size` | Tamanho configurado da página |
+| `content` | Obras presentes na página solicitada |
+| `page` | Índice da página |
+| `size` | Tamanho configurado |
 | `totalElements` | Quantidade total de obras que correspondem aos filtros |
-| `totalPages` | Quantidade total de páginas calculadas |
+| `totalPages` | Quantidade total de páginas |
 
-Cada elemento de `content` contém:
+Uma página sem resultados apresenta `content` vazio.
 
-| Campo | Descrição |
-|-------|-----------|
-| `id` | Identificador UUID da obra |
-| `title` | Título da obra |
-| `type` | Formato da obra |
-| `genres` | Gêneros associados à obra |
-| `coverUrl` | URL pública da capa ou `null`, quando não existe capa |
-
-A ordem dos elementos de `genres` não faz parte do contrato da API.
-
-Quando nenhuma obra corresponde aos filtros, a resposta continua sendo `200 OK`:
-
-```json
-{
-  "content": [],
-  "page": 0,
-  "size": 20,
-  "totalElements": 0,
-  "totalPages": 0
-}
-```
-
-Uma página fora do intervalo de resultados também retorna uma coleção vazia, preservando a quantidade total de elementos e páginas.
-
-Por exemplo, quando existe apenas uma página de resultados e o cliente solicita `page=2&size=20`:
-
-```json
-{
-  "content": [],
-  "page": 2,
-  "size": 20,
-  "totalElements": 1,
-  "totalPages": 1
-}
-```
-
-**Regras de publicação e visibilidade:**
-
-- Somente obras com pelo menos um installment `PUBLISHED` são retornadas.
-- Obras sem installments publicados não aparecem na descoberta pública.
-- Obras com apenas installments `DRAFT` permanecem invisíveis.
-- Uma obra é retornada uma única vez, mesmo quando possui vários installments publicados.
-- A ausência de capa não impede a descoberta de uma obra publicada.
-- Filtros são aplicados antes da paginação.
-- A quantidade total de elementos representa obras distintas, não installments.
-
-**Ordenação:**
-
-Os resultados são ordenados pela data de atualização mais recente entre os installments publicados de cada obra.
-
-A ordenação utiliza:
-
-1. `MAX(installment.updated_at)` em ordem decrescente.
-2. Identificador UUID da obra em ordem crescente, para desempate determinístico.
-
-A ordenação considera o histórico de publicação, não a data de atualização dos metadados da obra.
-
-**Validação da paginação:**
-
-- `page` deve ser maior ou igual a `0`.
-- `size` deve estar entre `1` e `50`, inclusive.
-- Valores inválidos retornam `400 Bad Request`.
-- Valores não numéricos para `page` ou `size` também são rejeitados.
-
-Exemplos inválidos:
-
-```http
-GET /api/works?page=-1
-GET /api/works?size=0
-GET /api/works?size=51
-GET /api/works?page=invalid
-```
-
-Resposta:
-
-```http
-400 Bad Request
-```
-
-A paginação e a contagem dos resultados são realizadas por consultas ao PostgreSQL.
+A contagem considera os filtros de título, gênero e visibilidade antes da paginação.
 
 ### 5.3. Filtrar obras por gênero
 
@@ -1491,7 +1368,7 @@ GET /api/works?genre=SCI_FI
 
 O filtro `genre` é opcional.
 
-Quando informado, somente obras publicadas associadas ao gênero solicitado são retornadas.
+Quando informado, somente obras públicas associadas ao gênero solicitado são retornadas.
 
 Valores disponíveis:
 
@@ -1509,38 +1386,15 @@ SLICE_OF_LIFE
 THRILLER
 ```
 
-O parâmetro utiliza os valores do enum `Genre`.
-
-Exemplos:
-
-```http
-GET /api/works?genre=SCI_FI
-GET /api/works?genre=ADVENTURE&page=0&size=10
-```
-
-A filtragem por gênero ocorre no PostgreSQL antes da paginação.
-
-Uma obra que possui múltiplos gêneros continua sendo retornada uma única vez.
-
-Obras que possuem o gênero informado, mas nenhum installment publicado, permanecem invisíveis.
-
-Quando o parâmetro `genre` é omitido, não é aplicado filtro por gênero.
-
 Valores desconhecidos são rejeitados:
-
-```http
-GET /api/works?genre=INVALID
-```
-
-Resposta:
 
 ```http
 400 Bad Request
 ```
 
-A resposta segue o mesmo contrato paginado descrito na seção 5.2.
+Obras com o gênero solicitado, mas sem conteúdo publicado, permanecem invisíveis.
 
-A ordem dos gêneros associados a cada obra não representa informação semântica.
+Obras restritas também são excluídas dos resultados.
 
 ### 5.4. Buscar obras por título
 
@@ -1548,123 +1402,106 @@ A ordem dos gêneros associados a cada obra não representa informação semânt
 GET /api/works?title=dragon
 ```
 
-O filtro `title` é opcional.
+O parâmetro `title` permite realizar uma busca parcial e sem diferenciação entre maiúsculas e minúsculas.
 
-Permite descobrir obras publicadas pelo título, utilizando correspondência parcial de texto.
+A implementação utiliza PostgreSQL `ILIKE`, sem Elasticsearch ou outro mecanismo externo de busca.
 
-A busca é **case-insensitive**, ou seja, não diferencia letras maiúsculas e minúsculas.
+Regras:
+
+- o texto informado pode corresponder a qualquer trecho do título;
+- espaços no início e no final são ignorados;
+- valores ausentes ou em branco não aplicam filtro textual;
+- `%` e `_` são tratados literalmente, não como curingas SQL;
+- a busca considera somente obras publicadas e com visibilidade `PUBLIC`.
 
 Exemplos:
 
 ```http
 GET /api/works?title=dragon
-GET /api/works?title=DRAGON
-GET /api/works?title=Dragon
+GET /api/works?title=origins
+GET /api/works?title=Dragon&page=0&size=10
 ```
 
-As três consultas utilizam a mesma regra de correspondência textual.
-
-**Normalização do parâmetro:**
-
-- Espaços em branco no início e no final são removidos.
-- Um título ausente não aplica filtro textual.
-- Um título vazio ou composto apenas por espaços em branco também não aplica filtro textual.
-- O texto pesquisado não precisa corresponder ao título completo da obra.
-
-Por exemplo, uma busca por `dragon` pode retornar títulos como:
-
-```text
-Dragon Chronicles
-The Last Dragon
-Legends of the Dragon
-```
-
-Os títulos acima são ilustrativos.
-
-**Caracteres especiais:**
-
-A busca trata os caracteres `%`, `_` e `!` como caracteres literais.
-
-O usuário não pode utilizar `%` ou `_` para ampliar a pesquisa como curingas SQL.
-
-O backend prepara o padrão textual e escapa os caracteres especiais antes de encaminhar a consulta ao repository.
-
-A busca utiliza o operador `ILIKE` do PostgreSQL, com escape explícito para proteger esses caracteres.
-
-Não existe normalização específica de acentos implementada para a descoberta textual. Portanto, não há garantia de equivalência entre versões acentuadas e não acentuadas de uma palavra.
-
-**Regras de visibilidade:**
-
-- A pesquisa considera apenas obras com conteúdo publicado.
-- Obras com apenas installments `DRAFT` não aparecem nos resultados.
-- Uma obra com vários installments publicados aparece uma única vez.
-- A ordenação e os metadados de paginação seguem as mesmas regras da seção 5.2.
-
-Quando não existe correspondência, a API retorna `200 OK` com `content` vazio.
+A busca é aplicada no banco antes da paginação.
 
 ### 5.5. Combinar título, gênero e paginação
 
-Os filtros `title` e `genre` podem ser utilizados simultaneamente.
-
-Exemplo:
-
 ```http
-GET /api/works?title=dragon&genre=SCI_FI
+GET /api/works?title=dragon&genre=FANTASY&page=0&size=10
 ```
 
-Essa consulta retorna apenas obras que:
+Os filtros são opcionais e podem ser combinados.
 
-1. Possuem pelo menos um installment publicado.
-2. Contêm `dragon` no título, sem diferenciar maiúsculas e minúsculas.
-3. Estão associadas ao gênero `SCI_FI`.
+Quando título e gênero são informados, a obra precisa corresponder aos dois critérios.
 
-Os filtros são combinados utilizando a condição lógica `AND`.
+O PostgreSQL aplica os filtros antes de selecionar os resultados da página solicitada.
 
-Também é possível especificar a página e o tamanho:
+A contagem total corresponde às obras que atendem aos filtros, não apenas aos elementos retornados naquela página.
 
-```http
-GET /api/works?title=dragon&genre=SCI_FI&page=0&size=10
-```
+### 5.6. Ordenação e consistência da descoberta
 
-A consulta aplica os filtros no PostgreSQL antes de selecionar a página solicitada.
+Os resultados são ordenados por:
 
-A resposta mantém o mesmo formato paginado:
+1. data de atualização mais recente de um installment publicado, em ordem decrescente;
+2. identificador da obra, como critério de desempate.
 
-```json
-{
-  "content": [
-    {
-      "id": "550e8400-e29b-41d4-a716-446655440000",
-      "title": "Dragon Galaxy",
-      "type": "GRAPHIC_NOVEL",
-      "genres": [
-        "SCI_FI",
-        "ADVENTURE"
-      ],
-      "coverUrl": null
-    }
-  ],
-  "page": 0,
-  "size": 10,
-  "totalElements": 1,
-  "totalPages": 1
-}
-```
+Uma obra aparece somente uma vez, mesmo quando possui vários installments publicados.
 
-Os resultados não são ordenados por relevância textual.
+A paginação é aplicada sobre obras distintas.
 
-A ordenação permanece baseada na atualização mais recente de um installment publicado, com desempate pelo identificador da obra.
+Obras `RESTRICTED` não participam da descoberta e não devem ser contabilizadas nos resultados públicos.
 
-O endpoint mantém o mesmo contrato de resposta, independentemente de os filtros estarem presentes ou ausentes.
+A implementação utiliza consultas PostgreSQL com filtragem e contagem no banco.
 
-**Possíveis respostas:**
+### 5.7. Visibilidade pública e moderação
+
+O catálogo possui os estados:
 
 ```text
-200 → consulta executada com sucesso, inclusive quando não há resultados
-400 → parâmetro de gênero ou paginação inválido
+PUBLIC
+RESTRICTED
 ```
 
-A descoberta pública não exige sessão autenticada.
+Uma obra `PUBLIC` pode ser disponibilizada quando possui conteúdo publicado.
+
+Uma obra `RESTRICTED` não é disponibilizada pelos endpoints públicos, mesmo que seus installments permaneçam `PUBLISHED`.
+
+A restrição administrativa não remove:
+
+- o registro da obra;
+- seus installments;
+- suas páginas;
+- suas capas;
+- seus metadados;
+- o histórico da denúncia.
+
+Quando a obra é restaurada para `PUBLIC`, o conteúdo publicado pode voltar a ser acessado.
+
+Fluxo esperado:
+
+```text
+PUBLIC + PUBLISHED
+        ↓
+GET /api/works/{workId}
+        ↓
+200 OK
+
+WORK_RESTRICTED
+        ↓
+RESTRICTED
+        ↓
+GET /api/works/{workId}
+        ↓
+404 Not Found
+
+WORK_RESTORED
+        ↓
+PUBLIC
+        ↓
+GET /api/works/{workId}
+        ↓
+200 OK
+```
 
 ---
 
@@ -1738,7 +1575,7 @@ Exemplo:
 
 As entradas são ordenadas das adicionadas mais recentemente para as mais antigas.
 
-Quando uma obra é excluída pelo proprietário, suas referências em `library_entry` são removidas pelo PostgreSQL através de `ON DELETE CASCADE`.
+Quando uma obra é excluída, suas referências em `library_entry` são removidas pelo PostgreSQL através de `ON DELETE CASCADE`.
 
 Uma biblioteca vazia retorna:
 
@@ -1770,16 +1607,10 @@ Resposta de sucesso:
 
 A operação é idempotente.
 
-Caso a obra não esteja mais presente na biblioteca, a resposta continua sendo:
+Caso a obra não esteja presente na biblioteca, a resposta continua sendo:
 
 ```http
 204 No Content
-```
-
-Possível resposta:
-
-```text
-401 → usuário não autenticado
 ```
 
 ---
@@ -1802,10 +1633,15 @@ Regras:
 
 - a página deve pertencer a um installment publicado;
 - páginas inexistentes ou não publicadas são tratadas como indisponíveis;
+- a obra associada deve possuir visibilidade `PUBLIC`;
 - existe uma posição de leitura por usuário e obra;
 - se não houver progresso, ele é criado;
 - se houver progresso, a posição é atualizada;
 - o progresso não depende da presença da obra na biblioteca pessoal.
+
+Quando uma obra é restringida, a criação e a atualização de progresso são bloqueadas.
+
+O progresso existente permanece preservado.
 
 Resposta de sucesso:
 
@@ -1819,6 +1655,7 @@ Possíveis respostas:
 401 → usuário não autenticado
 403 → token CSRF ausente ou inválido
 404 → página indisponível para progresso
+404 → página pertencente a obra RESTRICTED
 ```
 
 ### 7.2. Consultar progresso de leitura
@@ -1855,13 +1692,383 @@ Quando não existe progresso para a obra:
 404 Not Found
 ```
 
-A exclusão de uma obra também remove referências de `reading_progress` associadas a ela através de `ON DELETE CASCADE`.
+A restrição administrativa de uma obra não elimina automaticamente seu progresso de leitura armazenado.
 
-Em condições normais de utilização, uma obra com progresso de leitura possui conteúdo publicado e, portanto, não pode ser excluída enquanto possuir installments.
+A consulta de progresso e a disponibilidade pública do conteúdo são responsabilidades distintas.
+
+A exclusão de uma obra remove as referências em `reading_progress` através das restrições de integridade do PostgreSQL.
 
 ---
 
-## 8. Segurança e regras de acesso
+## 8. Moderation — Denúncias e administração
+
+O módulo `moderation` permite registrar denúncias de obras e executar ações administrativas de análise, resolução, restrição e restauração.
+
+O fluxo utiliza persistência no PostgreSQL, validações de transição e auditoria das ações administrativas.
+
+As operações administrativas exigem `ROLE_ADMIN`.
+
+### 8.1. Registrar denúncia de obra
+
+```http
+POST /api/works/{workId}/reports
+```
+
+Requer sessão autenticada e token CSRF válido.
+
+O identificador da obra é informado na URL.
+
+O usuário responsável pela denúncia é obtido a partir da sessão.
+
+Exemplo:
+
+```json
+{
+  "reason": "COPYRIGHT",
+  "description": "Possible copyright infringement."
+}
+```
+
+O campo `reason` representa o motivo da denúncia.
+
+O campo `description` descreve o problema relatado.
+
+Regras:
+
+- o usuário deve estar autenticado;
+- a obra denunciada deve existir;
+- o motivo deve corresponder a um valor válido de `ReportReason`;
+- a descrição deve atender às validações do domínio;
+- o identificador do denunciante não é fornecido pelo cliente;
+- uma nova denúncia começa no status `OPEN`.
+
+Resposta de sucesso:
+
+```http
+201 Created
+```
+
+O registro criado possui um identificador UUID.
+
+### 8.2. Estados da denúncia
+
+O ciclo de vida da denúncia utiliza:
+
+```text
+OPEN
+UNDER_REVIEW
+RESOLVED
+```
+
+Transições permitidas:
+
+```text
+OPEN
+  ↓
+UNDER_REVIEW
+  ↓
+RESOLVED
+```
+
+As operações administrativas verificam o estado atual antes de realizar a transição.
+
+Tentativas incompatíveis com o estado da denúncia são rejeitadas.
+
+A alteração de estado é persistida em transação e acompanhada de registro de auditoria.
+
+### 8.3. Listar denúncias administrativamente
+
+```http
+GET /api/admin/moderation/reports
+```
+
+Requer autenticação com `ROLE_ADMIN`.
+
+Permite consultar denúncias com paginação e filtragem opcional por status.
+
+Parâmetros:
+
+| Parâmetro | Descrição | Padrão |
+|-----------|-----------|--------|
+| `status` | `OPEN`, `UNDER_REVIEW` ou `RESOLVED` | Sem filtro |
+| `page` | Índice da página, começando em zero | `0` |
+| `size` | Quantidade de denúncias por página | `20` |
+
+O tamanho da página deve estar entre 1 e 50.
+
+Exemplos:
+
+```http
+GET /api/admin/moderation/reports
+GET /api/admin/moderation/reports?status=OPEN
+GET /api/admin/moderation/reports?status=UNDER_REVIEW
+GET /api/admin/moderation/reports?status=RESOLVED
+GET /api/admin/moderation/reports?page=0&size=10
+GET /api/admin/moderation/reports?status=OPEN&page=0&size=10
+```
+
+Resposta de sucesso:
+
+```http
+200 OK
+```
+
+A resposta é paginada e apresenta os dados resumidos das denúncias.
+
+Os registros são ordenados pela data de criação mais recente, com desempate determinístico pelo identificador.
+
+Possíveis respostas:
+
+```text
+400 → status ou paginação inválidos
+401 → usuário não autenticado
+403 → usuário sem ROLE_ADMIN
+```
+
+### 8.4. Iniciar análise administrativa
+
+```http
+POST /api/admin/moderation/reports/{reportId}/start-review
+```
+
+Requer autenticação com `ROLE_ADMIN` e token CSRF válido.
+
+Exemplo:
+
+```json
+{
+  "note": "Administrative review initiated."
+}
+```
+
+Regras:
+
+- a denúncia deve existir;
+- a denúncia deve estar em `OPEN`;
+- a justificativa é obrigatória;
+- o administrador é identificado pela sessão;
+- a operação altera o status para `UNDER_REVIEW`;
+- uma auditoria `REVIEW_STARTED` é registrada.
+
+A justificativa aceita até 2000 caracteres.
+
+Resposta de sucesso:
+
+```http
+204 No Content
+```
+
+Possíveis respostas:
+
+```text
+400 → justificativa inválida
+401 → usuário não autenticado
+403 → usuário sem ROLE_ADMIN ou CSRF inválido
+404 → denúncia não encontrada
+409 → denúncia não está em OPEN
+```
+
+A operação utiliza bloqueio pessimista para coordenar análises concorrentes.
+
+### 8.5. Resolver denúncia sem violação
+
+```http
+POST /api/admin/moderation/reports/{reportId}/resolve
+```
+
+Requer autenticação com `ROLE_ADMIN` e token CSRF válido.
+
+Exemplo:
+
+```json
+{
+  "decision": "NO_VIOLATION",
+  "note": "No copyright violation was found."
+}
+```
+
+Regras:
+
+- a denúncia deve estar `UNDER_REVIEW`;
+- a decisão deve ser válida;
+- a justificativa é obrigatória;
+- a denúncia passa para `RESOLVED`;
+- a decisão `NO_VIOLATION` é persistida;
+- nenhuma restrição de visibilidade é aplicada;
+- a auditoria registra `REPORT_RESOLVED`.
+
+Resposta de sucesso:
+
+```http
+204 No Content
+```
+
+Tentativas de resolver uma denúncia já resolvida retornam `409 Conflict`.
+
+### 8.6. Resolver denúncia com restrição da obra
+
+```http
+POST /api/admin/moderation/reports/{reportId}/resolve
+```
+
+Requer autenticação com `ROLE_ADMIN` e token CSRF válido.
+
+Exemplo:
+
+```json
+{
+  "decision": "WORK_RESTRICTED",
+  "note": "Confirmed content policy violation."
+}
+```
+
+Regras:
+
+- a denúncia deve estar `UNDER_REVIEW`;
+- a decisão deve ser `WORK_RESTRICTED`;
+- a obra deve existir;
+- a obra deve estar `PUBLIC`;
+- a denúncia passa para `RESOLVED`;
+- a decisão `WORK_RESTRICTED` é persistida;
+- a obra passa para `RESTRICTED`;
+- a auditoria registra `REPORT_RESOLVED`.
+
+A alteração do estado da denúncia, a restrição da obra e a auditoria participam da mesma transação.
+
+Se a restrição falhar, a resolução não deve ser persistida parcialmente.
+
+Resposta de sucesso:
+
+```http
+204 No Content
+```
+
+Possíveis respostas:
+
+```text
+400 → decisão ou justificativa inválida
+401 → usuário não autenticado
+403 → usuário sem ROLE_ADMIN ou CSRF inválido
+404 → denúncia não encontrada
+409 → transição inválida
+409 → obra já restrita
+```
+
+### 8.7. Restaurar obra restringida
+
+```http
+POST /api/admin/moderation/reports/{reportId}/restore
+```
+
+Requer autenticação com `ROLE_ADMIN` e token CSRF válido.
+
+Exemplo:
+
+```json
+{
+  "note": "Restriction reversed after administrative review."
+}
+```
+
+Regras:
+
+- a denúncia deve existir;
+- a denúncia deve estar `RESOLVED`;
+- a decisão original deve ser `WORK_RESTRICTED`;
+- a obra deve estar `RESTRICTED`;
+- a justificativa é obrigatória;
+- a obra retorna para `PUBLIC`;
+- a denúncia permanece `RESOLVED`;
+- a decisão original permanece `WORK_RESTRICTED`;
+- uma nova auditoria `WORK_RESTORED` é registrada.
+
+A restauração não altera retroativamente a decisão administrativa original.
+
+Resposta de sucesso:
+
+```http
+204 No Content
+```
+
+Possíveis respostas:
+
+```text
+400 → justificativa inválida
+401 → usuário não autenticado
+403 → usuário sem ROLE_ADMIN ou CSRF inválido
+404 → denúncia não encontrada
+409 → denúncia incompatível com restauração
+409 → obra já pública
+```
+
+Uma segunda tentativa de restauração da mesma obra, sem nova restrição, é rejeitada.
+
+### 8.8. Decisões de moderação
+
+As decisões implementadas são:
+
+```text
+NO_VIOLATION
+WORK_RESTRICTED
+```
+
+| Decisão | Efeito |
+|---------|--------|
+| `NO_VIOLATION` | Resolve a denúncia sem alterar a visibilidade |
+| `WORK_RESTRICTED` | Resolve a denúncia e restringe a obra |
+
+A restauração não é uma decisão de resolução.
+
+Ela representa uma ação administrativa posterior, registrada na auditoria.
+
+### 8.9. Auditoria administrativa
+
+A moderação possui os eventos:
+
+```text
+REVIEW_STARTED
+REPORT_RESOLVED
+WORK_RESTORED
+```
+
+Cada entrada registra:
+
+- identificador do evento;
+- identificador da denúncia;
+- identificador do administrador;
+- ação realizada;
+- justificativa;
+- data de criação.
+
+A auditoria mantém o histórico das ações administrativas mesmo após a restauração da visibilidade de uma obra.
+
+A restauração não exclui a denúncia original nem substitui os registros anteriores.
+
+### 8.10. Consistência transacional
+
+As operações administrativas utilizam transações Spring e persistência PostgreSQL.
+
+O módulo `moderation` coordena as alterações da denúncia e da auditoria.
+
+O módulo `catalog` permanece responsável pela visibilidade da obra.
+
+As operações de restrição e restauração utilizam bloqueio pessimista sobre a entidade `Work`.
+
+A denúncia também é bloqueada durante transições administrativas.
+
+Essa abordagem busca impedir:
+
+- resolução simultânea da mesma denúncia;
+- transições inválidas;
+- auditorias duplicadas após operações rejeitadas;
+- alterações parciais em caso de rollback;
+- restauração duplicada de uma obra já pública.
+
+As decisões históricas permanecem persistidas, independentemente do estado atual da visibilidade.
+
+---
+
+## 9. Segurança e regras de acesso
 
 ### Endpoints públicos
 
@@ -1879,6 +2086,8 @@ GET  /api/works/{workId}/cover
 GET  /api/installments/{installmentId}
 GET  /api/pages/{pageId}/content
 ```
+
+A leitura pública depende do estado de publicação e da visibilidade da obra.
 
 ### Endpoints autenticados
 
@@ -1915,98 +2124,155 @@ DELETE /api/library/works/{workId}
 
 GET    /api/reading/progress/works/{workId}
 PUT    /api/reading/progress/pages/{pageId}
+
+POST   /api/works/{workId}/reports
 ```
+
+Essas operações exigem autenticação e podem possuir regras adicionais de propriedade.
+
+### Endpoints administrativos
+
+```text
+GET  /api/admin/moderation/reports
+
+POST /api/admin/moderation/reports/{reportId}/start-review
+
+POST /api/admin/moderation/reports/{reportId}/resolve
+
+POST /api/admin/moderation/reports/{reportId}/restore
+```
+
+Esses endpoints exigem `ROLE_ADMIN`.
+
+Usuários regulares não podem executar operações administrativas de moderação.
 
 ### Propriedade da obra
 
-Operações administrativas sobre obras, installments, páginas e capas validam a propriedade da obra.
+Operações administrativas do criador sobre obras, installments, páginas e capas validam a propriedade da obra.
 
 O `ownerId` não é recebido diretamente pelo cliente.
 
-A remoção de capas verifica a propriedade antes de modificar a entidade ou registrar a exclusão do arquivo físico.
+A remoção de capas verifica a propriedade antes de modificar a entidade ou registrar a exclusão física.
 
-A exclusão de uma obra também verifica a propriedade antes de consultar a existência de installments.
+A exclusão de uma obra verifica a propriedade antes de consultar a existência de installments.
 
-Obras com qualquer installment são preservadas, e a operação retorna `409 Conflict` para o proprietário autenticado.
+Obras com qualquer installment são preservadas, e a operação retorna `409 Conflict`.
 
 ### Estados de publicação
 
-Installments em estado `DRAFT` podem ser gerenciados por seus proprietários.
+Installments utilizam:
 
-Installments em estado `PUBLISHED` permanecem imutáveis no MVP.
+```text
+DRAFT
+PUBLISHED
+```
 
-O conteúdo em draft não é disponibilizado pelos endpoints públicos.
+Installments `DRAFT` podem ser gerenciados por seus proprietários.
+
+Installments `PUBLISHED` permanecem imutáveis no MVP.
+
+O conteúdo em draft não é disponibilizado publicamente.
 
 A definição, substituição ou remoção da capa não modifica o estado de publicação dos installments.
 
-A exclusão de uma obra é permitida somente quando não existem installments associados, sejam `DRAFT` ou `PUBLISHED`.
+### Estados de visibilidade
+
+Obras utilizam:
+
+```text
+PUBLIC
+RESTRICTED
+```
+
+A visibilidade é distinta do estado de publicação.
+
+Uma obra `PUBLIC` ainda precisa possuir conteúdo publicado para aparecer na descoberta.
+
+Uma obra `RESTRICTED` permanece persistida, mas seu conteúdo publicado não é disponibilizado nos endpoints públicos.
+
+A restauração administrativa altera a visibilidade para `PUBLIC`, sem modificar os installments publicados.
+
+### Autorização administrativa
+
+O Spring Security diferencia os papéis `USER` e `ADMIN`.
+
+Os endpoints `/api/admin/**` são protegidos por `ROLE_ADMIN`.
+
+As regras de propriedade das obras continuam sendo aplicadas aos endpoints de gerenciamento do criador.
+
+As operações de moderação usam a identidade do administrador autenticado para registrar o histórico de auditoria.
 
 ### Concorrência
 
 As operações de escrita sobre o mesmo installment utilizam bloqueio pessimista no PostgreSQL.
 
-Isso inclui criação, exclusão e reordenação de páginas, alteração de metadados, publicação e exclusão do installment.
+Isso inclui:
 
-O módulo `catalog` também utiliza bloqueio pessimista sobre a entidade `Work` para coordenar:
+- criação, exclusão e reordenação de páginas;
+- atualização de metadados;
+- publicação;
+- exclusão de installments.
 
-- atualização dos metadados da obra;
+O módulo `catalog` utiliza bloqueio pessimista sobre `Work` para coordenar:
+
+- atualização dos metadados;
 - definição e substituição de capas;
 - remoção de capas;
 - exclusão de obras;
-- criação de installments vinculados à obra.
+- criação de installments;
+- restrição de visibilidade;
+- restauração de visibilidade.
 
-A estratégia utiliza `PESSIMISTIC_WRITE` através de `findByIdForUpdate()`.
+O módulo `moderation` também utiliza bloqueio pessimista sobre as denúncias durante transições administrativas.
 
-A criação de installments utiliza o método `CatalogService.findWorkForInstallmentCreation()`, que exige a existência de uma transação por meio de `Propagation.MANDATORY`.
+A estratégia utiliza `PESSIMISTIC_WRITE` através dos métodos de repositório apropriados.
 
-Isso garante que o bloqueio da obra seja adquirido dentro da transação de criação do installment.
+A criação de installments utiliza `CatalogService.findWorkForInstallmentCreation()`, que exige uma transação existente através de `Propagation.MANDATORY`.
 
-A exclusão de obras utiliza o mesmo bloqueio antes de verificar a existência de installments.
-
-Essa coordenação estabelece dois resultados possíveis:
-
-- **Exclusão confirma primeiro:** a criação concorrente do installment não encontra mais a obra.
-- **Criação confirma primeiro:** a exclusão concorrente identifica o installment e rejeita a operação.
-
-O bloqueio coordena operações concorrentes sobre a mesma obra, impedindo que alterações incompatíveis sejam aplicadas simultaneamente sem observar o estado confirmado pela transação anterior.
-
-O PostgreSQL também reforça a integridade referencial por meio da foreign key `fk_installment_work`, introduzida pela migration V10.
+O PostgreSQL complementa as regras de negócio com constraints e integridade referencial.
 
 ### Armazenamento binário
 
-Os endpoints nunca expõem diretamente os caminhos físicos dos arquivos ou seus `storageKey`.
+Os endpoints nunca expõem diretamente caminhos físicos ou `storageKey`.
 
-Arquivos são acessados através da abstração `BinaryStorage`, fornecida pelo módulo `media`.
+Os arquivos são acessados através da abstração `BinaryStorage`, fornecida pelo módulo `media`.
 
-A remoção física de arquivos associada à exclusão de páginas ou installments ocorre após o commit da transação.
+A remoção física associada à exclusão de páginas ou installments ocorre após o commit.
 
-Uploads de páginas possuem compensação em caso de rollback.
+Uploads possuem compensação em caso de rollback.
 
-As operações de capas utilizam mecanismos complementares:
+As operações de capas incluem:
 
-- **Upload inicial:** preserva o arquivo quando a transação é confirmada e o remove em caso de rollback.
-- **Substituição:** remove a capa anterior após commit e remove a nova capa em caso de rollback.
-- **Remoção:** elimina a referência no PostgreSQL e exclui o arquivo físico somente após commit.
-- **Rollback de remoção:** preserva a referência anterior e o arquivo físico.
-- **Exclusão da obra:** remove o registro da obra no PostgreSQL e, se houver capa, exclui seu arquivo físico somente após o commit.
-- **Rollback de exclusão da obra:** preserva o registro, suas referências e o arquivo físico da capa.
+- upload inicial com compensação;
+- substituição com remoção da capa anterior após commit;
+- remoção física após commit;
+- preservação das referências e arquivos durante rollback;
+- exclusão da capa após a exclusão confirmada da obra.
 
-A exclusão de arquivos utiliza callbacks transacionais do Spring, incluindo `afterCommit()` e `afterCompletion()`.
+As estratégias utilizam callbacks transacionais do Spring, como `afterCommit()` e `afterCompletion()`.
 
-Essas estratégias não constituem uma transação distribuída entre PostgreSQL e filesystem.
+Essas operações não constituem uma transação distribuída entre PostgreSQL e filesystem.
 
-Falhas abruptas da aplicação ou erros durante a limpeza física ainda podem produzir arquivos órfãos.
+Falhas abruptas da aplicação ou erros durante a limpeza física podem produzir arquivos órfãos.
 
-A migration V10 reforça a integridade referencial durante a exclusão de obras:
+A reconciliação desses arquivos constitui uma etapa futura do backend MVP.
+
+### Integridade referencial
+
+A migration V10 reforça a integridade das referências relacionadas às obras:
 
 | Relação | Restrição | Comportamento |
-|--------|-----------|---------------|
+|---------|-----------|---------------|
 | `installment.work_id` | `ON DELETE RESTRICT` | Impede excluir obras com installments |
-| `library_entry.work_id` | `ON DELETE CASCADE` | Remove entradas de biblioteca associadas à obra |
-| `reading_progress.work_id` | `ON DELETE CASCADE` | Remove registros de progresso associados à obra |
-| `work_genre.work_id` | `ON DELETE CASCADE` | Remove os gêneros associados à obra; restrição existente desde a V9 |
+| `library_entry.work_id` | `ON DELETE CASCADE` | Remove entradas de biblioteca associadas |
+| `reading_progress.work_id` | `ON DELETE CASCADE` | Remove registros de progresso associados |
+| `work_genre.work_id` | `ON DELETE CASCADE` | Remove gêneros associados; comportamento introduzido na V9 |
 
-A aplicação continua responsável pelas regras de domínio, autenticação e autorização. O PostgreSQL complementa essas validações garantindo a integridade referencial dos registros.
+As migrations V11–V18 acrescentam a persistência e as constraints necessárias à moderação, aos papéis de acesso e à visibilidade das obras.
+
+A aplicação permanece responsável pelas regras de domínio, autenticação e autorização.
+
+O PostgreSQL complementa essas validações garantindo a integridade dos registros.
 
 ---
 

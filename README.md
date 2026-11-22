@@ -10,9 +10,11 @@ O projeto busca oferecer um ambiente onde criadores possam publicar e gerenciar 
 
 A primeira fase do Metopa utiliza infraestrutura local, sem dependência de serviços cloud pagos.
 
-O backend possui atualmente **304 testes automatizados aprovados na última validação local**, cobrindo regras de domínio, persistência, segurança, APIs HTTP, armazenamento de arquivos, transações, concorrência e descoberta pública de obras.
+O backend possui atualmente **441 testes automatizados aprovados na última validação local**, realizada em 21 de novembro de 2026 com `./mvnw clean verify`.
 
-O projeto também possui integração contínua com GitHub Actions para validar automaticamente alterações propostas por Pull Requests.
+A suíte cobre regras de domínio, persistência, autenticação, autorização, APIs HTTP, armazenamento de arquivos, transações, concorrência, descoberta pública e moderação administrativa.
+
+O projeto possui integração contínua com GitHub Actions para validar Pull Requests e alterações integradas à branch `main`.
 
 ## Tecnologias
 
@@ -38,6 +40,7 @@ O projeto também possui integração contínua com GitHub Actions para validar 
 - Maven Wrapper
 - JUnit
 - Mockito
+- Spring Test
 - Testes unitários e de integração
 - GitHub Actions (CI)
 
@@ -62,13 +65,13 @@ metopa
 
 | Módulo | Responsabilidade |
 |--------|------------------|
-| `identity` | Contas de usuário, autenticação e sessões |
-| `catalog` | Obras, metadados, gêneros e capas |
+| `identity` | Contas de usuário, autenticação, sessões e papéis de acesso |
+| `catalog` | Obras, metadados, gêneros, capas e controle de visibilidade |
 | `publication` | Installments, páginas, publicação, leitura de conteúdo e descoberta pública |
 | `library` | Biblioteca pessoal dos leitores |
 | `reading` | Registro e consulta do progresso de leitura |
 | `media` | Abstração para armazenamento de arquivos binários |
-| `moderation` | Denúncias e ações de moderação (planejado) |
+| `moderation` | Denúncias, análise administrativa, decisões, restrições, restaurações e auditoria |
 
 O Spring Modulith é utilizado para verificar os limites e as dependências entre os módulos.
 
@@ -77,6 +80,10 @@ Os dados estruturados são persistidos no PostgreSQL. Arquivos binários, como p
 O identificador interno de armazenamento (`storageKey`) não é exposto pelos endpoints públicos.
 
 A descoberta pública utiliza consultas paginadas no PostgreSQL, com filtros aplicados antes da paginação. Os resultados são ordenados pela atualização mais recente de um installment publicado.
+
+O controle de visibilidade das obras é responsabilidade do módulo `catalog`. Os módulos que disponibilizam conteúdo público consultam essa informação para impedir a exposição de obras restritas.
+
+A moderação coordena operações administrativas entre os módulos, preservando suas responsabilidades e utilizando transações para manter a consistência dos dados.
 
 Para informações detalhadas, consulte [Arquitetura](docs/ARCHITECTURE.md).
 
@@ -89,6 +96,8 @@ Para informações detalhadas, consulte [Arquitetura](docs/ARCHITECTURE.md).
 - Autenticação baseada em sessão HTTP.
 - Proteção CSRF para operações que alteram estado.
 - Login, logout e consulta do usuário autenticado.
+- Papéis de acesso `USER` e `ADMIN`.
+- Autorização administrativa baseada em `ROLE_ADMIN`.
 
 ### Catálogo de obras
 
@@ -96,8 +105,9 @@ Para informações detalhadas, consulte [Arquitetura](docs/ARCHITECTURE.md).
 - Diferentes formatos de publicação.
 - Configuração da direção de leitura e modo de apresentação.
 - Associação de múltiplos gêneros.
-- Upload, substituição e leitura de capas.
+- Upload, substituição, remoção e leitura de capas.
 - Consulta e gerenciamento das obras do criador.
+- Exclusão de obras sem installments.
 - Descoberta pública de obras com conteúdo publicado.
 - Filtragem da descoberta pública por gênero.
 - Busca parcial de obras por título, sem diferenciar maiúsculas e minúsculas.
@@ -105,6 +115,9 @@ Para informações detalhadas, consulte [Arquitetura](docs/ARCHITECTURE.md).
 - Paginação da descoberta pública com tamanho configurável.
 - Ordenação por atualização mais recente de installment publicado.
 - Exclusão de obras sem conteúdo publicado e prevenção de resultados duplicados.
+- Controle de visibilidade com os estados `PUBLIC` e `RESTRICTED`.
+- Restrição e restauração de visibilidade através de operações administrativas.
+- Exclusão de obras restritas dos resultados de descoberta pública.
 
 ### Publicação de conteúdo
 
@@ -119,6 +132,8 @@ Para informações detalhadas, consulte [Arquitetura](docs/ARCHITECTURE.md).
 - Leitura pública de installments publicados.
 - Acesso administrativo a drafts pelo proprietário.
 - Bloqueio de alterações em installments publicados.
+- Bloqueio de acesso público a obras, capas, installments e páginas de obras `RESTRICTED`.
+- Restauração do acesso público quando a visibilidade da obra retorna para `PUBLIC`.
 
 ### Biblioteca e leitura
 
@@ -128,6 +143,27 @@ Para informações detalhadas, consulte [Arquitetura](docs/ARCHITECTURE.md).
 - Registro e atualização do progresso de leitura.
 - Consulta da última posição registrada por obra.
 - Restrição do progresso a páginas publicadas.
+- Bloqueio de criação e atualização do progresso de leitura para obras `RESTRICTED`.
+- Preservação do progresso de leitura existente quando uma obra é restringida.
+
+### Moderação administrativa
+
+- Registro de denúncias relacionadas a obras.
+- Consulta administrativa de denúncias com paginação e filtragem por status.
+- Fluxo de análise: `OPEN` → `UNDER_REVIEW` → `RESOLVED`.
+- Resolução de denúncias com as decisões `NO_VIOLATION` e `WORK_RESTRICTED`.
+- Restrição administrativa de obras com violações confirmadas.
+- Bloqueio da descoberta e leitura pública de obras restritas.
+- Restauração administrativa da visibilidade de obras restritas.
+- Preservação da decisão original após a restauração.
+- Registro de auditoria com identificação do administrador, justificativa e data da operação.
+- Eventos de auditoria `REVIEW_STARTED`, `REPORT_RESOLVED` e `WORK_RESTORED`.
+- Autorização exclusiva de administradores para análise, resolução e restauração.
+- Validação das transições de estado e rejeição de operações inválidas.
+- Bloqueio pessimista e transações para coordenar alterações concorrentes.
+- Rollback de operações que não possam ser concluídas integralmente.
+
+A restauração administrativa não elimina o histórico da denúncia. Uma denúncia resolvida com `WORK_RESTRICTED` permanece com essa decisão, enquanto a restauração é registrada como uma nova ação de auditoria.
 
 ### Persistência e consistência
 
@@ -138,6 +174,9 @@ Para informações detalhadas, consulte [Arquitetura](docs/ARCHITECTURE.md).
 - Compensação de uploads de páginas em caso de rollback.
 - Preservação de registros e arquivos em transações revertidas.
 - Consultas SQL paginadas para descoberta pública, com filtros e contagem de resultados no banco de dados.
+- Persistência transacional das decisões de moderação e alterações de visibilidade.
+- Auditoria persistente das ações administrativas.
+- Rejeição de transições inválidas sem persistir alterações parciais.
 
 ## Requisitos
 
@@ -181,6 +220,8 @@ Por padrão, a aplicação fica disponível em:
 http://localhost:8080
 ```
 
+As migrations pendentes são aplicadas automaticamente pelo Flyway durante a inicialização.
+
 ### 3. Encerrar a infraestrutura
 
 ```bash
@@ -191,7 +232,7 @@ Esse comando encerra os containers sem remover o volume persistente do PostgreSQ
 
 ## API HTTP
 
-O Metopa expõe uma API REST para gerenciamento de contas, obras, publicações, bibliotecas e progresso de leitura.
+O Metopa expõe uma API REST para gerenciamento de contas, obras, publicações, bibliotecas, progresso de leitura e moderação administrativa.
 
 ### Endpoints públicos
 
@@ -203,9 +244,13 @@ GET  /api/installments/{installmentId}
 GET  /api/pages/{pageId}/content
 ```
 
+O acesso público ao conteúdo depende do estado de publicação e da visibilidade da obra.
+
+Obras `RESTRICTED` não são disponibilizadas pelos endpoints públicos de leitura.
+
 ### Descoberta pública de obras
 
-O endpoint `GET /api/works` permite descobrir obras com pelo menos um installment publicado.
+O endpoint `GET /api/works` permite descobrir obras públicas com pelo menos um installment publicado.
 
 A descoberta oferece busca por título, filtragem por gênero e paginação. Todos os parâmetros são opcionais e podem ser combinados.
 
@@ -230,6 +275,7 @@ GET /api/works?title=dragon&genre=SCI_FI&page=0&size=10
 Regras da descoberta pública:
 
 - Somente obras com pelo menos um installment `PUBLISHED` são retornadas.
+- Somente obras com visibilidade `PUBLIC` são incluídas.
 - Uma obra aparece apenas uma vez, mesmo que possua vários installments publicados.
 - A busca por título corresponde a qualquer trecho do texto informado.
 - Espaços no início e no final do título pesquisado são ignorados.
@@ -253,6 +299,8 @@ A consulta utiliza PostgreSQL `ILIKE` para busca textual, sem dependência de me
 
 ### Endpoints autenticados
 
+Exemplos de endpoints disponíveis para usuários autenticados:
+
 ```http
 GET    /api/me/works
 POST   /api/works
@@ -268,7 +316,61 @@ PUT    /api/reading/progress/pages/{pageId}
 
 As operações protegidas exigem sessão autenticada e, quando alteram estado, token CSRF válido.
 
-A API distingue endpoints públicos de leitura e endpoints administrativos utilizados pelos criadores.
+A autorização também considera a propriedade dos recursos quando aplicável.
+
+O módulo de moderação disponibiliza o registro de denúncias de obras por usuários autenticados.
+
+### Endpoints administrativos de moderação
+
+As operações administrativas de moderação são disponibilizadas em:
+
+```http
+GET  /api/admin/moderation/reports
+
+POST /api/admin/moderation/reports/{reportId}/start-review
+
+POST /api/admin/moderation/reports/{reportId}/resolve
+
+POST /api/admin/moderation/reports/{reportId}/restore
+```
+
+Esses endpoints exigem autenticação com `ROLE_ADMIN`.
+
+A listagem administrativa permite filtrar denúncias por status e configurar a paginação.
+
+As operações de alteração de estado recebem uma justificativa administrativa.
+
+Exemplo de resolução sem violação:
+
+```json
+{
+  "decision": "NO_VIOLATION",
+  "note": "No violation was found."
+}
+```
+
+Exemplo de resolução com restrição:
+
+```json
+{
+  "decision": "WORK_RESTRICTED",
+  "note": "Confirmed content policy violation."
+}
+```
+
+Exemplo de restauração:
+
+```json
+{
+  "note": "Restriction reversed after administrative review."
+}
+```
+
+As operações administrativas bem-sucedidas de início de análise, resolução e restauração retornam HTTP `204 No Content`.
+
+Transições inválidas, como uma resolução duplicada ou a tentativa de restaurar uma obra já pública, retornam HTTP `409 Conflict`.
+
+A restauração preserva o estado `RESOLVED` e a decisão original da denúncia, registrando um novo evento `WORK_RESTORED`.
 
 Contratos completos, payloads, autenticação e respostas HTTP estão documentados em [API](docs/API.md).
 
@@ -290,6 +392,12 @@ Para executar uma classe específica:
 ./mvnw -Dtest=PublicationServiceTests test
 ```
 
+Para executar um único método de teste:
+
+```bash
+./mvnw -Dtest=AdminModerationResolveIntegrationTests#shouldRestoreRestrictedWorkUsingRealAdminSession test
+```
+
 Antes de abrir um Pull Request, a validação completa recomendada é:
 
 ```bash
@@ -300,10 +408,10 @@ Esse comando executa as fases do Maven até `verify`, incluindo testes e empacot
 
 ### Última validação local
 
-Resultado de `./mvnw clean verify` em 7 de novembro de 2026:
+Resultado de `./mvnw clean verify` em **21 de novembro de 2026**:
 
 ```text
-Tests run: 304
+Tests run: 441
 Failures: 0
 Errors: 0
 Skipped: 0
@@ -311,20 +419,32 @@ Skipped: 0
 BUILD SUCCESS
 ```
 
+A execução confirmou a compilação do projeto, a aprovação dos testes e a geração do JAR executável do Spring Boot.
+
 A suíte cobre:
 
 - Regras de domínio e validações.
 - Persistência real no PostgreSQL.
 - Endpoints HTTP e integração com Spring MVC.
 - Autenticação, autorização, sessão e CSRF.
+- Autorização baseada em propriedade e papéis `USER` e `ADMIN`.
 - Armazenamento e leitura de arquivos binários.
 - Operações de upload, exclusão e reordenação.
 - Rollback e compensação de operações com arquivos.
 - Concorrência utilizando transações independentes e bloqueios pessimistas.
 - Descoberta pública de obras, filtros combinados, busca textual e paginação.
+- Moderação administrativa, registro de denúncias e transições de estado.
+- Resolução de denúncias e restrição de obras.
+- Restauração administrativa e preservação do histórico de moderação.
+- Auditoria de ações administrativas.
+- Rejeição de operações duplicadas e transições inválidas.
+- Rollback de operações administrativas.
+- Bloqueio e restauração do acesso público a obras publicadas.
 - Verificação da modularidade com Spring Modulith.
 
 Os testes de integração que dependem do banco exigem o PostgreSQL disponível.
+
+O número de testes é utilizado como referência de validação, mas não substitui a análise dos cenários cobertos e das regras de negócio verificadas.
 
 ### Integração contínua
 
@@ -357,6 +477,23 @@ src/main/resources/db/migration/
 
 O projeto utiliza migrations versionadas. Arquivos de migrations já executadas não devem ser modificados; alterações posteriores são introduzidas por novas versões.
 
+### Evolução do schema
+
+A implementação da moderação mínima introduziu as migrations V11–V18:
+
+| Migration | Responsabilidade |
+|-----------|------------------|
+| V11 | Criação da tabela de denúncias |
+| V12 | Inclusão de papéis nas contas de usuários |
+| V13 | Criação da auditoria de moderação |
+| V14 | Inclusão das decisões de moderação |
+| V15 | Validação das decisões e ações de auditoria |
+| V16 | Inclusão da visibilidade das obras |
+| V17 | Suporte à decisão `WORK_RESTRICTED` |
+| V18 | Suporte à auditoria `WORK_RESTORED` |
+
+As constraints do PostgreSQL complementam as validações realizadas pelas entidades e serviços da aplicação.
+
 As decisões de persistência e integridade estão descritas em [Arquitetura](docs/ARCHITECTURE.md).
 
 ## Segurança
@@ -370,8 +507,42 @@ As principais medidas implementadas incluem:
 - Validação de autenticação para operações privadas.
 - Autorização baseada na propriedade das obras.
 - Separação entre conteúdo público e conteúdo administrativo.
+- Papéis de acesso `USER` e `ADMIN`.
+- Restrição de endpoints administrativos de moderação a `ROLE_ADMIN`.
 - Bloqueio de alterações em installments publicados.
+- Bloqueio de leitura pública de obras `RESTRICTED`.
+- Proteção contra criação e atualização de progresso de leitura em obras restritas.
+- Validação de transições administrativas de estado.
+- Registro persistente de auditoria das ações de moderação.
 - Respostas HTTP apropriadas para falhas de autenticação, autorização e regras de negócio.
+
+A restrição de visibilidade não exclui a obra ou seu conteúdo armazenado.
+
+Quando uma obra é restaurada, seu conteúdo publicado pode voltar a ser disponibilizado pelos endpoints públicos, preservando o histórico de moderação.
+
+## Roadmap do MVP
+
+O desenvolvimento prioriza a conclusão do backend antes da implementação da interface do MVP.
+
+### Backend
+
+- [x] Paginação da descoberta pública de obras.
+- [x] Busca parcial de obras por título.
+- [x] Combinação dos filtros de título e gênero.
+- [x] Moderação mínima.
+- [x] Restrição e restauração administrativa de obras.
+- [ ] Reconciliação de arquivos órfãos após falhas de compensação.
+
+### Frontend
+
+- [ ] Definição da arquitetura da interface.
+- [ ] Fluxos de autenticação e navegação.
+- [ ] Interface de publicação e gerenciamento de obras.
+- [ ] Interface de descoberta e leitura.
+- [ ] Biblioteca pessoal e acompanhamento de leitura.
+- [ ] Integração com a API do backend.
+
+As etapas futuras serão desenvolvidas incrementalmente, priorizando consistência, testes automatizados e a manutenção dos limites entre módulos.
 
 ## Documentação
 
@@ -380,8 +551,10 @@ A documentação técnica detalhada é organizada nos seguintes arquivos:
 | Documento | Conteúdo |
 |-----------|----------|
 | [API](docs/API.md) | Endpoints, payloads, autenticação, filtros, paginação, respostas HTTP e regras de acesso |
-| [Arquitetura](docs/ARCHITECTURE.md) | Módulos, decisões arquiteturais, persistência, descoberta pública, armazenamento e transações |
-| [Testes](docs/TESTING.md) | Estratégia de testes, cobertura funcional, integração, descoberta pública, rollback, concorrência e CI |
+| [Arquitetura](docs/ARCHITECTURE.md) | Módulos, decisões arquiteturais, persistência, segurança, armazenamento, transações e consistência |
+| [Testes](docs/TESTING.md) | Estratégia de testes, cobertura funcional, integração, rollback, concorrência, moderação e CI |
+
+O README apresenta a visão geral do projeto. Os documentos técnicos detalham os contratos, as decisões arquiteturais e os cenários de validação.
 
 ## Desenvolvimento
 
